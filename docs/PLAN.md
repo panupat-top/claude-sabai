@@ -1,6 +1,6 @@
 # Claude Mods — Feature Plan (draft v0)
 
-> สถานะ: v4 — Phase 1 (`sabai-spinner`) เสร็จ (2026-10-10), ถัดไป Phase 2 `sabai-band`
+> สถานะ: v7 — Phase 2 (`sabai-band`) pixel redesign รอลองใน Code tab (2026-10-10)
 > อ้างอิง: [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) (ทั้งหมด MIT)
@@ -122,7 +122,25 @@ A1–A4, A6 (theme) · C1–C3 (panes) · D1 guard · D2 แจ้งเตื�
 
 1. ✅ **Phase 0 — Skeleton** (2026-10-10): E1 marketplace + E2 validate/test/CI + mod เปล่า → verify: `claude plugin validate` / `claude plugin test` ผ่าน, install จาก marketplace ได้ — _ยังไม่ได้ลอง install จริง_
 2. ✅ **Phase 1 — `sabai-spinner`** (โค้ด + 8 tests + `tsc` ผ่าน, ยืนยันคำไทยใน Code tab แล้ว 2026-10-10) (เล็กสุด ใช้พิสูจน์ pipeline + i18n helper) → verify: test + ลองใน Code tab
-3. **Phase 2 — `band`**: B3 → B1 → B2 (ง่ายไปยาก) → verify: test ต่อส่วน + ลองใน Code tab
+3. 🟡 **Phase 2 — `sabai-band`** (14 tests + `tsc` ผ่าน, รอลองจริง): B3 → B1 → B2 → verify: test ต่อส่วน + ลองใน Code tab
+   - usage มาจาก event `session.measure` (engine ส่งเมื่อค่าเปลี่ยน ไม่ต้อง poll) · เวลาของ turn มาจาก `turn.complete.durationMs` (เฉพาะ agent หลัก)
+   - แถว usage แสดงตลอดเมื่อมีค่าแล้ว (context %, 5 ชม., 7 วัน) — ปุ่มย่อบริบทขึ้นเมื่อ ≥ 70% และไม่ได้อยู่กลาง turn
+   - ปุ่มย่อบริบทเรียก `/compact` ผ่าน timer เพราะงานที่เริ่มจาก press ถูกยกเลิกเมื่อ press จบ (บทเรียนจาก skins)
+   - วาดของ mod อื่นใน band ต่อท้ายของเรา (`next(e)`) ไม่ทับ
+   - progress bar หายเมื่อทุก task เสร็จ · ล้าง task เมื่อ `/clear`, resume, fork
+   - **v6 (ตาม feedback):** UI ผสมต้นฉบับ — desktop: progress bar แบบ dithered + pill `n/total` (savvy-progress) และวงแหวน context / 5h / 7d (claude-skins) วาดเป็น SVG แถวละชิ้นเพราะ desktop ตัด element พี่น้องขึ้นบรรทัดใหม่; terminal: block meter ข้อความ · ใช้ภาษาอังกฤษอย่างเดียว (ตัด i18n ออกจาก band) · ย้าย branch · cost · last turn เข้า band เพราะ `$.ui.status` ไม่แสดงใน Code tab · ปุ่ม Compact แสดงตลอด (จาง) และเป็นปุ่มหลัก "Compact now" ที่ ≥ 70% ตาม skins · ปุ่ม ✕ ปิด progress bar
+   - **v7 (ตาม feedback):** ยึดสไตล์ savvy-progress ทั้ง band — meter แบบ dithered pixel 4 ตัว (Context · 5H Limit · 7D All · 7D <model>) ในตาราง 2×2 พร้อม countdown `↻ 2h 49m` (tick ทุก 30 วิ) · sprite pixel art มี animation: ปูเดิน (tasks), ชิป LED (context), นาฬิกาทราย (5H), ปฏิทิน (7D), ดาว (model) · ตัด branch/cost/last turn ออก · ปุ่มแบบเดียวกันหมด (plain + glyph): ◆ Compact · ⌫ Clear (กดสองครั้งภายใน 4 วิ) · ↶ Rewind · ⏵ Resume — แสดงเฉพาะคำสั่งที่ session มี (`$.command.list`) และซ่อนระหว่าง turn · แยก group: tasks / usage / actions ด้วย rowGap
+   - 7D <model> อ่านจาก cache ของ statusline (`$TMPDIR/claude-statusline-usage.json`, `weekly_scoped`) — mod ไม่อ่าน OAuth token เอง ไม่มีไฟล์ = ซ่อน meter
+   - **v8 (ตาม feedback):** ตัดปุ่มออกทั้งหมด (Compact, Clear, Rewind, Resume, ✕) · context แสดงเป็น `434.5k / 1M (43%)` จาก `context.tokens` / `context.window`
+   - **v9 (เลือก layout D แบบปรับ):** meter เป็นการ์ด 2 บรรทัด — บรรทัดแรก: sprite + ป้ายชิดซ้าย, รายละเอียดชิดขวา (`434.5k / 1M` หรือ `↻ 2h 49m`); บรรทัดสอง: pixel bar + % ชิดขวา · 4 ใบต่อแถว (≥ 720px), 2 ใบ (≥ 400px), 1 ใบเมื่อแคบกว่านั้น · การ์ดขยายเต็มความกว้างเมื่อมี meter น้อยกว่า 4
+   - **v10:** icon ของแถว task เปลี่ยนจากปูเป็น Pixel Clawd (รูปทรงเดียวกับ savvy-progress / DockCrab) — `run` (เดิน ขาก้าว ตัวโยก) เมื่อมี task in progress หรือ turn กำลังทำงาน, `idle` (ยืนกะพริบตา) เมื่อรอ
+   - **v11 (compact + full width):** แถว task กับการ์ดรวมเป็น SVG เดียว ระยะห่าง 8px · การ์ดสูง 44px · ความกว้าง = `bodyColumns × 8.25` (ไม่หัก 48 ซ้ำ เพราะ `bodyColumns` หัก collapse mark ไว้แล้ว, เพดาน 4096) และไม่ส่ง `width` ให้ Svg — surface ย่อ markup ที่กว้างกว่า slot ให้พอดี จึงเต็มความกว้างเสมอ
+   - **v12 (type pass):** scale ตัวอักษร 3 ระดับ — title 13 sans 500 · ค่า/ตัวเลข 11.5 mono (amount 600, % 700, countdown 500) · ป้าย 10 mono caps 600 + tracking · สีตัวอักษรแยก light/dark ทุกสีผ่าน 4.5:1 บนการ์ด (มี test) · pill ใช้ clay เข้ม `#b5532f` ให้ตัวขาวผ่าน 4.5:1 · icon การ์ดอยู่ในกรอบ 18×16 (นาฬิกาทรายเหลือ 8 แถว)
+   - **v13:** ตัด icon ของ 5H / 7D All / 7D <model> ออก (ป้ายชิดซ้ายของการ์ด) — เหลือ sprite แค่ Clawd กับชิปของ Context
+   - **v14:** แถวชิปใต้แถว task: BRANCH (`main ±3` = ไฟล์ที่ยังไม่ commit) · GIT (`user.name`) · NODE · CLAUDE (version ของ Claude Code) · MODEL — branch/changes/model รีเฟรชเมื่อ turn ของ agent หลักจบและทุก 30 วิ, ที่เหลืออ่านครั้งเดียวตอน session start · ชิปที่ไม่พอที่จะถูกตัดจากท้าย
+   - **v15:** แถวชิปย้ายขึ้นเป็นบรรทัดแรก · ป้ายข้อความเปลี่ยนเป็นไอคอนจริง (Octicons `file-directory-fill` / `git-branch`, Simple Icons โลโก้ Git `#F05032` / Node.js `#5FA04E`) · ซ้าย = directory · git user · branch ±changes, ขวา = node · ตัด CLAUDE / MODEL ออก
+   - 5H / 7D All: ใช้ค่าของ engine ก่อน ถ้า engine ยังไม่มี (session ใหม่หรือ resume ก่อน response แรก) ใช้ `session` / `weekly_all` จาก cache เดียวกัน
+   - บทเรียน engine: ตาราง element ของ terminal มี `Svg` แต่ใช้ไม่ได้ ต้องแยกด้วย `e.surface` · `Svg` ต้องกว้าง/สูง > 0 และไม่เกิน 4096 px
 4. **Phase 3** — เลือกจาก backlog ข้อ 5
 
 ## 7. คำ spinner (อนุมัติ 2026-10-10 · อยู่ใน `plugins/sabai-spinner/hooks/words.ts`)

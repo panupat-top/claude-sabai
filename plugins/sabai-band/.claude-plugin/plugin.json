@@ -1,0 +1,11 @@
+{
+  "name": "sabai-band",
+  "version": "0.1.0",
+  "description": "Pixel-art band above the prompt: task progress, and context, 5H, 7D and model-scoped weekly meters with reset countdowns.",
+  "author": {
+    "name": "Panupat Top",
+    "url": "https://github.com/panupat-top"
+  },
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
