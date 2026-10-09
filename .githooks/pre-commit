@@ -7,6 +7,8 @@ git diff --cached --quiet -- plugins .claude-plugin && exit 0
 for manifest in plugins/*/.claude-plugin/plugin.json; do
   mod=${manifest%/.claude-plugin/plugin.json}
   "$CLAUDE" plugin validate "$mod" >/dev/null || { "$CLAUDE" plugin validate "$mod"; exit 1; }
+  # Types exist only once the engine has loaded the mod (hot reload or --plugin-dir).
+  if [ -f "$mod/.claude-plugin/types/tsconfig.json" ] && command -v tsc >/dev/null; then tsc -p "$mod"; fi
   out=$("$CLAUDE" plugin test "$mod" 2>&1) || { printf '%s\n' "$out"; exit 1; }
   printf '%s: %s\n' "$mod" "$(printf '%s\n' "$out" | tail -2 | head -1)"
 done

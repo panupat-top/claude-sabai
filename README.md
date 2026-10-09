@@ -4,7 +4,7 @@ Claude Code mods for the desktop Code tab, in Thai and English. Needs Claude Cod
 
 | Mod | What it does | Status |
 |---|---|---|
-| `sabai-spinner` | Spinner words in Thai or English | skeleton |
+| `sabai-spinner` | Spinner words in Thai or English; set `words` (`auto` · `th` · `en` · `off`) in `/config` | beta |
 
 Plan and feature catalog: [docs/PLAN.md](docs/PLAN.md).
 
@@ -22,7 +22,7 @@ In a terminal Claude Code session:
 claude --plugin-dir plugins/sabai-spinner
 ```
 
-Turn on the pre-commit hook once per clone; it validates and tests every mod before a commit that touches one:
+Turn on the pre-commit hook once per clone; it validates, type-checks (`tsc`, once the mod has loaded) and tests every mod before a commit that touches one:
 
 ```bash
 git config core.hooksPath .githooks

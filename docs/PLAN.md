@@ -1,6 +1,6 @@
 # Claude Mods — Feature Plan (draft v0)
 
-> สถานะ: v2 — Phase 0 เสร็จ (2026-10-10), ร่างคำ spinner รอ review
+> สถานะ: v4 — Phase 1 (`sabai-spinner`) เสร็จ (2026-10-10), ถัดไป Phase 2 `sabai-band`
 > อ้างอิง: [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) (ทั้งหมด MIT)
@@ -91,7 +91,7 @@ tests/*.test.ts(x)              # claude plugin test .
 | MVP | A5, B1, B2, B3 |
 | ภาษา | th/en ตาม `language` setting ของ Claude Code, ไม่ตั้ง → en |
 | ชื่อ marketplace | `claude-sabai` · mod ใช้ prefix `sabai-` (`sabai-spinner`, `sabai-band`) กันชื่อชนกับ plugin อื่น |
-| i18n helper | copy `hooks/i18n.ts` ไว้ในแต่ละ mod ทุก copy ต้องเหมือนกัน |
+| i18n helper | copy `hooks/i18n.ts` ไว้ในแต่ละ mod ทุก copy ต้องเหมือนกัน เป็น pure function (`pickLang`) เพราะ engine ไม่ยอมให้ส่ง `$` ข้าม import การอ่าน setting และ locale จึงอยู่ใน `register.ts` ของแต่ละ mod |
 
 ## 5. MVP ที่ปรับปรุงแล้ว
 
@@ -100,7 +100,8 @@ tests/*.test.ts(x)              # claude plugin test .
 ### Mod 1 — `sabai-spinner` (A5)
 - `ui.render` บน `Spinner`: คำหมุนเวียนของเราเอง (ชุดไทย/อังกฤษ) แทนคำเดิม
 - ⚠️ บน desktop ค่า `word` คือคำบอกว่า step ทำอะไรอยู่ (`Creating notes.md`) หรือเป็น `Working` เมื่อไม่มีคำ → **แทนเฉพาะตอนที่เป็น `Working`** ส่วนคำบอก step เก็บไว้ตามเดิม; บน terminal แทนทุกครั้ง
-- เลือกชุดคำตาม `mode` (`thinking` / `requesting` / `responding` / `tool-use`) และใช้ชุด "สบายๆ" ตอนที่ไม่แยก mode
+- desktop: เลือกชุดคำตาม `mode` (`thinking` / `requesting` / `responding` / `tool-use`) · terminal: ใช้ชุด "สบายๆ" (แทนคำแนว `Sauteing` ของเดิม)
+- คำคงที่ตลอด turn (seed = `turnId:requestId`) ไม่กระพริบเปลี่ยนตอน redraw
 - ตั้งค่าใน `/config`: ชุดคำ `auto | th | en | off`
 - verify: test ว่าเลือกชุดคำตาม language ถูก + render ไม่ throw ทั้ง desktop/terminal
 
@@ -120,11 +121,11 @@ A1–A4, A6 (theme) · C1–C3 (panes) · D1 guard · D2 แจ้งเตื�
 ## 6. Roadmap
 
 1. ✅ **Phase 0 — Skeleton** (2026-10-10): E1 marketplace + E2 validate/test/CI + mod เปล่า → verify: `claude plugin validate` / `claude plugin test` ผ่าน, install จาก marketplace ได้ — _ยังไม่ได้ลอง install จริง_
-2. **Phase 1 — `spinner`** (เล็กสุด ใช้พิสูจน์ pipeline + i18n helper) → verify: test + ลองใน Code tab
+2. ✅ **Phase 1 — `sabai-spinner`** (โค้ด + 8 tests + `tsc` ผ่าน, ยืนยันคำไทยใน Code tab แล้ว 2026-10-10) (เล็กสุด ใช้พิสูจน์ pipeline + i18n helper) → verify: test + ลองใน Code tab
 3. **Phase 2 — `band`**: B3 → B1 → B2 (ง่ายไปยาก) → verify: test ต่อส่วน + ลองใน Code tab
 4. **Phase 3** — เลือกจาก backlog ข้อ 5
 
-## 7. ร่างคำ spinner (รอ review)
+## 7. คำ spinner (อนุมัติ 2026-10-10 · อยู่ใน `plugins/sabai-spinner/hooks/words.ts`)
 
 กติกา: สั้น (≤ 3 คำ) อ่านแล้วรู้ว่ายังทำงานอยู่ engine จะต่อท้ายด้วย `…` ให้เอง
 
@@ -140,5 +141,4 @@ A1–A4, A6 (theme) · C1–C3 (panes) · D1 guard · D2 แจ้งเตื�
 
 ## 8. คำถามที่ยังค้าง
 
-1. ชุดคำในข้อ 7: จะตัด เพิ่ม หรือเปลี่ยนโทนตรงไหนบ้าง?
-2. ชื่อ repo บน GitHub: ตอนนี้ยังชื่อ `panupat-top/claude-skins` ถ้าเปลี่ยนเป็น `claude-sabai` คำสั่งติดตั้งจะเป็น `/plugin install sabai-spinner --marketplace panupat-top/claude-sabai` (ต้องเปลี่ยนชื่อเองใน GitHub Settings)
+- (ไม่มี)

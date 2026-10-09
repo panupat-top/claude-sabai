@@ -1,6 +1,6 @@
-import type { EngineInterface } from 'claude-code'
-
 // Copied into each mod on purpose (docs/PLAN.md §7): keep every copy identical.
+// Pure on purpose too: the engine never follows `$` across an import, so each mod reads
+// the setting and the locale in its own hooks module and hands them in.
 
 export type Lang = 'th' | 'en'
 
@@ -11,15 +11,4 @@ export function pickLang(option: unknown, setting: unknown, locale: unknown): La
   if (option === 'th' || option === 'en') return option
   if (typeof setting === 'string' && setting.trim()) return isThai(setting) ? 'th' : 'en'
   return isThai(locale) ? 'th' : 'en'
-}
-
-export async function detectLang($: EngineInterface, option: unknown): Promise<Lang> {
-  let setting: unknown
-  try {
-    setting = (await $.settings.read()).language
-  } catch {
-    // No settings: fall through to the locale.
-  }
-  const locale = (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG'))
-  return pickLang(option, setting, locale)
 }
