@@ -104,6 +104,14 @@ test('figures take their meter colour, then the warning ones', () => {
   expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
+test('a skin draws its background behind the rows, inset 10px; auto draws none', () => {
+  const themed = bandSvg(undefined, NONE, LIST, 900, false, 'catppuccin-mocha')
+  expect(themed?.height).toBe(44 + 20)
+  expect(themed?.source).toContain('<rect width="900" height="64" rx="10" fill="#1e1e2e"/><g transform="translate(10,10)">')
+  expect(themed?.source).toContain('<g fill="#b4befe">')
+  expect(bandSvg(undefined, NONE, LIST, 900)?.source).not.toContain('rx="10" fill=')
+})
+
 test('fill colours step up at the warning thresholds', () => {
   expect(new Set([fillColor(10, '#123456'), fillColor(75, '#123456'), fillColor(95, '#123456')]).size).toBe(3)
   expect(fillColor(10, '#123456')).toBe('#123456')

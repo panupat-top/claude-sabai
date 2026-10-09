@@ -16,11 +16,16 @@ const CACHE = JSON.stringify({
 
 function engine(
   on: On,
-  { cache = CACHE as string | null, hasLimits = true } = {},
+  { cache = CACHE as string | null, hasLimits = true, store = {} as Record<string, unknown> } = {},
 ) {
   const branch = { name: 'main' }
   const reads: string[] = []
   const clock = mock.clock(on, { now: NOW })
+  on('store.get', ($, e) => ({ value: store[e.key] }))
+  on('store.set', ($, e) => {
+    store[e.key] = e.value
+    return { value: undefined }
+  })
   mock.env(on, { TMPDIR: '/var/tmp/' })
   on('session.start', () => ({ cwd: '/work' }))
   const out = (): Record<string, string> => ({
@@ -58,7 +63,7 @@ function engine(
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { reads, clock, branch }
+  return { reads, clock, branch, store }
 }
 
 const start = ($: Engine) => $.session.start({ surface: 'desktop', isInteractive: true, cwd: '/work' })
@@ -198,4 +203,27 @@ test('/sabai-demo walks four sample tasks through the bar', async ($, on) => {
   expect((await shown($, 'desktop')).words).toContain('Write tests: 1/4 tasks')
   await clock.advance(12_000)
   expect((await shown($, 'desktop')).words).not.toContain('tasks,')
+})
+
+const skinCommand = ($: Engine, args: string) =>
+  $.command.run({ command: 'sabai-skin', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+
+test('/sabai-skin lists the skins, switches by any spelling, and remembers the choice', async ($, on) => {
+  const { store } = engine(on)
+  await start($)
+  expect((await skinCommand($, '')).text).toMatch(/^Skin: auto\. Available: auto, catppuccin-latte \(Catppuccin Latte\),/)
+  expect((await skinCommand($, 'solarized')).text).toMatch(/^No skin called "solarized"/)
+  expect((await skinCommand($, 'TokyoNight')).text).toBe('Skin set to Tokyo Night.')
+  const ui = await mountBand($, 'desktop')
+  const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+  expect(svg?.props.source).toContain('fill="#1a1b26"')
+  expect(store.skin).toBe('tokyo-night')
+})
+
+test('a saved skin comes back with the next session', async ($, on) => {
+  engine(on, { store: { skin: 'dracula' } })
+  await start($)
+  const ui = await mountBand($, 'desktop')
+  const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+  expect(svg?.props.source).toContain('fill="#282a36"')
 })

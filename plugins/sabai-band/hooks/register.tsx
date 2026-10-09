@@ -3,14 +3,15 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
 import type { Cache, Env, Task, Usage } from '../types'
 import { DEMO, blocks, chips, countdown, created, fromTodos, meters, parseCache, progress, toUsage, updated, value } from './model'
-import { ICON_COLORS } from './sprites'
-import { bandSvg, fillColor } from './svg'
+import { bandSvg, lookOf } from './svg'
+import { SKINS, THEMES, pickSkin } from './themes'
 
 const usage = atom({ plugin: 'sabai-band', key: 'usage' } as const, null as Usage | null)
 const cache = atom({ plugin: 'sabai-band', key: 'cache' } as const, {} as Cache)
 const tasks = atom({ plugin: 'sabai-band', key: 'tasks' } as const, [] as Task[])
 const now = atom({ plugin: 'sabai-band', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
+const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
 
 const TICK_MS = 30_000
 // The terminal's stand-ins for the desktop's marks.
@@ -67,7 +68,10 @@ export const register: Register = on => {
     await refreshEnv($, true)
     // Keeps the reset countdowns, the cached windows and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), refreshCache($), refreshEnv($)]))
+    const saved = await $.store.get('skin')
+    if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
     await $.command.register({ name: 'sabai-demo', description: 'Preview the sabai-band progress bar with sample tasks' })
+    await $.command.register({ name: 'sabai-skin', description: 'Change the sabai-band skin', argumentHint: '[name]' })
     return started
   })
 
@@ -118,6 +122,16 @@ export const register: Register = on => {
     return { text: 'Progress bar demo started: four sample tasks, one step every 2s.' }
   })
 
+  on('command.run', { command: 'sabai-skin' }, async ($, e) => {
+    const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
+    if (!e.args.trim()) return { text: `Skin: ${await read($, skin)}. Available: ${names}. Use /sabai-skin <name>.` }
+    const picked = pickSkin(e.args)
+    if (!picked) return { text: `No skin called "${e.args.trim()}". Available: ${names}.` }
+    await update($, skin, () => picked)
+    await $.store.set('skin', picked)
+    return { text: `Skin set to ${THEMES[picked]?.name ?? 'auto'}.` }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
@@ -127,6 +141,7 @@ export const register: Register = on => {
     const info = chips(await read($, env))
     if (!p && info.left.length + info.right.length === 0 && list.length === 0) return next(e)
 
+    const skinName = await read($, skin)
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
     // Another mod's drawing in the band keeps its place under ours.
@@ -138,7 +153,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking)
+      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName)
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -148,6 +163,7 @@ export const register: Register = on => {
     }
 
     const cols = e.props.bodyColumns
+    const look = lookOf(skinName)
     return (
       <Box flexDirection="column" rowGap={1}>
         {info.left.length + info.right.length > 0 && (
@@ -167,10 +183,10 @@ export const register: Register = on => {
         {p && (
           <Box flexDirection="row" columnGap={2}>
             <Text wrap="truncate-end">
-              <Text color={ICON_COLORS.tasks}>● </Text>
+              <Text color={look.bar('tasks', 0)}>● </Text>
               {p.title}
             </Text>
-            <Text color={ICON_COLORS.tasks}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
+            <Text color={look.bar('tasks', 0)}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
             <Text bold>{`${p.done}/${p.total}`}</Text>
             <Text dimColor>{`${Math.round((p.done / p.total) * 100)}%`}</Text>
           </Box>
@@ -180,7 +196,7 @@ export const register: Register = on => {
             {list.map(m => (
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
-                <Text color={fillColor(m.percent, ICON_COLORS[m.kind])}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
+                <Text color={look.bar(m.kind, m.percent)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

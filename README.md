@@ -5,7 +5,7 @@ Claude Code mods for the desktop Code tab. Needs Claude Code 2.1.287 or later.
 | Mod | What it does | Status |
 |---|---|---|
 | `sabai-spinner` | Spinner words in Thai or English; set `words` (`auto` · `th` · `en` · `off`) in `/config` | beta |
-| `sabai-band` | Pixel-art band above the prompt in savvy-progress's style: a task progress bar fed by Claude's own task list, an info row (directory · git user · branch ± uncommitted files, node at the right), and Context (`434.5k / 1M (43%)`) · 5H Limit · 7D All · 7D <model> meters with reset countdowns. Text meters in a terminal. `/sabai-demo` previews the bar | beta |
+| `sabai-band` | Pixel-art band above the prompt in savvy-progress's style: a task progress bar fed by Claude's own task list, an info row (directory · git user · branch ± uncommitted files, node at the right), and Context (`434.5k / 1M (43%)`) · 5H Limit · 7D All · 7D <model> meters with reset countdowns. Text meters in a terminal. `/sabai-skin [name]` picks a skin (auto, Catppuccin Latte/Frappé/Macchiato/Mocha, Dracula, Tokyo Night, Nord, Gruvbox, Rosé Pine). `/sabai-demo` previews the bar | beta |
 
 Plan and feature catalog: [docs/PLAN.md](docs/PLAN.md).
 

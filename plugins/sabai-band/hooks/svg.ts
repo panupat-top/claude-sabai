@@ -2,6 +2,8 @@ import type { Chip, Meter, Progress } from './model'
 import { countdown, level, value } from './model'
 import { icon } from './icons'
 import { ICON_COLORS, SPRITE_CSS, sprite, spriteSize } from './sprites'
+import type { MeterKind } from './model'
+import { THEMES, readable } from './themes'
 
 // Desktop drawings in savvy-progress's pixel style (MIT). The desktop wraps sibling elements
 // onto new lines, so each group is one SVG; Buttons sit beside it. Light and dark follow the OS.
@@ -28,9 +30,7 @@ export const TEXT = {
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
-const THEME =
-  `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}` +
-  `@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}` +
+const MOTION =
   '.d0,.d1,.d2,.d3{animation:tw 2.2s ease-in-out infinite}.d1{animation-duration:2.8s;animation-delay:-.7s}' +
   '.d2{animation-duration:1.9s;animation-delay:-1.3s}.d3{animation-duration:3.3s;animation-delay:-.4s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.3}}' +
@@ -70,6 +70,33 @@ export function fillColor(percent: number, base: string): string {
   return l === 'alert' ? ALERT : l === 'warn' ? WARN : base
 }
 
+// How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
+// and the band's own background (none for `auto`, which leaves the surface's).
+export type Look = { css: string; bar: (kind: MeterKind | 'tasks', percent: number) => string; pill: string; base?: string }
+
+const AUTO: Look = {
+  css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}`,
+  bar: (kind, percent) => fillColor(percent, ICON_COLORS[kind]),
+  pill: PILL,
+}
+
+// A theme's own colours; any text colour that would not read on its card is stepped until it does.
+export function lookOf(skin: string): Look {
+  const t = THEMES[skin]
+  if (!t) return AUTO
+  const ink = (c: string) => readable(c, t.surface)
+  const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
+  return {
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${t.track}}.p{fill:${t.surface}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}`,
+    bar: (kind, percent) => {
+      const l = level(percent)
+      return l === 'alert' ? t.alert : l === 'warn' ? t.warn : t.accents[kind]
+    },
+    pill: readable(t.accents.tasks, '#ffffff'),
+    base: t.base,
+  }
+}
+
 const CELL = 3
 
 // A rounded track with a dithered fill: sparse at the start, dense toward the head.
@@ -98,8 +125,8 @@ function ditherBar(id: string, x: number, y: number, w: number, h: number, ratio
   )
 }
 
-const svg = (w: number, h: number, body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${THEME}</style>${body}</svg>`
+const svg = (look: Look, w: number, h: number, body: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${MOTION}</style>${body}</svg>`
 
 const ROW_H = 20
 const GAP = 8
@@ -110,7 +137,7 @@ type Part = { body: string; height: number; alt: string }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd walks while a task runs or the turn is working, and waits, blinking, otherwise.
-function progressPart(p: Progress, W: number, isWorking: boolean, top: number): Part {
+function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, top: number): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
@@ -127,8 +154,8 @@ function progressPart(p: Progress, W: number, isWorking: boolean, top: number): 
   const body =
     sprite('tasks', 0, (ROW_H - clawd.height) / 2, p.isRunning || isWorking ? 'run' : 'idle') +
     `<text class="t" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
-    ditherBar('sabai-band-tasks', barX, y0, barW, barH, ratio, ICON_COLORS.tasks, p.total) +
-    `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${PILL}"/>` +
+    ditherBar('sabai-band-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total) +
+    `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
     `<text class="m" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
   return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}` }
@@ -136,7 +163,7 @@ function progressPart(p: Progress, W: number, isWorking: boolean, top: number): 
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
 // first, the pixel bar and its percent on the second. Four across, two or one when narrow.
-function cardsPart(list: readonly Meter[], W: number, y0: number): Part {
+function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number): Part {
   const cols = Math.min(list.length, W >= 720 ? 4 : W >= 400 ? 2 : 1)
   const rows = Math.ceil(list.length / cols)
   const cardW = Math.floor((W - GAP * (cols - 1)) / cols)
@@ -147,7 +174,7 @@ function cardsPart(list: readonly Meter[], W: number, y0: number): Part {
     const top = y + 14
     const bottom = y + 31
     const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
-    const color = fillColor(m.percent, ICON_COLORS[m.kind])
+    const color = look.bar(m.kind, m.percent)
     const detail = m.amount
       ? `<text class="t" x="${right}" y="${top + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${m.amount}</text>`
       : m.resetsInMs === undefined
@@ -200,24 +227,35 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
 
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
 // surface's between two elements.
-// Rows top to bottom: info chips, tasks, usage cards.
+const BG_PAD = 10
+
+// Rows top to bottom: info chips, tasks, usage cards. A skin with a background draws it behind
+// them, inset by BG_PAD, within the same width.
 export function bandSvg(
   p: Progress | undefined,
   info: { left: readonly Chip[]; right: readonly Chip[] },
   list: readonly Meter[],
   W: number,
   isWorking = false,
+  skin = 'auto',
 ): Drawing | undefined {
+  const look = lookOf(skin)
+  const pad = look.base ? BG_PAD : 0
+  const inner = W - pad * 2
   const parts: Part[] = []
   let y = 0
   const add = (part: Part) => {
     parts.push(part)
     y += part.height + GAP
   }
-  if (info.left.length + info.right.length > 0) add(chipsPart(info, W, y))
-  if (p) add(progressPart(p, W, isWorking, y))
-  if (list.length > 0) add(cardsPart(list, W, y))
+  if (info.left.length + info.right.length > 0) add(chipsPart(info, inner, y))
+  if (p) add(progressPart(look, p, inner, isWorking, y))
+  if (list.length > 0) add(cardsPart(look, list, inner, y))
   if (parts.length === 0) return undefined
-  const height = y - GAP
-  return { source: svg(W, height, parts.map(part => part.body).join('')), width: W, height, alt: parts.map(part => part.alt).join('; ') }
+  const height = y - GAP + pad * 2
+  const body = parts.map(part => part.body).join('')
+  const framed = look.base
+    ? `<rect width="${W}" height="${height}" rx="10" fill="${look.base}"/><g transform="translate(${pad},${pad})">${body}</g>`
+    : body
+  return { source: svg(look, W, height, framed), width: W, height, alt: parts.map(part => part.alt).join('; ') }
 }

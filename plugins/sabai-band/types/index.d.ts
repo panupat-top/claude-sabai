@@ -26,6 +26,7 @@ declare module 'claude-code' {
       tasks: Task[]
       now: number
       env: Env
+      skin: string
     }
   }
 }
