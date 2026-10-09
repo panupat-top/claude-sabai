@@ -1,0 +1,7 @@
+{
+  "name": "sabai-spinner",
+  "version": "0.1.0",
+  "description": "Spinner words in Thai or English.",
+  "author": { "name": "Panupat Top", "url": "https://github.com/panupat-top" },
+  "license": "MIT"
+}

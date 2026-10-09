@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+CLAUDE=claude
+[ -x "$HOME/.local/bin/claude" ] && CLAUDE="$HOME/.local/bin/claude"
+git diff --cached --quiet -- plugins .claude-plugin && exit 0
+"$CLAUDE" plugin validate .claude-plugin/marketplace.json >/dev/null || { "$CLAUDE" plugin validate .claude-plugin/marketplace.json; exit 1; }
+for manifest in plugins/*/.claude-plugin/plugin.json; do
+  mod=${manifest%/.claude-plugin/plugin.json}
+  "$CLAUDE" plugin validate "$mod" >/dev/null || { "$CLAUDE" plugin validate "$mod"; exit 1; }
+  out=$("$CLAUDE" plugin test "$mod" 2>&1) || { printf '%s\n' "$out"; exit 1; }
+  printf '%s: %s\n' "$mod" "$(printf '%s\n' "$out" | tail -2 | head -1)"
+done
