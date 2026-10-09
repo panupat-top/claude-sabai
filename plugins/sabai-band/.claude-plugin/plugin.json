@@ -1,7 +1,7 @@
 {
   "name": "sabai-band",
-  "version": "0.1.0",
-  "description": "Pixel-art band above the prompt: task progress, and context, 5H, 7D and model-scoped weekly meters with reset countdowns.",
+  "version": "0.2.0",
+  "description": "Pixel-art band above the prompt: directory, git and node; task progress with Clawd; context, 5H and 7D usage with reset countdowns; ten skins.",
   "author": {
     "name": "Panupat Top",
     "url": "https://github.com/panupat-top"

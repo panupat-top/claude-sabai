@@ -7,7 +7,6 @@ const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
   { kind: 'session', label: '5H Limit', percent: 7, resetsInMs: 2 * 3600_000 },
   { kind: 'week', label: '7D All', percent: 3, resetsInMs: 3 * 86_400_000 },
-  { kind: 'scoped', label: '7D Fable', percent: 0, resetsInMs: 3 * 86_400_000 },
 ] as const
 const NONE = { left: [], right: [] }
 
@@ -21,28 +20,31 @@ test('the tasks row escapes its title and stays under the engine limits', () => 
   expect([d?.width, d?.height]).toEqual([1600, 20])
 })
 
-test('Clawd walks while a task runs or the turn works, and waits otherwise', () => {
+test('Clawd walks while the turn works and waits otherwise, tinted by the skin', () => {
   const mode = (src = '') => src.match(/shape-rendering="crispEdges" class="(\w+)"/)?.[1]
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a', isRunning: true }, NONE, [], 600)?.source)).toBe('run')
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a', isRunning: false }, NONE, [], 600, true)?.source)).toBe('run')
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a', isRunning: false }, NONE, [], 600)?.source)).toBe('idle')
+  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, true)?.source)).toBe('run')
+  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600)?.source)).toBe('idle')
+  const mocha = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, false, 'catppuccin-mocha')?.source
+  expect(mocha).toContain('fill="#fab387"')
+  expect(mocha).toContain('@keyframes wink{91%,96%{fill:#fab387}}')
+  expect(mocha).not.toContain('fill="#D97757"')
   expect(spriteSize('tasks')).toEqual({ width: 24, height: 16 })
 })
 
-test('cards run four across when wide, two or one when narrow, 8px apart', () => {
+test('cards run side by side when wide, two or one when narrow, 8px apart', () => {
   expect(bandSvg(undefined, NONE, LIST, 900)?.height).toBe(44)
   expect(bandSvg(undefined, NONE, LIST, 500)?.height).toBe(2 * 44 + 8)
-  expect(bandSvg(undefined, NONE, LIST, 360)?.height).toBe(4 * 44 + 3 * 8)
+  expect(bandSvg(undefined, NONE, LIST, 360)?.height).toBe(3 * 44 + 2 * 8)
   expect(bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 900)?.height).toBe(20 + 8 + 44)
   const wide = bandSvg(undefined, NONE, LIST, 900)
-  expect(wide?.source.match(/class="p"/g)?.length).toBe(4)
+  expect(wide?.source.match(/class="p"/g)?.length).toBe(3)
   expect(bandSvg(undefined, NONE, LIST.slice(0, 2), 900)?.source).toContain('width="446"')
-  for (const id of ['context', 'session', 'week', 'scoped']) expect(wide?.source).toContain(`id="sabai-band-${id}"`)
-  expect(wide?.source).toContain('7D FABLE')
+  for (const id of ['context', 'session', 'week']) expect(wide?.source).toContain(`id="sabai-band-${id}"`)
+  expect(wide?.source).toContain('7D ALL')
   expect(wide?.source.match(/shape-rendering="crispEdges"/g)?.length).toBe(1)
   expect(wide?.source).toContain('↻ 2h 0m')
   expect(wide?.source).toContain(fillColor(85, '#000'))
-  expect(wide?.alt).toBe('Context 434.5k / 1M (85%); 5H Limit 7%, resets in 2h 0m; 7D All 3%, resets in 3d 0h; 7D Fable 0%, resets in 3d 0h')
+  expect(wide?.alt).toBe('Context 434.5k / 1M (85%); 5H Limit 7%, resets in 2h 0m; 7D All 3%, resets in 3d 0h')
 })
 
 test('nothing to draw draws nothing', () => {

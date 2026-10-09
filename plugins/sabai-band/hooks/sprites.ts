@@ -12,7 +12,6 @@ export const ICON_COLORS: Record<MeterKind | 'tasks', string> = {
   context: '#2bb5a6',
   session: '#8f8cf4',
   week: '#e0a030',
-  scoped: '#e06cb0',
 }
 
 const c = ICON_COLORS
@@ -59,9 +58,10 @@ export const spriteSize = (kind: SpriteKind) => {
 }
 
 // Pixels of one class share a <g> so one animation moves them together; `mode` (`run` or
-// `idle`) picks which of the sprite's motions play.
-export function sprite(kind: SpriteKind, x: number, y: number, mode = ''): string {
-  const { rows, colors, classes = {}, px = PX } = SPRITES[kind]
+// `idle`) picks which of the sprite's motions play, and `tint` repaints Clawd's body.
+export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string): string {
+  const { rows, classes = {}, px = PX } = SPRITES[kind]
+  const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   const groups = new Map<string, string[]>()
   rows.forEach((row, r) =>
     [...row].forEach((ch, col) => {
@@ -80,7 +80,7 @@ export const SPRITE_CSS =
   '.run g.la{animation:step .4s steps(1) infinite}.run g.lb{animation:step .4s steps(1) infinite -.2s}' +
   '.run g.bd,.run g.eye{animation:bob .4s steps(1) infinite -.1s}' +
   '@keyframes step{50%{transform:translateY(-1px)}}@keyframes bob{50%{transform:translateY(1px)}}' +
-  // A blink repaints the eyes in the body's colour, so no hole shows through.
-  `.idle g.eye rect{animation:wink 3.2s steps(1) infinite}@keyframes wink{91%,96%{fill:${c.tasks}}}` +
+  // A blink repaints the eyes in the body's colour (the look's `wink` keyframes), so no hole shows.
+  '.idle g.eye rect{animation:wink 3.2s steps(1) infinite}' +
   'g.led1{animation:blink 1.2s steps(1) infinite}g.led2{animation:blink 1.2s steps(1) infinite -.6s}' +
   '@keyframes blink{50%{opacity:.15}}'

@@ -6,7 +6,8 @@ import { SKINS, THEMES, contrast, pickSkin, readable } from '../hooks/themes'
 test('every skin paints text that reads at 4.5:1 on its cards, and white on its pill', () => {
   for (const [key, t] of Object.entries(THEMES)) {
     const look = lookOf(key)
-    for (const [, color] of look.css.matchAll(/fill:(#[0-9a-f]{6})/g)) {
+    // The wink keyframes paint Clawd's body, not text.
+    for (const [, color] of look.css.replace(/@keyframes wink\{.*\}\}/, '').matchAll(/fill:(#[0-9a-f]{6})/g)) {
       if (color === t.track || color === t.surface) continue
       expect([key, color, contrast(color!, t.surface) >= 4.5]).toEqual([key, color, true])
     }

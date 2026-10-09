@@ -6,37 +6,32 @@ const SURFACES = ['terminal', 'desktop'] as const
 type Surface = (typeof SURFACES)[number]
 const STOCK: RenderElement = { type: 'Text', props: {}, children: ['stock row'] }
 const NOW = Date.parse('2026-10-10T00:00:00Z')
-const CACHE = JSON.stringify({
-  limits: [
-    { kind: 'session', percent: 40, resets_at: '2026-10-10T01:00:00Z' },
-    { kind: 'weekly_all', percent: 20, resets_at: '2026-10-15T21:00:00Z' },
-    { kind: 'weekly_scoped', percent: 12, resets_at: '2026-10-15T21:00:00Z', scope: { model: { display_name: 'Fable' } } },
-  ],
-})
 
-function engine(
-  on: On,
-  { cache = CACHE as string | null, hasLimits = true, store = {} as Record<string, unknown> } = {},
-) {
+// Answers every noun the band calls, as a session would. `failing` lists commands that are
+// missing or fail on this machine (no node, no upstream, not a repository).
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[] } = {}) {
   const branch = { name: 'main' }
-  const reads: string[] = []
+  const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
   on('store.get', ($, e) => ({ value: store[e.key] }))
   on('store.set', ($, e) => {
     store[e.key] = e.value
     return { value: undefined }
   })
-  mock.env(on, { TMPDIR: '/var/tmp/' })
   on('session.start', () => ({ cwd: '/work' }))
   const out = (): Record<string, string> => ({
     'git branch --show-current': `${branch.name}\n`,
     'git status --porcelain': ' M a.ts\n?? b.ts\n',
     'git config user.name': 'Panupat\n',
     'node --version': 'v24.1.0\n',
+    'git rev-list --left-right --count @{upstream}...HEAD': '1\t2\n',
   })
-  on('process.run', ($, e) => ({
-    value: { exitCode: 0, stdout: out()[e.argv.join(' ')] ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
-  }))
+  on('process.run', ($, e) => {
+    const cmd = e.argv.join(' ')
+    runs.push(cmd)
+    const fails = failing.some(f => cmd.startsWith(f))
+    return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('turn.complete', () => ({ text: '' }))
   on('session.usage', () => ({
     value: {
@@ -50,12 +45,7 @@ function engine(
         : [],
     },
   }))
-  on('fs.read', ($, e) => {
-    reads.push(e.path)
-    if (cache === null) throw new Error('ENOENT')
-    return { value: cache }
-  })
-  on('command.register', () => ({ value: { command: 'sabai-demo' } }))
+  on('command.register', () => ({ value: { command: 'sabai-skin' } }))
   on('ui.render', () => STOCK)
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('tool.call', ($, e) => {
@@ -63,7 +53,7 @@ function engine(
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { reads, clock, branch, store }
+  return { runs, clock, branch, store }
 }
 
 const start = ($: Engine) => $.session.start({ surface: 'desktop', isInteractive: true, cwd: '/work' })
@@ -102,9 +92,18 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ±2, Node v24\.1\.0; Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
   const terminal = (await shown($, 'terminal')).words
-  expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
+  expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
+})
+
+test('what a machine cannot tell is hidden: no node, no upstream, no repository', async ($, on) => {
+  engine(on, { failing: ['node', 'git'] })
+  await start($)
+  const words = (await shown($, 'desktop')).words
+  expect(words).toMatch(/^Directory work; Context/)
+  expect(words).not.toContain('Node')
+  expect(words).not.toContain('Branch')
 })
 
 test('the branch follows a turn of the main conversation', async ($, on) => {
@@ -112,7 +111,20 @@ test('the branch follows a turn of the main conversation', async ($, on) => {
   await start($)
   branch.name = 'feature/band'
   await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'desktop')).words).toContain('Branch feature/band ±2, Node')
+  expect((await shown($, 'desktop')).words).toContain('Branch feature/band ↑2 ↓1 ±2, Node')
+})
+
+test('the tick re-reads git status only when the branch has changed', async ($, on) => {
+  const { branch, clock, runs } = engine(on)
+  await start($)
+  const statuses = () => runs.filter(r => r === 'git status --porcelain').length
+  expect(statuses()).toBe(1)
+  await clock.advance(30_000)
+  expect(statuses()).toBe(1)
+  branch.name = 'other'
+  await clock.advance(30_000)
+  expect(statuses()).toBe(2)
+  expect((await shown($, 'desktop')).words).toContain('Branch other')
 })
 
 test('with nothing to show the band is left to the engine', async ($, on) => {
@@ -121,36 +133,30 @@ test('with nothing to show the band is left to the engine', async ($, on) => {
 })
 
 test('a fresh load shows every meter with its countdown, and no buttons', async ($, on) => {
-  const { reads } = engine(on)
+  engine(on)
   await start($)
-  expect(reads).toEqual(['/var/tmp/claude-statusline-usage.json'])
   const desktop = await shown($, 'desktop')
   expect(desktop.svgs).toBe(1)
   expect(desktop.words).toContain(
-    'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h; 7D Fable 12%, resets in 5d 21h',
+    'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
   expect(desktop.buttons).toBe(0)
   const terminal = await shown($, 'terminal')
   expect(terminal.svgs).toBe(0)
   expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
-  expect(terminal.words).toContain('7D FABLE')
+  expect(terminal.words).toContain('7D ALL')
   expect(terminal.words).toContain('24.5k / 200k (12%)')
   expect(terminal.buttons).toBe(0)
 })
 
-test('a resumed session with no engine reading yet takes 5H and 7D from the cache', async ($, on) => {
+test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
   engine(on, { hasLimits: false })
   await start($)
-  expect((await shown($, 'desktop')).words).toContain(
-    'Context 24.5k / 200k (12%); 5H Limit 40%, resets in 1h 0m; 7D All 20%, resets in 5d 21h; 7D Fable 12%, resets in 5d 21h',
-  )
-})
-
-test('without the statusline cache the scoped week stays out', async ($, on) => {
-  engine(on, { cache: null })
-  await start($)
-  expect((await shown($, 'desktop')).words).not.toContain('Fable')
+  const words = (await shown($, 'desktop')).words
+  expect(words).toContain('Context 24.5k / 200k (12%)')
+  expect(words).not.toContain('5H')
+  expect(words).not.toContain('7D')
 })
 
 test('countdowns tick between responses', async ($, on) => {
@@ -192,19 +198,6 @@ test('TodoWrite drives the progress row too', async ($, on) => {
   expect((await shown($, 'desktop')).words).toContain('Doing b: 1/2 tasks, 50%')
 })
 
-test('/sabai-demo walks four sample tasks through the bar', async ($, on) => {
-  const { clock } = engine(on)
-  await start($)
-  await $.command.run({ command: 'sabai-demo', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-  expect((await shown($, 'desktop')).words).toContain('Read the code: 0/4 tasks')
-  await clock.advance(2000)
-  expect((await shown($, 'desktop')).words).toContain('Reading the code: 0/4 tasks')
-  await clock.advance(2000)
-  expect((await shown($, 'desktop')).words).toContain('Write tests: 1/4 tasks')
-  await clock.advance(12_000)
-  expect((await shown($, 'desktop')).words).not.toContain('tasks,')
-})
-
 const skinCommand = ($: Engine, args: string) =>
   $.command.run({ command: 'sabai-skin', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
@@ -218,6 +211,22 @@ test('/sabai-skin lists the skins, switches by any spelling, and remembers the c
   const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
   expect(svg?.props.source).toContain('fill="#1a1b26"')
   expect(store.skin).toBe('tokyo-night')
+})
+
+test('Clawd takes the skin colour and walks only while the turn works', async ($, on) => {
+  engine(on, { store: { skin: 'dracula' } })
+  await start($)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'a', description: '' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
+  const source = async (isWorking: boolean) => {
+    const ui = await mountBand($, 'desktop', isWorking)
+    const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+    await ui.unmount()
+    return svg?.props.source ?? ''
+  }
+  expect(await source(false)).toContain('shape-rendering="crispEdges" class="idle"')
+  expect(await source(true)).toContain('shape-rendering="crispEdges" class="run"')
+  expect(await source(true)).toContain('fill="#ffb86c"')
 })
 
 test('a saved skin comes back with the next session', async ($, on) => {

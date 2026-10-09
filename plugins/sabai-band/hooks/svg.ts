@@ -23,7 +23,6 @@ export const TEXT = {
   context: ['#13766b', '#3ccbbb'],
   session: ['#5450cf', '#aba8ff'],
   week: ['#8a5700', '#f0b44a'],
-  scoped: ['#a82c78', '#f08cc9'],
   warn: ['#a8490a', '#ff9d57'],
   alert: ['#c0262c', '#ff7377'],
 } as const
@@ -72,12 +71,15 @@ export function fillColor(percent: number, base: string): string {
 
 // How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
 // and the band's own background (none for `auto`, which leaves the surface's).
-export type Look = { css: string; bar: (kind: MeterKind | 'tasks', percent: number) => string; pill: string; base?: string }
+export type Look = { css: string; bar: (kind: MeterKind | 'tasks', percent: number) => string; pill: string; clawd: string; base?: string }
+
+const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
 
 const AUTO: Look = {
-  css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}`,
+  css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
   bar: (kind, percent) => fillColor(percent, ICON_COLORS[kind]),
   pill: PILL,
+  clawd: ICON_COLORS.tasks,
 }
 
 // A theme's own colours; any text colour that would not read on its card is stepped until it does.
@@ -87,12 +89,13 @@ export function lookOf(skin: string): Look {
   const ink = (c: string) => readable(c, t.surface)
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${t.track}}.p{fill:${t.surface}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}`,
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${t.track}}.p{fill:${t.surface}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
     bar: (kind, percent) => {
       const l = level(percent)
       return l === 'alert' ? t.alert : l === 'warn' ? t.warn : t.accents[kind]
     },
     pill: readable(t.accents.tasks, '#ffffff'),
+    clawd: t.accents.tasks,
     base: t.base,
   }
 }
@@ -136,7 +139,7 @@ const CARD_H = 44
 type Part = { body: string; height: number; alt: string }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
-// Clawd walks while a task runs or the turn is working, and waits, blinking, otherwise.
+// Clawd walks while the turn is working and waits, blinking, otherwise, in the skin's colour.
 function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, top: number): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
@@ -152,7 +155,7 @@ function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, to
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    sprite('tasks', 0, (ROW_H - clawd.height) / 2, p.isRunning || isWorking ? 'run' : 'idle') +
+    sprite('tasks', 0, (ROW_H - clawd.height) / 2, isWorking ? 'run' : 'idle', look.clawd) +
     `<text class="t" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
     ditherBar('sabai-band-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +

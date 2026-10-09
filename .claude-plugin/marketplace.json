@@ -5,21 +5,14 @@
     "url": "https://github.com/panupat-top"
   },
   "metadata": {
-    "description": "Claude Code mods for the desktop Code tab, in Thai and English."
+    "description": "Claude Code mods for the desktop Code tab."
   },
   "plugins": [
     {
-      "name": "sabai-spinner",
-      "source": "./plugins/sabai-spinner",
-      "description": "Mod: spinner words in Thai or English.",
-      "version": "0.1.0",
-      "category": "mod"
-    },
-    {
       "name": "sabai-band",
       "source": "./plugins/sabai-band",
-      "description": "Mod: pixel-art band above the prompt with a task progress bar and context, 5H, 7D and model-scoped weekly meters with reset countdowns.",
-      "version": "0.1.0",
+      "description": "Mod: pixel-art band above the prompt with an info row, a task progress bar and context, 5H and 7D meters, in ten skins.",
+      "version": "0.2.0",
       "category": "mod"
     }
   ]

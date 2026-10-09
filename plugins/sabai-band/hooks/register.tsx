@@ -1,13 +1,12 @@
 import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
-import type { Cache, Env, Task, Usage } from '../types'
-import { DEMO, blocks, chips, countdown, created, fromTodos, meters, parseCache, progress, toUsage, updated, value } from './model'
+import type { Env, Task, Usage } from '../types'
+import { blocks, chips, countdown, created, fromTodos, meters, progress, toUsage, updated, value } from './model'
 import { bandSvg, lookOf } from './svg'
 import { SKINS, THEMES, pickSkin } from './themes'
 
 const usage = atom({ plugin: 'sabai-band', key: 'usage' } as const, null as Usage | null)
-const cache = atom({ plugin: 'sabai-band', key: 'cache' } as const, {} as Cache)
 const tasks = atom({ plugin: 'sabai-band', key: 'tasks' } as const, [] as Task[])
 const now = atom({ plugin: 'sabai-band', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
@@ -18,20 +17,11 @@ const TICK_MS = 30_000
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
 
 // Module state is fine here: session.start sets it again after a reload.
-let cachePath = ''
 let cwd = ''
+let lastBranch: string | undefined
 
-async function refreshCache($: EngineInterface) {
-  let found: Cache = {}
-  try {
-    found = parseCache(await $.fs.read(cachePath))
-  } catch {
-    // No statusline cache: the model-scoped week stays hidden, 5H and 7D wait for the engine.
-  }
-  await update($, cache, () => found)
-}
-
-// One line of a command's output, or nothing when it fails or is missing.
+// One line of a command's output, or nothing when it fails or is missing: a chip without a
+// value is simply not drawn.
 async function line($: EngineInterface, argv: string[]): Promise<string | undefined> {
   try {
     const run = await $.process.run(argv, { cwd })
@@ -41,13 +31,23 @@ async function line($: EngineInterface, argv: string[]): Promise<string | undefi
   }
 }
 
-// Branch and changes move during a session; the rest only on `isFull`.
-async function refreshEnv($: EngineInterface, isFull = false) {
-  const [branch, status] = await Promise.all([line($, ['git', 'branch', '--show-current']), line($, ['git', 'status', '--porcelain'])])
-  const moving: Env = { branch, changes: status ? status.split('\n').length : 0 }
-  if (!isFull) return update($, env, e => ({ ...e, ...moving }))
-  const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
-  await update($, env, () => ({ ...moving, dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node }))
+// The branch's state: uncommitted files and commits ahead/behind its upstream. Run when a
+// session starts, when a turn ends and when the branch changes, since `git status` can be slow
+// on a large repository.
+async function readRepo($: EngineInterface) {
+  const [branch, status, counts] = await Promise.all([
+    line($, ['git', 'branch', '--show-current']),
+    line($, ['git', 'status', '--porcelain']),
+    line($, ['git', 'rev-list', '--left-right', '--count', '@{upstream}...HEAD']),
+  ])
+  const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : []
+  lastBranch = branch
+  await update($, env, e => ({ ...e, branch, ahead, behind, changes: status ? status.split('\n').length : 0 }))
+}
+
+// The tick's cheap check: only a switched branch costs a full read.
+async function checkBranch($: EngineInterface) {
+  if ((await line($, ['git', 'branch', '--show-current'])) !== lastBranch) await readRepo($)
 }
 
 async function tick($: EngineInterface) {
@@ -59,18 +59,17 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     cwd = started.cwd
-    cachePath = `${((await $.env.get('TMPDIR')) || '/tmp').replace(/\/$/, '')}/claude-statusline-usage.json`
     // session.measure fires only on the next response, so a fresh load reads what is known now.
     const known = await $.session.usage()
     await update($, usage, () => toUsage(known))
     await tick($)
-    await refreshCache($)
-    await refreshEnv($, true)
-    // Keeps the reset countdowns, the cached windows and the branch fresh between responses.
-    $.clock.every(TICK_MS, () => void Promise.all([tick($), refreshCache($), refreshEnv($)]))
+    const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
+    await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node }))
+    await readRepo($)
+    // Keeps the reset countdowns and the branch fresh between responses.
+    $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     const saved = await $.store.get('skin')
     if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
-    await $.command.register({ name: 'sabai-demo', description: 'Preview the sabai-band progress bar with sample tasks' })
     await $.command.register({ name: 'sabai-skin', description: 'Change the sabai-band skin', argumentHint: '[name]' })
     return started
   })
@@ -84,7 +83,7 @@ export const register: Register = on => {
   // A turn may switch branch or edit files.
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId === undefined) await refreshEnv($)
+    if (e.agentId === undefined) await readRepo($)
     return completed
   })
 
@@ -113,15 +112,6 @@ export const register: Register = on => {
     return called
   })
 
-  on('command.run', { command: 'sabai-demo' }, async $ => {
-    await update($, tasks, () => fromTodos(DEMO.map(([content, activeForm]) => ({ content, activeForm, status: 'pending' }))))
-    DEMO.forEach((_, i) => {
-      $.clock.after(2000 * (2 * i + 1), () => update($, tasks, list => updated(list, { taskId: String(i), status: 'in_progress' })))
-      $.clock.after(2000 * (2 * i + 2), () => update($, tasks, list => updated(list, { taskId: String(i), status: 'completed' })))
-    })
-    return { text: 'Progress bar demo started: four sample tasks, one step every 2s.' }
-  })
-
   on('command.run', { command: 'sabai-skin' }, async ($, e) => {
     const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
     if (!e.args.trim()) return { text: `Skin: ${await read($, skin)}. Available: ${names}. Use /sabai-skin <name>.` }
@@ -137,7 +127,7 @@ export const register: Register = on => {
 
     const p = progress(await read($, tasks))
     const measured = await read($, usage)
-    const list = meters(measured, await read($, cache), await read($, now))
+    const list = meters(measured, await read($, now))
     const info = chips(await read($, env))
     if (!p && info.left.length + info.right.length === 0 && list.length === 0) return next(e)
 
