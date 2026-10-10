@@ -381,7 +381,8 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
       ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/></clipPath></defs>` +
         `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
         `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="5" fill="${color}"/></g>` +
-        `<style>.sweep{animation:sw 1.6s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
+        // One sweep per second: the pane redraws each second while an agent runs, restarting it.
+        `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
       : cardBar(1)
   const body =
     `<rect class="p" width="${W}" height="${AGENT_H}" rx="8"/>` +
