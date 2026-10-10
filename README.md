@@ -1,51 +1,96 @@
 # claude-sabai
 
-Claude Code mods for the desktop Code tab. Needs Claude Code 2.1.287 or later.
+A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its one mod, **sabai-band**, adds a pixel-art status band above the prompt and a panel of subagents, built for the desktop app's Code tab and drawn as text in a terminal.
 
-## sabai-band
+## What sabai-band shows
 
-A pixel-art band above the prompt, in savvy-progress's style.
+**The band, above the prompt**
 
-- **Info row:** directory · git user · branch with commits ahead/behind its upstream and uncommitted files, Node version at the right. Whatever a machine cannot tell (no git, no upstream, no node) is left out.
-- **Tasks:** Clawd walks while Claude works and blinks while it waits, beside a dithered progress bar fed by Claude's own task list (`TaskCreate`, `TaskUpdate`, `TodoWrite`).
-- **Usage cards:** Context as `434.5k / 1M (43%)`, 5H Limit and 7D All with reset countdowns; amber from 70%, red from 90%. Plan limits show once Claude Code has a reading for them.
-- **Skins:** `/sabai-skin [name]` — `auto` (follows the OS), Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine. Remembered across sessions.
-- **Agents panel:** `/sabai-agents` shows or hides a panel with a Clawd per subagent — running ones first, then finished — with its task, type, model, model requests, context and elapsed time. Failed runs are marked ✗.
-- In a terminal the same rows are drawn as text.
+| Row | What it shows |
+|---|---|
+| Info | Current directory, git user and branch on the left — the branch with commits ahead `↑` / behind `↓` its upstream and uncommitted files `±` — and the Node.js version on the right. |
+| Tasks | Clawd, a pixel Claude mascot, beside a progress bar of Claude's own task list: the task in progress, `done/total` and percent. Clawd walks while Claude works and blinks while it waits. The row leaves once every task is done. |
+| Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
 
-Everything comes from Claude Code itself and the project's own `git`; the mod reads no other files and no credentials.
+**The agents panel** (`/sabai-agents`)
+
+A card per subagent: Clawd, the task, the agent type, model, number of model requests, context used and elapsed time. Running agents come first; finished ones fade, and failed ones are marked ✗.
+
+**Skins**
+
+Ten looks for the band and the panel: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`.
+
+## Requirements
+
+- Claude Code **2.1.287** or later.
+- The desktop app's Code tab or a terminal. Mods do not load in the desktop app's WSL sessions.
+- Optional: `git` and `node` on your `PATH` for the info row. Anything missing is simply left out.
 
 ## Install
 
-In a terminal Claude Code session:
+Run this in Claude Code in a **terminal** (the Code tab does not offer `/plugin install`):
 
 ```
 /plugin install sabai-band --marketplace panupat-top/claude-sabai
 ```
 
-## Develop
+Answer `y` to add the marketplace and choose a scope (user is the usual choice). The band appears in the same session and in every new one, the Code tab included.
+
+Or from your shell:
 
 ```bash
-claude --plugin-dir plugins/sabai-band
+claude plugin marketplace add panupat-top/claude-sabai
+claude plugin install sabai-band@claude-sabai
 ```
 
-Once Claude Code has loaded the mod it writes the API types beside it (`.claude-plugin/types/`), which `plugins/sabai-band/tsconfig.json` extends.
+## Usage
 
-Turn on the pre-commit hook once per clone; it validates, type-checks (once the mod has loaded) and tests every mod before a commit that touches one:
+| Command | What it does |
+|---|---|
+| `/sabai-skin` | Shows the current skin and lists all of them. |
+| `/sabai-skin <name>` | Switches skin. Names are forgiving: `mocha`, `Catppuccin Mocha`, `TokyoNight` and `Frappé` all work. Your choice is remembered across sessions. |
+| `/sabai-agents` | Shows the agents panel, or hides it if it is open. |
+
+The band needs no command: it fills itself in as you work.
+
+- **Task progress** appears when Claude keeps a task list, for example when you ask it to plan a multi-step change and work through it step by step.
+- **Agents** appear when Claude hands work to subagents, for example when you ask it to explore parts of a codebase in parallel.
+
+## Update and uninstall
 
 ```bash
-git config core.hooksPath .githooks
+claude plugin marketplace update claude-sabai
+claude plugin update sabai-band@claude-sabai
 ```
 
-CI validates and tests on every push. It cannot type-check: Claude Code publishes the mod API types only beside a loaded mod.
+```bash
+claude plugin uninstall sabai-band@claude-sabai
+```
+
+Restart Claude Code after either one. Open sessions keep the version they started with.
+
+## Privacy
+
+sabai-band reads only what Claude Code gives a mod (context, plan limits, tasks, subagents) and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Your skin choice is kept in Claude Code's own mod store.
+
+## Troubleshooting
+
+| You see | Why |
+|---|---|
+| No 5H or 7D card | Claude Code has no plan-limit reading yet — right after starting or resuming, before the first reply — or you are not on a subscription plan. |
+| No task row | Claude has not made a task list in this session, or the session has no task tools. |
+| No Node chip | `node` is not on the `PATH` that Claude Code sees (common with version managers when Claude Code is started from the desktop app). |
+| No branch chip | The folder is not a git repository. `↑` / `↓` show only when the branch has an upstream. |
+
+## Contributing
+
+Development notes — how the mod is built, tested and type-checked — are in [CLAUDE.md](CLAUDE.md). The roadmap is in [docs/PLAN.md](docs/PLAN.md).
 
 ## Credits
 
-Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins),
-[JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and
-[data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree) (all MIT).
+Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins), [JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree), all MIT.
 
-Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners.
+Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
 
 ## License
 
