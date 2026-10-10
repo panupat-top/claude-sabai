@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bashLine, seconds } from '../hooks/chat'
+import { bashLine, editLine, readLine, seconds, writeLine } from '../hooks/chat'
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
@@ -21,4 +21,39 @@ test('a quick success, or one the mod did not time, adds nothing; a failure with
   expect(bashLine({ isErrored: false, isInterrupted: false, durationMs: 300 })).toBeUndefined()
   expect(bashLine({ isErrored: false, isInterrupted: false })).toBeUndefined()
   expect(bashLine({ isErrored: true, isInterrupted: false })?.parts).toEqual([{ text: '✗ failed', tone: 'bad' }])
+})
+
+const hunk = (...lines: string[]) => ({ lines })
+
+test('an Edit line counts added and removed lines across hunks, with a bar of the two', () => {
+  const line = editLine([hunk(' a', '-b', '+c', '+d'), hunk('+e', ' f', '-g')])
+  expect(line?.mark).toBe('pencil')
+  expect(line?.parts).toEqual([
+    { text: '+3', tone: 'ok' },
+    { text: ' −2', tone: 'bad' },
+    { text: ' · 2 hunks', tone: 'muted' },
+  ])
+  expect(line?.bar).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'bad', 'bad', 'bad', 'bad'])
+})
+
+test('a one-hunk Edit says no hunk count; an empty patch adds nothing', () => {
+  expect(editLine([hunk('+a')])?.parts).toEqual([{ text: '+1', tone: 'ok' }, { text: ' −0', tone: 'bad' }])
+  expect(editLine([])).toBeUndefined()
+  expect(editLine([hunk(' same')])).toBeUndefined()
+})
+
+test('a Write line names a new file and its size, or reads an update as an Edit', () => {
+  expect(writeLine({ type: 'create', content: 'a\nb\nc\n', structuredPatch: [] })).toEqual({
+    mark: 'file-added',
+    parts: [{ text: 'new file', tone: 'ok' }, { text: ' · 3 lines', tone: 'muted' }],
+  })
+  expect(writeLine({ type: 'update', content: '', structuredPatch: [hunk('-a', '+b')] })?.parts[0]).toEqual({ text: '+1', tone: 'ok' })
+})
+
+test('a Read line gives the range read, or the whole file; images and notebooks add nothing', () => {
+  const text = (startLine: number, numLines: number, totalLines: number) => ({ type: 'text', file: { filePath: 'a', content: '', startLine, numLines, totalLines } })
+  expect(readLine(text(1, 20, 131))).toEqual({ mark: 'eye', parts: [{ text: 'lines 1–20', tone: 'text' }, { text: ' of 131', tone: 'muted' }] })
+  expect(readLine(text(1, 131, 131))?.parts).toEqual([{ text: 'all 131 lines', tone: 'text' }])
+  expect(readLine({ type: 'image', file: {} })).toBeUndefined()
+  expect(readLine(undefined)).toBeUndefined()
 })

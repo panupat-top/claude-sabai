@@ -27,3 +27,41 @@ export function bashLine(p: { isErrored: boolean; isInterrupted: boolean; durati
   if (p.durationMs === undefined || p.durationMs < QUIET_MS) return undefined
   return { mark, parts: [{ text: '✓', tone: 'ok' }, { text: ` ${time}`, tone: 'muted' }] }
 }
+
+const BAR_CELLS = 10
+
+// Cells for a split of two counts, the first in `toneA`; a side that is not zero keeps a cell.
+function split(a: number, b: number, toneA: Tone, toneB: Tone): Tone[] {
+  let cellsA = Math.round((BAR_CELLS * a) / (a + b))
+  if (a > 0 && cellsA === 0) cellsA = 1
+  if (b > 0 && cellsA === BAR_CELLS) cellsA = BAR_CELLS - 1
+  return [...Array<Tone>(cellsA).fill(toneA), ...Array<Tone>(BAR_CELLS - cellsA).fill(toneB)]
+}
+
+export function editLine(patch: { lines: string[] }[]): Line | undefined {
+  const lines = patch.flatMap(h => h.lines)
+  const added = lines.filter(l => l.startsWith('+')).length
+  const removed = lines.filter(l => l.startsWith('-')).length
+  if (added + removed === 0) return undefined
+  const parts: Part[] = [
+    { text: `+${added}`, tone: 'ok' },
+    { text: ` −${removed}`, tone: 'bad' },
+  ]
+  if (patch.length > 1) parts.push({ text: ` · ${patch.length} hunks`, tone: 'muted' })
+  return { mark: 'pencil', parts, bar: split(added, removed, 'ok', 'bad') }
+}
+
+export function writeLine(out: { type: 'create' | 'update'; content: string; structuredPatch: { lines: string[] }[] }): Line | undefined {
+  if (out.type === 'update') return editLine(out.structuredPatch)
+  const count = out.content.replace(/\n$/, '').split('\n').length
+  return { mark: 'file-added', parts: [{ text: 'new file', tone: 'ok' }, { text: ` · ${count} line${count === 1 ? '' : 's'}`, tone: 'muted' }] }
+}
+
+export function readLine(out: unknown): Line | undefined {
+  const o = out as { type?: string; file?: { startLine?: number; numLines?: number; totalLines?: number } } | undefined
+  if (o?.type !== 'text' || !o.file) return undefined
+  const { startLine = 1, numLines = 0, totalLines = 0 } = o.file
+  if (totalLines === 0) return undefined
+  if (startLine <= 1 && numLines >= totalLines) return { mark: 'eye', parts: [{ text: `all ${totalLines} lines`, tone: 'text' }] }
+  return { mark: 'eye', parts: [{ text: `lines ${startLine}–${startLine + numLines - 1}`, tone: 'text' }, { text: ` of ${totalLines}`, tone: 'muted' }] }
+}

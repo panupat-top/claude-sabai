@@ -886,3 +886,19 @@ test('settings saved before the Chat group load with every chat toggle on', asyn
   const ui = await mountTool($, 'desktop', { tool_use_id: 'f', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
   expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
 })
+
+test('Edit, Write and Read rows gain their summary on both surfaces', async ($, on) => {
+  engine(on)
+  await start($)
+  const rows = [
+    { tool_use_id: 'e', tool: 'Edit', input: {}, output: { structuredPatch: [{ lines: ['-a', '+b', '+c'] }] }, want: '+2 −1' },
+    { tool_use_id: 'w', tool: 'Write', input: {}, output: { type: 'create', content: 'x\n', structuredPatch: [] }, want: 'new file · 1 line' },
+    { tool_use_id: 'r', tool: 'Read', input: {}, output: { type: 'text', file: { startLine: 5, numLines: 10, totalLines: 40 } }, want: 'lines 5–14 of 40' },
+  ]
+  for (const { want, ...props } of rows) {
+    const desk = await mountTool($, 'desktop', props)
+    expect((await desk.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual([want])
+    const term = await mountTool($, 'terminal', props)
+    expect(await lineWords(term, 'terminal')).toContain(want)
+  }
+})

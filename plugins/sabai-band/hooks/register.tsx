@@ -6,7 +6,7 @@ import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { bashLine } from './chat'
+import { bashLine, editLine, readLine, writeLine } from './chat'
 import type { Line, Tone } from './chat'
 import type { IconKind } from './icons'
 import { SKINS, THEMES, contrast } from './themes'
@@ -658,6 +658,11 @@ export const register: Register = on => {
     if (p.isRunning || !chat.tools) return next(e)
     let shown: Line | undefined
     if (p.tool === 'Bash') shown = bashLine({ isErrored: p.isErrored, isInterrupted: p.isInterrupted, durationMs: (await read($, durations))[p.tool_use_id] })
+    const out = p.output as { structuredPatch?: { lines: string[] }[]; type?: string; content?: string } | undefined
+    if (p.tool === 'Edit' && out?.structuredPatch) shown = editLine(out.structuredPatch)
+    if (p.tool === 'Write' && out?.structuredPatch && (out.type === 'create' || out.type === 'update'))
+      shown = writeLine({ type: out.type, content: out.content ?? '', structuredPatch: out.structuredPatch })
+    if (p.tool === 'Read') shown = readLine(p.output)
     if (!shown) return next(e)
     const drawn = await next(e)
     const { Box } = $.ui.resolve(e)
