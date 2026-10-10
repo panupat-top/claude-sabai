@@ -57,7 +57,7 @@ export function taskLine(tasks: Task[] | undefined): Progress | undefined {
 }
 
 const EFFORT: Record<string, string> = { low: 'quick', medium: 'steady', high: 'careful', xhigh: 'deep', max: 'deep' }
-export const effortLabel = (effort?: string): string | undefined => (effort ? EFFORT[effort] : undefined)
+export const effortLabel = (effort?: string): string | undefined => (effort && Object.hasOwn(EFFORT, effort) ? EFFORT[effort] : undefined)
 
 const TYPES: Record<string, { hat: HatKind; accent: 'tasks' | 'context' | 'session' | 'week' }> = {
   Explore: { hat: 'explorer', accent: 'context' },
@@ -65,7 +65,8 @@ const TYPES: Record<string, { hat: HatKind; accent: 'tasks' | 'context' | 'sessi
   'general-purpose': { hat: 'cap', accent: 'tasks' },
   'claude-code-guide': { hat: 'grad', accent: 'week' },
 }
-export const typeStyle = (type: string): { hat: HatKind; accent?: 'tasks' | 'context' | 'session' | 'week' } => TYPES[type] ?? { hat: 'beanie' }
+export const typeStyle = (type: string): { hat: HatKind; accent?: 'tasks' | 'context' | 'session' | 'week' } =>
+  Object.hasOwn(TYPES, type) ? TYPES[type]! : { hat: 'beanie' }
 
 export function summary(list: AgentRun[], now: number): { running: number; done: number; context: number; ms: number } {
   if (list.length === 0) return { running: 0, done: 0, context: 0, ms: 0 }

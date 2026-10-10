@@ -60,6 +60,9 @@ test('effort and type give a label, a hat and a colour; unknown ones fall back',
   expect(typeStyle('general-purpose')).toEqual({ hat: 'cap', accent: 'tasks' })
   expect(typeStyle('claude-code-guide')).toEqual({ hat: 'grad', accent: 'week' })
   expect(typeStyle('my-reviewer')).toEqual({ hat: 'beanie' })
+  // Type names are user-defined: inherited object keys are not types.
+  expect(typeStyle('constructor')).toEqual({ hat: 'beanie' })
+  expect(effortLabel('toString')).toBeUndefined()
 })
 
 test('a step records effort; an agent keeps its own task list and line', () => {
