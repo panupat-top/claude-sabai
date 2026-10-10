@@ -902,3 +902,27 @@ test('Edit, Write and Read rows gain their summary on both surfaces', async ($, 
     expect(await lineWords(term, 'terminal')).toContain(want)
   }
 })
+
+const TEST_ROW = { tool_use_id: 't', tool: 'Bash', input: { command: 'bun test' }, isErrored: true, output: { stdout: ' 9 pass\n 1 fail\nRan 10 tests across 2 files.', stderr: '', interrupted: false } }
+
+test('a Bash row whose output is a test summary becomes a test line', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', TEST_ROW)
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ 1 of 10 failed'])
+})
+
+test('with Test results off, a test run is a plain failed Bash line', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: false, callouts: true, label: true } } } })
+  await start($)
+  const ui = await mountTool($, 'desktop', TEST_ROW)
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
+})
+
+test('with only Test results on, a test run still shows and a plain command does not', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: false, tests: true, callouts: true, label: true } } } })
+  await start($)
+  expect((await (await mountTool($, 'desktop', TEST_ROW)).findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ 1 of 10 failed'])
+  const plain = await mountTool($, 'desktop', { tool_use_id: 'p', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: { stdout: '', stderr: '' } })
+  expect(await plain.findAll({ type: 'Svg' })).toEqual([])
+})

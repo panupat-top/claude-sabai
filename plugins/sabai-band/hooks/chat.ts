@@ -92,3 +92,62 @@ export function commandOf(command: string): string {
 }
 
 export const logoOf = (command: string): LogoKind => LOGO_OF[commandOf(command)] ?? 'bash'
+
+export type TestRunner = 'bun' | 'jest' | 'vitest' | 'pytest' | 'cargo' | 'go'
+type Counts = { passed: number; failed: number; skipped: number }
+
+const lastMatch = (text: string, re: RegExp) => [...text.matchAll(re)].at(-1)
+const count = (words: string, word: string) => Number(words.match(new RegExp(`(\\d+) ${word}`))?.[1] ?? 0)
+
+// Each runner's closing summary, by its exact shape: a passing mention elsewhere is not a summary.
+const PARSERS: [TestRunner, (t: string) => Counts | undefined][] = [
+  ['bun', t => {
+    if (!/^Ran \d+ tests? across/m.test(t)) return undefined
+    const n = (w: string) => Number(lastMatch(t, new RegExp(`^\\s*(\\d+) ${w}$`, 'gm'))?.[1] ?? 0)
+    return { passed: n('pass'), failed: n('fail'), skipped: n('skip') }
+  }],
+  ['vitest', t => {
+    const m = lastMatch(t, /^\s*Tests\s{2,}(.+?)\s\((\d+)\)\s*$/gm)
+    return m ? { passed: count(m[1]!, 'passed'), failed: count(m[1]!, 'failed'), skipped: count(m[1]!, 'skipped') } : undefined
+  }],
+  ['jest', t => {
+    const m = lastMatch(t, /^Tests:\s+(.+?),?\s+(\d+) total$/gm)
+    return m ? { passed: count(m[1]!, 'passed'), failed: count(m[1]!, 'failed'), skipped: count(m[1]!, 'skipped') } : undefined
+  }],
+  ['pytest', t => {
+    const m = lastMatch(t, /^=+ (.+?) in [\d.]+s(?: \([^)]*\))? =+$/gm)
+    return m ? { passed: count(m[1]!, 'passed'), failed: count(m[1]!, 'failed') + count(m[1]!, 'errors?'), skipped: count(m[1]!, 'skipped') } : undefined
+  }],
+  ['cargo', t => {
+    const all = [...t.matchAll(/^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored/gm)]
+    if (!all.length) return undefined
+    return all.reduce((a, m) => ({ passed: a.passed + Number(m[1]), failed: a.failed + Number(m[2]), skipped: a.skipped + Number(m[3]) }), { passed: 0, failed: 0, skipped: 0 })
+  }],
+  ['go', t => {
+    const pass = (t.match(/^\s*--- PASS:/gm) ?? []).length
+    const fail = (t.match(/^\s*--- FAIL:/gm) ?? []).length
+    const skip = (t.match(/^\s*--- SKIP:/gm) ?? []).length
+    if (pass + fail + skip) return { passed: pass, failed: fail, skipped: skip }
+    const ok = (t.match(/^ok\s+\S+\s+[\d.]+s/gm) ?? []).length
+    const bad = (t.match(/^FAIL\s+\S+\s+[\d.]+s/gm) ?? []).length
+    return ok + bad ? { passed: ok, failed: bad, skipped: 0 } : undefined
+  }],
+]
+
+export function testResult(text: string): ({ runner: TestRunner } & Counts) | undefined {
+  for (const [runner, parse] of PARSERS) {
+    const c = parse(text)
+    if (c && c.passed + c.failed + c.skipped > 0) return { runner, ...c }
+  }
+  return undefined
+}
+
+const RUNNER_LOGO: Partial<Record<TestRunner, LogoKind>> = { bun: 'bun', jest: 'jest', pytest: 'python', cargo: 'rust', go: 'golang' }
+
+export function testLine(r: { runner: TestRunner } & Counts, durationMs?: number): Line {
+  const mark = RUNNER_LOGO[r.runner] ?? 'terminal'
+  const time: Part[] = durationMs === undefined ? [] : [{ text: ` · ${seconds(durationMs)}`, tone: 'muted' }]
+  if (r.failed === 0) return { mark, parts: [{ text: `✓ all ${r.passed} passed 🎉`, tone: 'ok' }, ...time], bar: Array<Tone>(BAR_CELLS).fill('ok') }
+  const skipped: Part[] = r.skipped ? [{ text: ` · ${r.skipped} skipped`, tone: 'muted' }] : []
+  return { mark, parts: [{ text: `✗ ${r.failed} of ${r.passed + r.failed} failed`, tone: 'bad' }, ...skipped, ...time], bar: split(r.passed, r.failed, 'ok', 'bad') }
+}
