@@ -3,18 +3,19 @@
 
 export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn' | 'edit' | 'read'
 export type Part = { text: string; tone: Tone }
-export type LogoKind =
-  | 'git' | 'bun' | 'npm' | 'pnpm' | 'nodejs' | 'deno' | 'python' | 'rust'
-  | 'golang' | 'docker' | 'typescript' | 'playwright' | 'mocha' | 'jest' | 'bash'
-export type Mark = 'pencil' | 'file-added' | 'eye' | 'terminal' | 'stop' | LogoKind
-export type Status = 'ok' | 'bad' | 'stop' | 'party'
-export type Line = { mark: Mark; status?: Status; parts: Part[]; bar?: Tone[] }
 
-// A line's status as a glyph, for the terminal and for a drawing's alt text.
-export const STATUS_GLYPH: Record<Status, string> = { ok: '✓', bad: '✗', stop: '⏹', party: '🎉' }
-
-export const lineText = (line: Line | undefined) =>
-  line ? [line.status && STATUS_GLYPH[line.status], line.parts.map(p => p.text).join('')].filter(Boolean).join(' ') : ''
+// One tool call as a step: what it was about, what it did, and how it ended.
+export type StepIcon = 'terminal' | 'flask' | 'pen' | 'file' | 'read' | 'stop'
+export type Step = {
+  icon: StepIcon
+  tone: Tone
+  title: string
+  detail: string
+  result: Part[]
+  time?: string
+  // Its output would only repeat the result (a passing test run) or does not exist yet.
+  quiet?: boolean
+}
 
 export function seconds(ms: number): string {
   const s = ms / 1000
@@ -22,79 +23,6 @@ export function seconds(ms: number): string {
   if (s < 60) return `${Math.floor(s)}s`
   return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`
 }
-
-export function bashLine(p: { isErrored: boolean; isInterrupted: boolean; durationMs?: number; mark?: Mark }): Line {
-  const time = p.durationMs === undefined ? undefined : seconds(p.durationMs)
-  const mark = p.mark ?? 'terminal'
-  if (p.isInterrupted) return { mark, status: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] }
-  if (p.isErrored) return { mark, status: 'bad', parts: [{ text: 'failed', tone: 'bad' }, ...(time ? [{ text: ` · ${time}`, tone: 'muted' as const }] : [])] }
-  return { mark, status: 'ok', parts: [{ text: time ?? 'done', tone: 'muted' }] }
-}
-
-const BAR_CELLS = 10
-
-// Cells for a split of two counts, the first in `toneA`; a side that is not zero keeps a cell.
-function split(a: number, b: number, toneA: Tone, toneB: Tone): Tone[] {
-  let cellsA = Math.round((BAR_CELLS * a) / (a + b))
-  if (a > 0 && cellsA === 0) cellsA = 1
-  if (b > 0 && cellsA === BAR_CELLS) cellsA = BAR_CELLS - 1
-  return [...Array<Tone>(cellsA).fill(toneA), ...Array<Tone>(BAR_CELLS - cellsA).fill(toneB)]
-}
-
-export function editLine(patch: { lines: string[] }[]): Line | undefined {
-  const lines = patch.flatMap(h => h.lines)
-  const added = lines.filter(l => l.startsWith('+')).length
-  const removed = lines.filter(l => l.startsWith('-')).length
-  if (added + removed === 0) return undefined
-  const parts: Part[] = [
-    { text: `+${added}`, tone: 'ok' },
-    { text: ` −${removed}`, tone: 'bad' },
-  ]
-  if (patch.length > 1) parts.push({ text: ` · ${patch.length} hunks`, tone: 'muted' })
-  return { mark: 'pencil', parts, bar: split(added, removed, 'ok', 'bad') }
-}
-
-export function writeLine(out: { type: 'create' | 'update'; content: string; structuredPatch: { lines: string[] }[] }): Line | undefined {
-  if (out.type === 'update') return editLine(out.structuredPatch)
-  const count = out.content.replace(/\n$/, '').split('\n').length
-  return { mark: 'file-added', parts: [{ text: 'new file', tone: 'ok' }, { text: ` · ${count} line${count === 1 ? '' : 's'}`, tone: 'muted' }] }
-}
-
-export function readLine(out: unknown): Line | undefined {
-  const o = out as { type?: string; file?: { startLine?: number; numLines?: number; totalLines?: number } } | undefined
-  if (o?.type !== 'text' || !o.file) return undefined
-  const { startLine = 1, numLines = 0, totalLines = 0 } = o.file
-  if (totalLines === 0) return undefined
-  if (startLine <= 1 && numLines >= totalLines) return { mark: 'eye', parts: [{ text: `all ${totalLines} lines`, tone: 'text' }] }
-  return { mark: 'eye', parts: [{ text: `lines ${startLine}–${startLine + numLines - 1}`, tone: 'text' }, { text: ` of ${totalLines}`, tone: 'muted' }] }
-}
-
-// Words that only run the real command, and the logo each real command wears.
-const RUNNERS = new Set(['sudo', 'time', 'npx', 'bunx', 'exec', 'nice', 'env'])
-const LOGO_OF: Record<string, LogoKind> = {
-  git: 'git', bun: 'bun', npm: 'npm', pnpm: 'pnpm', node: 'nodejs', deno: 'deno',
-  python: 'python', python3: 'python', pip: 'python', pip3: 'python', pytest: 'python', uv: 'python',
-  cargo: 'rust', rustc: 'rust', go: 'golang', docker: 'docker', tsc: 'typescript',
-  playwright: 'playwright', mocha: 'mocha', jest: 'jest',
-}
-
-// The command a Bash call runs, past `cd … &&`, env assignments and runners like sudo or npx.
-export function commandOf(command: string): string {
-  const first = command.split(/&&|\|\||;/).map(s => s.trim()).find(s => s && !/^cd\s/.test(s)) ?? ''
-  const words = first.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []
-  for (let i = 0; i < words.length; i++) {
-    const w = words[i]!
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || RUNNERS.has(w)) continue
-    if (w === 'pnpm' && (words[i + 1] === 'dlx' || words[i + 1] === 'exec')) {
-      i++
-      continue
-    }
-    return w.split('/').pop()!
-  }
-  return ''
-}
-
-export const logoOf = (command: string): LogoKind => LOGO_OF[commandOf(command)] ?? 'bash'
 
 export type TestRunner = 'bun' | 'jest' | 'vitest' | 'pytest' | 'cargo' | 'go'
 type Counts = { passed: number; failed: number; skipped: number }
@@ -143,16 +71,6 @@ export function testResult(text: string): ({ runner: TestRunner } & Counts) | un
     if (c && c.passed + c.failed + c.skipped > 0) return { runner, ...c }
   }
   return undefined
-}
-
-const RUNNER_LOGO: Partial<Record<TestRunner, LogoKind>> = { bun: 'bun', jest: 'jest', pytest: 'python', cargo: 'rust', go: 'golang' }
-
-export function testLine(r: { runner: TestRunner } & Counts, durationMs?: number): Line {
-  const mark = RUNNER_LOGO[r.runner] ?? 'terminal'
-  const time: Part[] = durationMs === undefined ? [] : [{ text: ` · ${seconds(durationMs)}`, tone: 'muted' }]
-  if (r.failed === 0) return { mark, status: 'party', parts: [{ text: `all ${r.passed} passed`, tone: 'ok' }, ...time], bar: Array<Tone>(BAR_CELLS).fill('ok') }
-  const skipped: Part[] = r.skipped ? [{ text: ` · ${r.skipped} skipped`, tone: 'muted' }] : []
-  return { mark, status: 'bad', parts: [{ text: `${r.failed} of ${r.passed + r.failed} failed`, tone: 'bad' }, ...skipped, ...time], bar: split(r.passed, r.failed, 'ok', 'bad') }
 }
 
 export type CalloutKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
@@ -276,3 +194,78 @@ export function outputOf(tool: string, output: unknown): Output | undefined {
   if ((tool === 'Edit' || tool === 'Write') && o?.structuredPatch) return diff(o.structuredPatch, o.filePath)
   return undefined
 }
+
+const basename = (path: string) => path.split('/').filter(Boolean).pop() ?? path
+// A path short enough for a detail line: its last three parts.
+const shortPath = (path: string) => {
+  const parts = path.split('/').filter(Boolean)
+  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path
+}
+const firstLine = (text: string) => text.split('\n')[0]!.trim()
+const sentence = (text: string) => (text ? text[0]!.toUpperCase() + text.slice(1) : text)
+
+type Call = { tool: string; input: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; durationMs?: number; tests?: boolean }
+type Hunk2 = { lines: string[] }
+
+function changes(patch: Hunk2[]): Part[] {
+  const all = patch.flatMap(h => h.lines)
+  const added = all.filter(l => l.startsWith('+')).length
+  const removed = all.filter(l => l.startsWith('-')).length
+  if (added + removed === 0) return [{ text: 'no change', tone: 'muted' }]
+  return [
+    { text: `+${added}`, tone: 'ok' },
+    { text: ` −${removed}`, tone: 'bad' },
+  ]
+}
+
+// The step a tool row shows, or nothing for a tool it does not know.
+export function stepOf(c: Call): Step | undefined {
+  const input = (c.input ?? {}) as { command?: string; description?: string; file_path?: string }
+  const out = c.output as { stdout?: string; stderr?: string; backgroundTaskId?: string; type?: string; content?: string; structuredPatch?: Hunk2[]; file?: { startLine?: number; numLines?: number; totalLines?: number } } | undefined
+  const time = c.isRunning || c.durationMs === undefined ? undefined : seconds(c.durationMs)
+  if (c.tool === 'Bash') {
+    const command = firstLine(input.command ?? '')
+    const title = sentence(input.description?.trim() || command)
+    const detail = `$ ${command}`
+    const said = typeof c.output === 'string' ? c.output : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
+    const tests = c.tests && !c.isRunning ? testResult(said) : undefined
+    const icon: StepIcon = tests ? 'flask' : 'terminal'
+    const base = { icon, title, detail, ...(time ? { time } : {}) }
+    if (c.isRunning) return { ...base, tone: 'muted', result: [{ text: 'running…', tone: 'muted' }], quiet: true }
+    if (c.isInterrupted) return { ...base, icon: 'stop', tone: 'muted', result: [{ text: 'interrupted', tone: 'muted' }] }
+    if (out?.backgroundTaskId) return { ...base, tone: 'muted', result: [{ text: 'in the background', tone: 'muted' }], quiet: true }
+    if (tests && tests.failed > 0)
+      return { ...base, tone: 'bad', result: [{ text: `✗ ${tests.failed} of ${tests.passed + tests.failed} failed`, tone: 'bad' }] }
+    if (c.isErrored) return { ...base, tone: 'bad', result: [{ text: '✗ failed', tone: 'bad' }] }
+    if (tests) {
+      const skipped: Part[] = tests.skipped ? [{ text: ` · ${tests.skipped} skipped`, tone: 'muted' }] : []
+      return { ...base, tone: 'ok', result: [{ text: `✓ ${tests.passed} passed`, tone: 'ok' }, ...skipped], quiet: true }
+    }
+    return { ...base, tone: 'ok', result: [{ text: '✓ done', tone: 'ok' }] }
+  }
+  const path = input.file_path ?? ''
+  if (!path) return undefined
+  const where = { detail: shortPath(path), ...(time ? { time } : {}) }
+  const running: Part[] = [{ text: 'working…', tone: 'muted' }]
+  if (c.tool === 'Edit')
+    return { icon: 'pen', tone: 'edit', title: `Edited ${basename(path)}`, ...where, result: c.isRunning || !out?.structuredPatch ? running : changes(out.structuredPatch), ...(c.isRunning ? { quiet: true } : {}) }
+  if (c.tool === 'Write') {
+    if (out?.type === 'create') {
+      const n = lines(out.content ?? '').length
+      return { icon: 'file', tone: 'ok', title: `Created ${basename(path)}`, ...where, result: [{ text: `new · ${n} line${n === 1 ? '' : 's'}`, tone: 'ok' }] }
+    }
+    return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: out?.structuredPatch ? changes(out.structuredPatch) : running, ...(c.isRunning ? { quiet: true } : {}) }
+  }
+  if (c.tool === 'Read') {
+    const f = out?.type === 'text' ? out.file : undefined
+    const total = f?.totalLines ?? 0
+    const start = f?.startLine ?? 1
+    const n = f?.numLines ?? 0
+    const range = !f || total === 0 ? '' : start <= 1 && n >= total ? `${total} lines` : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
+    return { icon: 'read', tone: 'read', title: `Read ${basename(path)}`, ...where, result: range ? [{ text: range, tone: 'muted' }] : [], quiet: true }
+  }
+  return undefined
+}
+
+// A step in words: for a drawing's alt text and the terminal.
+export const stepText = (s: Step) => [s.title, s.result.map(p => p.text).join(''), s.time].filter(Boolean).join(' · ')

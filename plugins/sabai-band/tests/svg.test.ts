@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, TEXT, bandSvg, calloutTitleSvg, fillColor, lineSvg, lookOf, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -200,38 +200,6 @@ test('chat ink reads on a light and a dark conversation', () => {
   }
 })
 
-test('a summary line is one 24px drawing as wide as what it holds, its text following the OS', () => {
-  const d = lineSvg({ mark: 'terminal', status: 'ok', parts: [{ text: '4.2s', tone: 'muted' }], bar: ['ok', 'ok', 'bad'] })
-  expect(d.height).toBe(24)
-  expect(d.width).toBeLessThan(200)
-  expect(d.alt).toBe('✓ 4.2s')
-  expect(d.source).toContain('prefers-color-scheme: dark')
-  expect(d.source).toContain('class="k-muted"')
-  expect((d.source.match(/class="k-bad"/g) ?? []).length).toBe(1)
-  expect(lineSvg({ mark: 'pencil', parts: [{ text: '+'.repeat(80), tone: 'ok' }] }).width).toBeGreaterThan(560)
-})
-
-test('marks are stroked icons in their tool’s colour; a status icon follows with a one-shot animation', () => {
-  const edit = lineSvg({ mark: 'pencil', parts: [{ text: '+1', tone: 'ok' }] }).source
-  expect(edit).toMatch(/<g class="s-edit an-wiggle"[^>]*stroke-width="2"/)
-  const ok = lineSvg({ mark: 'terminal', status: 'ok', parts: [{ text: '1s', tone: 'muted' }] }).source
-  expect(ok).toContain('class="s-ok an-pop"')
-  expect(ok).toContain('class="an-blink"')
-  expect(ok).toContain('@keyframes an-pop')
-  expect(ok).toContain('prefers-reduced-motion: reduce')
-  const bad = lineSvg({ mark: 'terminal', status: 'bad', parts: [{ text: 'failed', tone: 'bad' }] }).source
-  expect(bad).toContain('class="s-bad an-shake"')
-  expect(lineSvg({ mark: 'bun', status: 'party', parts: [{ text: 'all 3 passed', tone: 'ok' }] }).source).toContain('class="s-ok an-burst"')
-})
-
-test('a line drawn with a logo nests it at mark size, with its dark variant switched by the OS', () => {
-  const d = lineSvg({ mark: 'rust', parts: [{ text: '✓', tone: 'ok' }] })
-  expect(d.source).toMatch(/<svg x="0" y="3" width="18" height="18" viewBox="[^"]+"/)
-  expect(d.source).toContain('class="lg-d"')
-  expect(d.source).toContain('.lg-d{display:none}')
-  expect(d.source.length).toBeLessThan(20_000)
-})
-
 test('callout inks read on light and dark, and a title is one small drawing in its kind’s colour', () => {
   for (const [kind, k] of Object.entries(CALLOUT_KINDS)) expect([kind, contrast(k.ink[0], '#ffffff') >= 4.5, contrast(k.ink[1], '#1a1a1a') >= 4.5]).toEqual([kind, true, true])
   const d = calloutTitleSvg('warning')
@@ -239,4 +207,34 @@ test('callout inks read on light and dark, and a title is one small drawing in i
   expect(d.source).toContain('>Warning<')
   expect(d.source).toContain(`fill:${CALLOUT_KINDS.warning.ink[0]}`)
   expect(d.source).toMatch(/<g class="co an-pop"[^>]*fill="none"/)
+})
+
+test('a step is one fixed 600×46 drawing: icon in a circle, title, detail, result and time', () => {
+  const d = stepSvg({ icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 141 passed', tone: 'ok' }], time: '5.1s' })
+  expect([d.width, d.height]).toEqual([600, 46])
+  expect(d.alt).toBe('Run the tests · ✓ 141 passed · 5.1s')
+  expect(d.source).toContain('<circle class="trk"')
+  expect(d.source).toMatch(/<g class="s-ok an-pop" fill="none" stroke-width="2"/)
+  expect(d.source).toContain('>Run the tests<')
+  expect(d.source).toContain('>$ bun test<')
+  expect(d.source).toContain('text-anchor="end"')
+  expect(d.source).toContain('prefers-color-scheme: dark')
+})
+
+test('a long title is cut short of the result, never under it', () => {
+  const d = stepSvg({ icon: 'terminal', tone: 'bad', title: 'A'.repeat(200), detail: '$ ' + 'x'.repeat(200), result: [{ text: '✗ failed', tone: 'bad' }], time: '1m 4s' })
+  expect(d.source).toContain('…')
+  expect(d.source).toContain('an-shake')
+  const titleChars = (d.source.match(/font-weight="600">([^<]*)</)?.[1] ?? '').length
+  expect(titleChars).toBeLessThan(70)
+})
+
+test('an animated icon keeps its place: the motion sits inside the group that positions it', () => {
+  const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 't', detail: 'd', result: [] })
+  expect(d.source).toMatch(/<g transform="translate\(10,14\) scale\(0\.75\)"><g class="s-ok an-pop"/)
+})
+
+test('motion starts and ends on the icon’s own size, so an image held on its first frame looks right', () => {
+  const src = stepSvg({ icon: 'terminal', tone: 'ok', title: 't', detail: 'd', result: [] }).source
+  expect(src).toContain('@keyframes an-pop{0%,100%{transform:scale(1)}')
 })

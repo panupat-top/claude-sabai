@@ -4,10 +4,10 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { CALLOUT_HINT, STATUS_GLYPH, bashLine, editLine, isGenericWord, logoOf, outputOf, readLine, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from './chat'
-import type { Line, Status, Tone } from './chat'
+import { CALLOUT_HINT, isGenericWord, outputOf, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -49,7 +49,6 @@ const asked = new Set<string>()
 const SVG_IN_CHAT = true
 // Theme keys for each tone: the conversation follows the person's light or dark theme.
 const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning', edit: 'suggestion', read: 'suggestion' }
-const STATUS_TONE: Record<Status, Tone> = { ok: 'ok', bad: 'bad', stop: 'muted', party: 'ok' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
@@ -84,8 +83,8 @@ const CREW_LINGER_MS = 60_000
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
-// The terminal's stand-ins for a chat line's tool marks; a command logo shows as ▶.
-const MARK_GLYPH: Record<string, string> = { pencil: '✎', 'file-added': '✚', eye: '◉', terminal: '▶', stop: '⏹' }
+// The terminal's stand-ins for a step's icon.
+const STEP_GLYPH: Record<StepIcon, string> = { terminal: '▶', flask: '⚗', pen: '✎', file: '✚', read: '◉', stop: '⏹' }
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
@@ -194,30 +193,29 @@ async function setSkin($: EngineInterface, name: string) {
   await $.store.set('skin', name)
 }
 
-// One chat line under a row: an SVG on the desktop, Text in theme keys elsewhere.
-function chatLine($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], shown: Line) {
+// A tool call as a step: one fixed-size SVG on the desktop, two Text rows in theme keys elsewhere.
+function stepView($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], step: Step) {
   const ui = $.ui.resolve(e)
-  const { Text } = ui
+  const { Box, Text } = ui
   if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
-    const d = lineSvg(shown)
-    return <ui.Svg source={d.source} alt={d.alt} />
+    const d = stepSvg(step)
+    return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
   }
   return (
-    <Text>
-      <Text dimColor>{`${MARK_GLYPH[shown.mark] ?? '▶'} `}</Text>
-      {shown.status ? <Text color={TONE_KEY[STATUS_TONE[shown.status]]}>{`${STATUS_GLYPH[shown.status]} `}</Text> : null}
-      {shown.parts.map((p, i) => (
-        <Text key={`p${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
-          {p.text}
-        </Text>
-      ))}
-      {shown.bar ? ' ' : null}
-      {(shown.bar ?? []).map((tone, i) => (
-        <Text key={`b${i}`} color={TONE_KEY[tone]}>
-          ▮
-        </Text>
-      ))}
-    </Text>
+    <Box flexDirection="column">
+      <Text>
+        <Text color={TONE_KEY[step.tone]}>{`${STEP_GLYPH[step.icon]} `}</Text>
+        <Text bold>{step.title}</Text>
+        {'  '}
+        {step.result.map((p, i) => (
+          <Text key={`r${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
+            {p.text}
+          </Text>
+        ))}
+        {step.time ? <Text dimColor>{` · ${step.time}`}</Text> : null}
+      </Text>
+      <Text dimColor wrap="truncate-end">{`  ${step.detail}`}</Text>
+    </Box>
   )
 }
 
@@ -666,52 +664,36 @@ export const register: Register = on => {
     )
   })
 
+  // A tool call drawn as a step in place of its row (what it was about, what it did, how it
+  // ended), with what it holds under it so the row need not be opened.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const { chat } = await read($, prefs)
+    const p = e.props
+    if (!chat.tools && !chat.output) return next(e)
+    const durationMs = p.tool === 'Bash' ? (await read($, durations))[p.tool_use_id] : undefined
+    const step = stepOf({ ...p, ...(durationMs === undefined ? {} : { durationMs }), tests: chat.tests })
+    if (!step) return next(e)
+    const held = chat.output && !step.quiet && !p.isRunning ? outputOf(p.tool, p.output) : undefined
+    const { Box, Code, Text } = $.ui.resolve(e)
+    const shown = chat.tools ? stepView($, e, step) : await next(e)
+    if (!held) return chat.tools ? shown : next(e)
+    return (
+      <Box flexDirection="column" rowGap={0}>
+        {shown}
+        <Box paddingLeft={chat.tools ? 6 : 0} flexDirection="column">
+          <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.path ? { path: held.path } : {})} />
+          {held.more ? <Text dimColor>{`… ${held.more} more line${held.more === 1 ? '' : 's'}`}</Text> : null}
+        </Box>
+      </Box>
+    )
+  })
+
   on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
     const checked = await next(e)
     if (checked.decision === 'ask' && e.tool_use_id) asked.add(e.tool_use_id)
     return checked
   })
 
-  // A summary line under a resolved tool row: the engine's row stays, ours follows it.
-  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    const { chat } = await read($, prefs)
-    const p = e.props
-    if (p.isRunning || (!chat.tools && !chat.tests && !chat.output)) return next(e)
-    let shown: Line | undefined
-    const out = p.output as { stdout?: string; stderr?: string; structuredPatch?: { lines: string[] }[]; type?: string; content?: string } | undefined
-    if (p.tool === 'Bash') {
-      const ms = (await read($, durations))[p.tool_use_id]
-      // An errored call's output is the text the model read; a resolved one is the result record.
-      const said = typeof p.output === 'string' ? p.output : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
-      const tests = chat.tests ? testResult(said) : undefined
-      // A backgrounded call resolved early and is still running: nothing to say yet.
-      if ((out as { backgroundTaskId?: string } | undefined)?.backgroundTaskId) shown = undefined
-      // All tests passed but the command failed (a later step, say): the failure is the news.
-      else if (tests && !(p.isErrored && tests.failed === 0)) shown = testLine(tests, ms)
-      else if (chat.tools || (tests && p.isErrored))
-        shown = bashLine({ isErrored: p.isErrored, isInterrupted: p.isInterrupted, durationMs: ms, mark: logoOf(String((p.input as { command?: unknown }).command ?? '')) })
-    } else if (chat.tools) {
-      if (p.tool === 'Edit' && out?.structuredPatch) shown = editLine(out.structuredPatch)
-      if (p.tool === 'Write' && out?.structuredPatch && (out.type === 'create' || out.type === 'update'))
-        shown = writeLine({ type: out.type, content: out.content ?? '', structuredPatch: out.structuredPatch })
-      if (p.tool === 'Read') shown = readLine(p.output)
-    }
-    const backgrounded = Boolean((out as { backgroundTaskId?: string } | undefined)?.backgroundTaskId)
-    const held = chat.output && !backgrounded ? outputOf(p.tool, p.output) : undefined
-    if (!shown && !held) return next(e)
-    const drawn = await next(e)
-    const { Box, Code, Text } = $.ui.resolve(e)
-    return (
-      <Box flexDirection="column">
-        {drawn}
-        {shown ? chatLine($, e, shown) : null}
-        {held ? <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.path ? { path: held.path } : {})} /> : null}
-        {held?.more ? <Text dimColor>{`… ${held.more} more line${held.more === 1 ? '' : 's'}`}</Text> : null}
-      </Box>
-    )
-  })
-
-  // Callouts: a reply holding a GitHub alert is drawn as its Markdown parts and a box per alert.
   // With Tool output on, a folded run of reads and searches unfolds into its own rows.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
     (await read($, prefs)).chat.output ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
@@ -733,7 +715,7 @@ export const register: Register = on => {
           return (
             <Box key={`co${i}`} borderStyle="round" borderColor={k.key} paddingX={1} flexDirection="column">
               {Svg && title ? (
-                <Svg source={title.source} alt={title.alt} />
+                <Svg source={title.source} alt={title.alt} width={title.width} height={title.height} />
               ) : (
                 <Text color={k.key} bold>
                   {`${k.glyph} ${k.title}`}

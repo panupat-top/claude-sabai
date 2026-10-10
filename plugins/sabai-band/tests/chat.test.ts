@@ -1,77 +1,9 @@
 import { expect, test } from 'claude-code/testing'
-import { SPINNER_WORDS, bashLine, clean, commandOf, editLine, isGenericWord, lineText, logoOf, outputOf, readLine, seconds, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
+import { SPINNER_WORDS, clean, isGenericWord, outputOf, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
-const hunk = (...lines: string[]) => ({ lines })
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
-})
-
-test('a Bash line says how the call ended, with the time when it was measured', () => {
-  expect(bashLine({ isErrored: false, isInterrupted: false, durationMs: 4210 })).toEqual({ mark: 'terminal', status: 'ok', parts: [{ text: '4.2s', tone: 'muted' }] })
-  expect(bashLine({ isErrored: true, isInterrupted: false, durationMs: 3400 })).toEqual({
-    mark: 'terminal',
-    status: 'bad',
-    parts: [{ text: 'failed', tone: 'bad' }, { text: ' · 3.4s', tone: 'muted' }],
-  })
-  expect(bashLine({ isErrored: false, isInterrupted: true, mark: 'git' })).toEqual({ mark: 'git', status: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] })
-})
-
-test('every Bash call gets a line: a quick one shows its time, an untimed one says done', () => {
-  expect(lineText(bashLine({ isErrored: false, isInterrupted: false, durationMs: 300 }))).toBe('✓ 0.3s')
-  expect(lineText(bashLine({ isErrored: false, isInterrupted: false }))).toBe('✓ done')
-  expect(lineText(bashLine({ isErrored: true, isInterrupted: false }))).toBe('✗ failed')
-  expect(lineText(editLine([hunk('+a', '-b')]))).toBe('+1 −1')
-})
-
-test('an Edit line counts added and removed lines across hunks, with a bar of the two', () => {
-  const line = editLine([hunk(' a', '-b', '+c', '+d'), hunk('+e', ' f', '-g')])
-  expect(line?.mark).toBe('pencil')
-  expect(line?.parts).toEqual([
-    { text: '+3', tone: 'ok' },
-    { text: ' −2', tone: 'bad' },
-    { text: ' · 2 hunks', tone: 'muted' },
-  ])
-  expect(line?.bar).toEqual(['ok', 'ok', 'ok', 'ok', 'ok', 'ok', 'bad', 'bad', 'bad', 'bad'])
-})
-
-test('a one-hunk Edit says no hunk count; an empty patch adds nothing', () => {
-  expect(editLine([hunk('+a')])?.parts).toEqual([{ text: '+1', tone: 'ok' }, { text: ' −0', tone: 'bad' }])
-  expect(editLine([])).toBeUndefined()
-  expect(editLine([hunk(' same')])).toBeUndefined()
-})
-
-test('a Write line names a new file and its size, or reads an update as an Edit', () => {
-  expect(writeLine({ type: 'create', content: 'a\nb\nc\n', structuredPatch: [] })).toEqual({
-    mark: 'file-added',
-    parts: [{ text: 'new file', tone: 'ok' }, { text: ' · 3 lines', tone: 'muted' }],
-  })
-  expect(writeLine({ type: 'update', content: '', structuredPatch: [hunk('-a', '+b')] })?.parts[0]).toEqual({ text: '+1', tone: 'ok' })
-})
-
-test('a Read line gives the range read, or the whole file; images and notebooks add nothing', () => {
-  const text = (startLine: number, numLines: number, totalLines: number) => ({ type: 'text', file: { filePath: 'a', content: '', startLine, numLines, totalLines } })
-  expect(readLine(text(1, 20, 131))).toEqual({ mark: 'eye', parts: [{ text: 'lines 1–20', tone: 'text' }, { text: ' of 131', tone: 'muted' }] })
-  expect(readLine(text(1, 131, 131))?.parts).toEqual([{ text: 'all 131 lines', tone: 'text' }])
-  expect(readLine({ type: 'image', file: {} })).toBeUndefined()
-  expect(readLine(undefined)).toBeUndefined()
-})
-
-test('the command is read past cd, env assignments, sudo, time and package runners', () => {
-  expect(commandOf('cd plugins/x && bun test')).toBe('bun')
-  expect(commandOf('FOO=1 BAR="a b" npm run build')).toBe('npm')
-  expect(commandOf('sudo docker ps')).toBe('docker')
-  expect(commandOf('npx playwright test')).toBe('playwright')
-  expect(commandOf('bunx tsc -p .')).toBe('tsc')
-  expect(commandOf('pnpm dlx jest')).toBe('jest')
-  expect(commandOf('time /usr/bin/git status')).toBe('git')
-  expect(commandOf('  ')).toBe('')
-})
-
-test('known commands get their logo; anything else is bash', () => {
-  expect(['git push', 'bun test', 'pnpm i', 'python3 -m pytest', 'uv run x', 'cargo test', 'go test ./...', 'tsc', 'jest', 'ls -la'].map(logoOf)).toEqual([
-    'git', 'bun', 'pnpm', 'python', 'python', 'rust', 'golang', 'typescript', 'jest', 'bash',
-  ])
 })
 
 test('test summaries of each runner are read from their real output', () => {
@@ -89,20 +21,6 @@ test('text that only mentions passes is not a test summary', () => {
   expect(testResult('5 passed the review')).toBeUndefined()
   expect(testResult('ok then')).toBeUndefined()
   expect(testResult('Ran 0 tests across 0 files.\n 0 pass\n 0 fail')).toBeUndefined()
-})
-
-test('a test line cheers an all-green run and counts the failures of a red one', () => {
-  expect(testLine({ runner: 'bun', passed: 96, failed: 0, skipped: 0 }, 3100)).toEqual({
-    mark: 'bun',
-    status: 'party',
-    parts: [{ text: 'all 96 passed', tone: 'ok' }, { text: ' · 3.1s', tone: 'muted' }],
-    bar: Array(10).fill('ok'),
-  })
-  const red = testLine({ runner: 'pytest', passed: 96, failed: 2, skipped: 1 })
-  expect([red.mark, red.status]).toEqual(['python', 'bad'])
-  expect(red.parts).toEqual([{ text: '2 of 98 failed', tone: 'bad' }, { text: ' · 1 skipped', tone: 'muted' }])
-  expect(red.bar?.filter(t => t === 'bad')).toHaveLength(1)
-  expect(testLine({ runner: 'vitest', passed: 1, failed: 0, skipped: 0 }).mark).toBe('terminal')
 })
 
 test('callouts are cut out of a message in order, with the text around them kept', () => {
@@ -164,4 +82,45 @@ test('an edit shows its diff as unified hunks, cut whole and re-counted when lon
 test('a new file shows its first lines, highlighted by its path', () => {
   expect(outputOf('Write', { type: 'create', filePath: 'x.py', content: 'a\nb\nc\nd\ne\nf\ng\nh\n', structuredPatch: [] })).toEqual({ source: 'a\nb\nc\nd\ne\nf', path: 'x.py', more: 2 })
   expect(outputOf('Read', { type: 'text', file: {} })).toBeUndefined()
+})
+
+const call = (tool: string, input: Record<string, unknown>, output: unknown, more: Record<string, unknown> = {}) =>
+  stepOf({ tool, input, output, isRunning: false, isErrored: false, isInterrupted: false, tests: true, ...more })
+
+test('a command is a step titled by what it was for, with the command as its detail', () => {
+  const s = call('Bash', { command: 'npm run build\nnpm test', description: 'build the app' }, { stdout: '', stderr: '' }, { durationMs: 4210 })
+  expect(s).toEqual({ icon: 'terminal', tone: 'ok', title: 'Build the app', detail: '$ npm run build', time: '4.2s', result: [{ text: '✓ done', tone: 'ok' }] })
+  expect(call('Bash', { command: 'ls -la' }, {})?.title).toBe('Ls -la')
+})
+
+test('a command ends failed, interrupted, in the background, or still running', () => {
+  expect(stepText(call('Bash', { command: 'false', description: 'fail' }, 'Exit code 1', { isErrored: true, durationMs: 400 })!)).toBe('Fail · ✗ failed · 0.4s')
+  expect(call('Bash', { command: 'x' }, {}, { isInterrupted: true })).toMatchObject({ icon: 'stop', result: [{ text: 'interrupted' }] })
+  expect(call('Bash', { command: 'dev' }, { backgroundTaskId: 'b1' })).toMatchObject({ result: [{ text: 'in the background' }], quiet: true })
+  const running = call('Bash', { command: 'sleep 9' }, undefined, { isRunning: true, durationMs: 100 })
+  expect(running).toMatchObject({ result: [{ text: 'running…' }], quiet: true })
+  expect(running?.time).toBeUndefined()
+})
+
+test('a test run is a flask step with its counts; passing, its output is not repeated', () => {
+  const pass = call('Bash', { command: 'bun test', description: 'run the tests' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' })
+  expect(pass).toMatchObject({ icon: 'flask', tone: 'ok', result: [{ text: '✓ 9 passed', tone: 'ok' }], quiet: true })
+  const fail = call('Bash', { command: 'bun test' }, 'Exit code 1\n 8 pass\n 1 fail\nRan 9 tests across 1 files.', { isErrored: true })
+  expect(fail).toMatchObject({ icon: 'flask', tone: 'bad', result: [{ text: '✗ 1 of 9 failed', tone: 'bad' }] })
+  expect(fail?.quiet).toBeUndefined()
+  const later = call('Bash', { command: 'bun test && tsc' }, 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS1', { isErrored: true })
+  expect(later?.result).toEqual([{ text: '✗ failed', tone: 'bad' }])
+  expect(call('Bash', { command: 'bun test' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' }, { tests: false })?.icon).toBe('terminal')
+})
+
+test('edits, writes and reads are steps named by their file, with the path as the detail', () => {
+  const patch = [{ lines: [' a', '-b', '+c', '+d'] }, { lines: ['+e'] }]
+  expect(call('Edit', { file_path: '/repo/plugins/x/hooks/svg.ts' }, { structuredPatch: patch })).toEqual({
+    icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/x/hooks/svg.ts', result: [{ text: '+3', tone: 'ok' }, { text: ' −1', tone: 'bad' }],
+  })
+  expect(call('Edit', { file_path: 'a.ts' }, { structuredPatch: [{ lines: [' same'] }] })?.result).toEqual([{ text: 'no change', tone: 'muted' }])
+  expect(call('Write', { file_path: 'docs/new.md' }, { type: 'create', content: 'a\nb\n' })).toMatchObject({ icon: 'file', title: 'Created new.md', result: [{ text: 'new · 2 lines' }] })
+  expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 20, totalLines: 131 } })).toMatchObject({ title: 'Read README.md', result: [{ text: 'lines 1–20 of 131' }], quiet: true })
+  expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 131, totalLines: 131 } })?.result).toEqual([{ text: '131 lines', tone: 'muted' }])
+  expect(call('Grep', { pattern: 'x' }, {})).toBeUndefined()
 })

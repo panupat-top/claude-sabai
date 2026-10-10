@@ -42,20 +42,18 @@ The newest running agents get a card (up to six, fewer when their drawings would
 
 **In the conversation**
 
-- **Tool summaries:** a line under each finished tool row, keeping the row itself:
-  - Edit: `+12 −3 · 2 hunks` and a bar of the two;
-  - Write: `new file · 48 lines`;
-  - Read: `lines 1–20 of 131`;
-  - Bash: `✓ 4.2s`, `✗ failed` or `interrupted`, marked with the command's logo (Git, Bun, npm, Python and others).
-
-  Each line opens with an icon in its tool's colour and a status icon that pops, shakes or bursts once as it appears.
-- **Tool output:** what a row holds, without opening it:
+- **Tool summaries:** each Edit, Write, Read and Bash call is drawn as a step, in place of its folded row:
+  - an icon in a soft circle;
+  - a title saying what it was about (`Run the mod's test suite`, `Edited svg.ts`);
+  - a detail saying what it did (the command, or the file's path);
+  - the result and time at the right (`✓ done · 2.3s`, `✗ failed`, `+12 −3`, `lines 1–20 of 131`).
+- **Tool output:** what a call holds, under its step, without opening anything:
   - a command's last six lines, with a count of the rest;
   - an edit's diff (up to twelve lines);
   - a new file's first lines, highlighted.
 
-  Runs of reads and searches are unfolded into their own rows.
-- **Test results:** a run of bun, jest, vitest, pytest, cargo or go shows as `✓ all 96 passed 🎉` or `✗ 2 of 98 failed` with a bar.
+  A passing test run shows only its counts. Runs of reads and searches are unfolded into their own steps.
+- **Test results:** a run of bun, jest, vitest, pytest, cargo or go gets a flask icon and its counts (`✓ 141 passed`, `✗ 2 of 98 failed`).
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
 - **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
 - **Guard label:** `🛡 guard` under the prompt while the guard is on.
@@ -145,7 +143,7 @@ Development notes — how the mod is built, tested and type-checked — are in [
 
 Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins), [JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree), all MIT.
 
-Command and test-runner logos from [svgl](https://github.com/pheralb/svgl) (MIT), trademarks of their owners. Chat icons: shapes from [Lucide](https://lucide.dev) (ISC), as animated by [pqoqubbw/icons](https://github.com/pqoqubbw/icons) (MIT). Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
+Chat icons: shapes from [Lucide](https://lucide.dev) (ISC), as animated by [pqoqubbw/icons](https://github.com/pqoqubbw/icons) (MIT). Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
 
 ## License
 

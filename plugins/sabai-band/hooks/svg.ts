@@ -2,12 +2,11 @@ import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
-import type { CalloutKind, Line, Mark, Status, Tone } from './chat'
-import { lineText } from './chat'
+import type { CalloutKind, Step, StepIcon, Tone } from './chat'
+import { stepText } from './chat'
 import { icon } from './icons'
 import { STROKES } from './strokes'
 import type { StrokeKind } from './strokes'
-import { LOGOS } from './logos'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
@@ -625,81 +624,60 @@ const ink = (prefix: string, prop: 'fill' | 'stroke', colours: Record<string, re
 const CHAT_CSS = ink('k', 'fill', CHAT_INK) + ink('s', 'stroke', CHAT_INK) + `.trk{fill:${TEXT.m[0]};opacity:.16}@media (prefers-color-scheme: dark){.trk{fill:${TEXT.m[1]}}}`
 // One-shot motion, each starting from a visible frame: the icons settle within half a second
 // (the terminal's cursor blinks three times), and reduced motion keeps them still.
+// One-shot motion, starting from a visible frame; reduced motion keeps it still.
 const CHAT_MOTION =
-  '.an-pop,.an-shake,.an-wiggle,.an-peek,.an-burst{transform-box:fill-box;transform-origin:center}' +
-  '.an-pop{animation:an-pop .45s ease-out}@keyframes an-pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}' +
+  '.an-pop,.an-shake{transform-box:fill-box;transform-origin:center}' +
+  '.an-pop{animation:an-pop .45s ease-out}@keyframes an-pop{0%,100%{transform:scale(1)}45%{transform:scale(1.2)}}' +
   '.an-shake{animation:an-shake .4s ease-in-out}@keyframes an-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
-  '.an-wiggle{animation:an-wiggle .5s ease-in-out}@keyframes an-wiggle{0%,100%{transform:rotate(0)}30%{transform:rotate(-12deg)}70%{transform:rotate(8deg)}}' +
-  '.an-peek{animation:an-peek .5s ease-in-out}@keyframes an-peek{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.15)}}' +
-  '.an-burst{animation:an-burst .6s ease-out}@keyframes an-burst{0%{transform:scale(.7) rotate(-20deg)}55%{transform:scale(1.2) rotate(8deg)}100%{transform:scale(1) rotate(0)}}' +
-  '.an-blink{animation:an-blink .6s steps(1) 3}@keyframes an-blink{0%{opacity:1}50%{opacity:0}}' +
-  '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake,.an-wiggle,.an-peek,.an-burst,.an-blink{animation:none}}'
-const LINE_H = 24
+  '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake{animation:none}}'
 const CHAT_ICON = 18
-const MONO_W = 7.8 // a 13px monospace cell
+const STEP_W = 600
+const STEP_H = 46
+const TITLE_H = 24
 
-// Each mark and status as a stroke icon, its colour and its motion.
-const MARK_ICON: Partial<Record<Mark, { icon: StrokeKind; tone: Tone; anim?: string }>> = {
-  terminal: { icon: 'terminal', tone: 'muted' },
-  pencil: { icon: 'square-pen', tone: 'edit', anim: 'an-wiggle' },
-  'file-added': { icon: 'file-plus', tone: 'ok', anim: 'an-pop' },
-  eye: { icon: 'eye', tone: 'read', anim: 'an-peek' },
-  stop: { icon: 'ban', tone: 'muted' },
-}
-const STATUS_ICON: Record<Status, { icon: StrokeKind; tone: Tone; anim: string }> = {
-  ok: { icon: 'circle-check', tone: 'ok', anim: 'an-pop' },
-  bad: { icon: 'circle-x', tone: 'bad', anim: 'an-shake' },
-  stop: { icon: 'ban', tone: 'muted', anim: 'an-pop' },
-  party: { icon: 'party-popper', tone: 'ok', anim: 'an-burst' },
-}
-
+// Placed by the outer group, painted and moved by the inner one: a CSS animation's transform
+// would otherwise replace the placement.
 const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: number) =>
-  `<g class="${cls}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="translate(${x},${y}) scale(${size / 24})">${STROKES[icon]}</g>`
+  `<g transform="translate(${x},${y}) scale(${size / 24})"><g class="${cls}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STROKES[icon]}</g></g>`
 
-// A line's mark: a command's logo, nested at icon size with its dark variant where svgl has one,
-// or a stroke icon in its tool's colour.
-const LOGO_CSS = `.lg-d{display:none}@media (prefers-color-scheme: dark){.lg-d{display:inline}.lg-l{display:none}}`
-const markSvg = (mark: Mark, x: number, y: number, size: number) => {
-  const logo = (LOGOS as Partial<Record<Mark, { viewBox: string; body: string; dark?: string }>>)[mark]
-  if (logo) {
-    const nest = (body: string, cls?: string) => `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="${logo.viewBox}"${cls ? ` class="${cls}"` : ''}>${body}</svg>`
-    return logo.dark ? nest(logo.body, 'lg-l') + nest(logo.dark, 'lg-d') : nest(logo.body)
-  }
-  const m = MARK_ICON[mark] ?? MARK_ICON.terminal!
-  return stroke(m.icon, [`s-${m.tone}`, m.anim].filter(Boolean).join(' '), x, y, size)
+const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
+// Text in a proportional face, cut near enough to stay clear of the right column.
+const fitSans = (s: string, size: number, maxW: number) => {
+  const room = Math.floor(maxW / (size * 0.56))
+  const chars = [...s]
+  return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
 }
 
-// One summary line under a tool row: its mark, its status, its words in their tones, then the
-// bar's cells on a track. As wide as what it holds; the surface scales a wider one down.
-export function lineSvg(line: Line): Drawing {
-  const top = (LINE_H - CHAT_ICON) / 2
-  let x = CHAT_ICON + 8
-  let icons = markSvg(line.mark, 0, top, CHAT_ICON)
-  if (line.status) {
-    const st = STATUS_ICON[line.status]
-    icons += stroke(st.icon, `s-${st.tone} ${st.anim}`, x, top, CHAT_ICON)
-    x += CHAT_ICON + 8
-  }
-  const words = line.parts
+// One tool call as a step, like a line of a timeline: its icon in a soft circle, a title saying
+// what it was about and a detail saying what it did, then its result and time at the right.
+// Drawn at a fixed size, which the row is told, so it never stretches.
+export function stepSvg(step: Step): Drawing {
+  const resultW = step.result.reduce((n, p) => n + monoWidth(p.text, 12.5), 0)
+  const timeW = step.time ? monoWidth(step.time, 11.5) : 0
+  let x = STEP_W - 2 - resultW
+  const result = step.result
     .map(p => {
-      const t = `<text class="k-${p.tone}" x="${x}" y="16.5" font-family="${MONO}" font-size="13" xml:space="preserve">${xml(p.text)}</text>`
-      x += [...p.text].length * MONO_W
+      const t = `<text class="k-${p.tone}" x="${x.toFixed(1)}" y="20" font-family="${MONO}" font-size="12.5" xml:space="preserve">${xml(p.text)}</text>`
+      x += monoWidth(p.text, 12.5)
       return t
     })
     .join('')
-  const cells = line.bar ?? []
-  let bar = ''
-  if (cells.length) {
-    x += 12
-    bar = `<rect class="trk" x="${x - 3}" y="5" width="${cells.length * 9 + 4}" height="14" rx="4"/>` + cells.map((tone, i) => `<rect class="k-${tone}" x="${x + i * 9}" y="7.5" width="7" height="9" rx="2"/>`).join('')
-    x += cells.length * 9 + 1
-  }
-  const width = Math.min(4096, Math.ceil(x + 4))
+  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="38" text-anchor="end" font-family="${MONO}" font-size="11.5">${xml(step.time)}</text>` : ''
+  const title = fitSans(step.title, 14, STEP_W - 50 - resultW - 16)
+  const detail = fitMono(step.detail, 11.5, STEP_W - 50 - timeW - 16)
+  const motion = step.tone === 'ok' ? ' an-pop' : step.tone === 'bad' ? ' an-shake' : ''
+  const body =
+    `<circle class="trk" cx="19" cy="23" r="17"/>` +
+    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 10, 14, CHAT_ICON) +
+    `<text class="k-text" x="48" y="20" font-family="${SANS}" font-size="14" font-weight="600">${xml(title)}</text>` +
+    `<text class="k-muted" x="48" y="38" font-family="${MONO}" font-size="11.5" xml:space="preserve">${xml(detail)}</text>` +
+    result +
+    time
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${LINE_H}" viewBox="0 0 ${width} ${LINE_H}"><style>${CHAT_CSS}${LOGO_CSS}${CHAT_MOTION}</style>${icons}${words}${bar}</svg>`,
-    width,
-    height: LINE_H,
-    alt: lineText(line),
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${STEP_W}" height="${STEP_H}" viewBox="0 0 ${STEP_W} ${STEP_H}"><style>${CHAT_CSS}${CHAT_MOTION}</style>${body}</svg>`,
+    width: STEP_W,
+    height: STEP_H,
+    alt: stepText(step),
   }
 }
 
@@ -719,9 +697,9 @@ export function calloutTitleSvg(kind: CalloutKind): Drawing {
   const w = CHAT_ICON + 8 + k.title.length * 8.5
   const css = `.co{stroke:${k.ink[0]}}.cot{fill:${k.ink[0]}}@media (prefers-color-scheme: dark){.co{stroke:${k.ink[1]}}.cot{fill:${k.ink[1]}}}`
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${LINE_H}" viewBox="0 0 ${w} ${LINE_H}"><style>${css}${CHAT_MOTION}</style>${stroke(k.icon, 'co an-pop', 0, 3, CHAT_ICON)}<text class="cot" x="${CHAT_ICON + 8}" y="17" font-family="${SANS}" font-size="14" font-weight="600">${k.title}</text></svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${TITLE_H}" viewBox="0 0 ${w} ${TITLE_H}"><style>${css}${CHAT_MOTION}</style>${stroke(k.icon, 'co an-pop', 0, 3, CHAT_ICON)}<text class="cot" x="${CHAT_ICON + 8}" y="17" font-family="${SANS}" font-size="14" font-weight="600">${k.title}</text></svg>`,
     width: w,
-    height: LINE_H,
+    height: TITLE_H,
     alt: k.title,
   }
 }
