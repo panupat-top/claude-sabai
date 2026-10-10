@@ -20,7 +20,7 @@ const bar = atom({ plugin: 'sabai-band', key: 'bar' } as const, 'dither' as BarS
 const finishedOpen = atom({ plugin: 'sabai-band', key: 'finishedOpen' } as const, false)
 const openResults = atom({ plugin: 'sabai-band', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
-const FINISHED_SHOWN = 6
+const FINISHED_SHOWN = 8
 
 const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
 const BAR_NOTES: Record<BarStyle, string> = { dither: 'Twinkling dots', blocks: 'Square cells', solid: 'One smooth fill' }

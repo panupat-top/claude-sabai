@@ -508,7 +508,7 @@ test('forty agents with results open stay under the engine’s tree limit', asyn
   const ui = await mountPane($, 'desktop')
   await ui.press({ key: 'toggle-finished' })
   for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
-  expect(await ui.find({ type: 'Text', text: '+ 32 more' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '+ 30 more' })).toBeDefined()
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
@@ -526,4 +526,25 @@ test('a subagent’s answer and failure reason are kept for its Result', async (
   await ui.press({ key: 'result-agent-bad' })
   expect(await ui.find({ type: 'Text', text: 'Found 3 launches.' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
+})
+
+test('a wide pane in pixel blocks with eight finished agents open stays under the tree limit', async ($, on) => {
+  engine(on, { store: { bar: 'blocks' } })
+  panes(on)
+  await start($)
+  for (let i = 0; i < 12; i++) {
+    await spawn($, `job ${i}`)
+    if (i >= 2) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
+  }
+  const ui = await $.ui.mount({
+    plugin: 'sabai-band',
+    surface: 'desktop',
+    component: 'Pane',
+    requestId: 'sabai-agents',
+    viewport: { columns: 400, rows: 60 },
+    props: { title: 'Agents', isFocused: false, bodyColumns: 400, placement: 'dock', scroll: { offset: 0, bodyRows: 50 }, view: {} },
+  })
+  await ui.press({ key: 'toggle-finished' })
+  for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })

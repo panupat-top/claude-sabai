@@ -328,6 +328,8 @@ function swatch(look: Look, w: number, body: string, alt: string): Drawing {
 const drawing = (look: Look, W: number, height: number, body: string, alt: string): Drawing => ({ source: svg(look, W, height, body), width: W, height, alt })
 
 const AGENT_H = 64
+// A card's pixel-block bar has a fixed cell count, so a wide pane does not multiply its size.
+const CARD_CELLS = 24
 const HOP_MS = 3000
 
 // One subagent, a drawing of its own so a Result button can sit under it: Clawd in his type's
@@ -355,14 +357,28 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const ctx = `${tokens(a.contextTokens)} ctx`
   const barY = 52
   const barW = right - textX
-  const bar = line
-    ? pixelBar(`sabai-band-agent-${a.id}`, textX, barY, barW, 5, line.done / line.total, color, 0, style)
-    : a.status === 'running'
-      ? `<defs><clipPath id="sabai-band-sw-${a.id}"><rect x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/></clipPath></defs>` +
+  const uid = a.id.replace(/\W/g, '_')
+  // Dither as one patterned fill: a pane holds many cards and its whole tree must stay small.
+  const cardBar = (ratio: number) =>
+    style === 'dither'
+      ? `<defs><pattern id="sabai-band-dots-${uid}" width="3" height="3" patternUnits="userSpaceOnUse"><rect x=".5" y=".5" width="2" height="2" fill="${color}"/></pattern></defs>` +
         `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
-        `<g clip-path="url(#sabai-band-sw-${a.id})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="5" fill="${color}"/></g>` +
+        `<rect x="${textX}" y="${barY}" width="${Math.round(barW * ratio)}" height="5" rx="2.5" fill="url(#sabai-band-dots-${uid})"/>`
+      : style === 'blocks'
+        ? Array.from({ length: CARD_CELLS }, (_, i) => {
+            const seg = (barW - 2 * (CARD_CELLS - 1)) / CARD_CELLS
+            const paint = i < Math.round(CARD_CELLS * ratio) ? `fill="${color}"` : 'class="k"'
+            return `<rect ${paint} x="${(textX + i * (seg + 2)).toFixed(1)}" y="${barY}" width="${seg.toFixed(1)}" height="5" rx="1"/>`
+          }).join('')
+        : pixelBar(`sabai-band-agent-${uid}`, textX, barY, barW, 5, ratio, color, 0, style)
+  const bar = line
+    ? cardBar(line.done / line.total)
+    : a.status === 'running'
+      ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/></clipPath></defs>` +
+        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
+        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="5" fill="${color}"/></g>` +
         `<style>.sweep{animation:sw 1.6s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
-      : pixelBar(`sabai-band-agent-${a.id}`, textX, barY, barW, 5, 1, color, 0, style)
+      : cardBar(1)
   const body =
     `<rect class="p" width="${W}" height="${AGENT_H}" rx="8"/>` +
     sprite('tasks', PAD, 14 + HAT_H, mode, look.clawd, { kind: hat, color: accent ? color : undefined }) +
