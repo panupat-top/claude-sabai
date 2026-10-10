@@ -46,6 +46,14 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     },
   }))
   on('command.register', () => ({ value: { command: 'sabai-skin' } }))
+  const commands: string[] = []
+  on('command.list', () => ({
+    value: ['clear', 'compact', 'resume', 'help'].map(name => ({ name, description: '', source: 'builtin' as const })),
+  }))
+  on('command.run', ($, e) => {
+    commands.push(e.command)
+    return { text: '' }
+  })
   on('ui.render', () => STOCK)
   on('session.measure', ($, e) => ({ changed: e.changed }))
   on('tool.call', ($, e) => {
@@ -53,7 +61,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { runs, clock, branch, store }
+  return { runs, clock, branch, store, commands }
 }
 
 const start = ($: Engine) => $.session.start({ surface: 'desktop', isInteractive: true, cwd: '/work' })
@@ -141,13 +149,13 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
     'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
-  expect(desktop.buttons).toBe(2)
+  expect(desktop.buttons).toBe(5)
   const terminal = await shown($, 'terminal')
   expect(terminal.svgs).toBe(0)
   expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
   expect(terminal.words).toContain('7D ALL')
   expect(terminal.words).toContain('24.5k / 200k (12%)')
-  expect(terminal.buttons).toBe(2)
+  expect(terminal.buttons).toBe(5)
 })
 
 test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
@@ -362,7 +370,11 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   await start($)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountBand($, surface)
-    expect((await ui.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['● Agents', '◐ Skins'])
+    const buttons = await ui.findAll({ type: 'Button' })
+    expect(buttons.slice(0, 3).every(b => b.props.plain === undefined)).toBe(true)
+    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '/clear', '▐✻▌', '▐⚙▌'])
+    // What the desktop draws: the label alone.
+    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '/clear', '✻', '⚙'])
     await ui.unmount()
   }
   const ui = await mountBand($, 'desktop')
@@ -373,5 +385,16 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   expect([...open]).toEqual(['sabai-skins'])
   await spawn($, 'scan')
   await spawn($, 'read')
-  expect((await ui.find({ key: 'agents' }))?.text).toBe('● Agents 2')
+  expect((await ui.find({ key: 'agents' }))?.text).toBe('▐✻▌ 2')
+  expect((await ui.find({ key: 'agents' }))?.props.label).toBe('✻ 2')
+})
+
+test('the toolbar runs common commands, only those this surface offers', async ($, on) => {
+  const { clock, commands } = engine(on)
+  await start($)
+  const ui = await mountBand($, 'desktop')
+  expect(await ui.find({ key: 'run-rewind' })).toBeUndefined()
+  await ui.press({ key: 'run-compact' })
+  await clock.advance(1)
+  expect(commands).toEqual(['compact'])
 })

@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar เสร็จ (`sabai-band` 0.5.0)
+> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar + ปุ่มคำสั่ง เสร็จ (`sabai-band` 0.6.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -14,7 +14,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | ข้อมูล | ซ้าย: 📁 directory · Git user · ⎇ branch `↑ahead ↓behind ±uncommitted` — ขวา: Node version | `git`, `node` ผ่าน `$.process.run` · หาไม่ได้ = ซ่อนชิปนั้น |
 | Task | Clawd (เดินเมื่อ turn ทำงาน, กะพริบตาเมื่อรอ) · dithered progress bar · pill `n/total` · % | `TaskCreate` / `TaskUpdate` / `TodoWrite` · ล้างเมื่อ `/clear`, resume, fork |
 | Usage | การ์ด Context `434.5k / 1M (43%)` · 5H Limit · 7D All พร้อม `↻` countdown · เตือน 70% / แดง 90% | engine อย่างเดียว (`session.usage`, `session.measure`) · ยังไม่มีค่า = ซ่อน |
-| Toolbar | ปุ่ม Agents (badge จำนวน agent ที่ทำงาน) · Skins ชิดขวาใต้ band · hotkey `a` / `s` เมื่อ band ถูก focus | ปุ่ม native ของ desktop — skin เปลี่ยนได้แค่สีสัญลักษณ์ |
+| Toolbar | ซ้าย: `/context` `/usage` `/review` `/compact` `/rewind` `/resume` `/clear` (เฉพาะที่ surface มี, `$.command.list`) · ขวา: ปุ่ม icon: `✻` Agents (+จำนวน agent ที่ทำงาน) · `⚙` Skins · hotkey `a` / `s` เมื่อ band ถูก focus | ปุ่ม native ของ desktop — skin เปลี่ยนได้แค่สีสัญลักษณ์ |
 
 - **Agents panel (C2):** `/sabai-agents` เปิด/ปิด pane · การ์ดต่อ subagent: Clawd (เดินเมื่อทำงาน), ชื่องาน, ชนิด agent, model, จำนวนรอบเรียก model, context, เวลา · กลุ่ม RUNNING / DONE (จางลง, ✗ เมื่อล้มเหลว) · เก็บ 40 รายการล่าสุด · ข้อมูลจาก `agent.spawn`, `turn.step`, `turn.complete` · นาฬิกานับทุกวินาทีเฉพาะตอนมี agent ทำงาน · ใช้ skin เดียวกับ band
 - **Skin:** `/sabai-skin` เปิด/ปิด pane เลือก skin (ชื่อ skin ชิดซ้าย ปุ่ม Use ชิดขวา + ตัวอย่างสีของ skin นั้น, กดแล้วเปลี่ยนทันที) · `/sabai-skin <name>` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนพื้นหลัง band, การ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`)

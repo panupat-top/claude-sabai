@@ -7,6 +7,9 @@ import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens,
 import { agentsSvg, bandSvg, lookOf, skinPreview } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
+// Black or white, whichever reads better on a tile of `bg`.
+const inkOn = (bg: string) => (contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111')
+
 const usage = atom({ plugin: 'sabai-band', key: 'usage' } as const, null as Usage | null)
 const tasks = atom({ plugin: 'sabai-band', key: 'tasks' } as const, [] as Task[])
 const now = atom({ plugin: 'sabai-band', key: 'now' } as const, 0)
@@ -17,6 +20,11 @@ const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as Agen
 const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
 
+// The toolbar's shortcuts, those of them this surface offers (the Code tab has no /rewind, say).
+// Ordered by how far each reaches: looking first, then acting on the work, then moving through the
+// conversation, and /clear last, away from the buttons pressed often.
+const QUICK = ['context', 'usage', 'review', 'compact', 'rewind', 'resume', 'clear']
+
 const TICK_MS = 30_000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
@@ -24,6 +32,7 @@ const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as cons
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
 let lastBranch: string | undefined
+let quick: string[] = []
 
 // One line of a command's output, or nothing when it fails or is missing: a chip without a
 // value is simply not drawn.
@@ -86,6 +95,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     cwd = started.cwd
+    const offered = new Set((await $.command.list()).map(c => c.name))
+    quick = QUICK.filter(c => offered.has(c))
     // session.measure fires only on the next response, so a fresh load reads what is known now.
     const known = await $.session.usage()
     await update($, usage, () => toUsage(known))
@@ -295,18 +306,36 @@ export const register: Register = on => {
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
 
-    // The mod's features, one press away; the desktop draws its own buttons, so the skin tints
-    // only their marks. Hotkeys work while the band holds the focus (a click, ctrl+x tab).
+    // Common commands on the left as framed buttons, the mod's panels on the right as icons. The
+    // desktop draws a Button's `label` alone, its hotkey as a keycap, so the icon is the label; the
+    // terminal draws the children: a pixel tile of half blocks round the glyph on the skin's
+    // colour. Hotkeys work while the band holds the focus.
+    const tile = (glyph: string, color: string) => (
+      <Text>
+        <Text color={color}>▐</Text>
+        <Text backgroundColor={color} color={inkOn(color)} bold>
+          {glyph}
+        </Text>
+        <Text color={color}>▌</Text>
+      </Text>
+    )
     const toolbar = (
-      <Box flexDirection="row" justifyContent="flex-end" columnGap={1}>
-        <Button key="agents" label="Agents" hotkey="a" onPress={() => toggleAgents($)}>
-          <Text color={look.clawd}>● </Text>
-          Agents
+      // The terminal's rows are already a row apart; the desktop's band image sits flush on it.
+      // Native buttons carry their own padding, so on the desktop they sit with no gap between.
+      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 0} marginTop={e.surface === 'terminal' ? 0 : 1}>
+        <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1}>
+          {quick.map(c => (
+            // A press's own work ends with the press, so the command is queued from a timer.
+            <Button key={`run-${c}`} label={`/${c}`} variant="secondary" onPress={() => void $.clock.after(0, () => void $.command.run({ command: c }))} />
+          ))}
+        </Box>
+        <Box flexGrow={1} />
+        <Button key="agents" label={running > 0 ? `✻ ${running}` : '✻'} hotkey="a" plain onPress={() => toggleAgents($)}>
+          {tile('✻', look.clawd)}
           {running > 0 ? <Text bold>{` ${running}`}</Text> : null}
         </Button>
-        <Button key="skins" label="Skins" hotkey="s" onPress={() => togglePane($, SKIN_PANE, 'Skins', true)}>
-          <Text color={look.bar('session', 0)}>◐ </Text>
-          Skins
+        <Button key="skins" label="⚙" hotkey="s" plain onPress={() => togglePane($, SKIN_PANE, 'Skins', true)}>
+          {tile('⚙', look.bar('session', 0))}
         </Button>
       </Box>
     )

@@ -39,6 +39,7 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, u
 - `$` cannot be passed across an import: any helper taking `$` must be declared in `register.tsx` itself.
 - The terminal's element table lists `Svg` but cannot draw it — branch on `e.surface !== 'terminal'`, not on `'Svg' in ui`.
 - The desktop draws an `Svg` as an image and wraps sibling elements onto new lines, so each site is a single SVG. With no `width` prop the surface scales a wider markup down to the slot (never up), hence drawing at `bodyColumns × 8.25`. Svg width/height must be 1–4096 px and its source ≤ 131,072 characters; clip-path ids must be unique (`sabai-band-*`).
+- The desktop draws a `Button` as a native button from its `label` alone (children, colours and `hover` are ignored; a `hotkey` shows as a keycap), and a `Button` cannot hold an `Svg`. Put what the desktop should show in `label`; the terminal draws the children. Of the common commands the Code tab offers `/clear` and `/compact`, not `/rewind` or `/resume`.
 - `session.measure` only fires on the next API response, so `session.start` reads `$.session.usage()` itself.
 - Work started from a button press is cancelled when the press ends; run it via `$.clock.after`.
 - In the desktop Code tab `$.ui.status` is not shown and `/config` is unavailable, so settings are slash commands.
