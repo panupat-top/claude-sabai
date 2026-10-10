@@ -2,9 +2,11 @@ import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
-import type { CalloutKind, Line, Mark, Tone } from './chat'
+import type { CalloutKind, Line, Mark, Status, Tone } from './chat'
+import { lineText } from './chat'
 import { icon } from './icons'
-import type { IconKind } from './icons'
+import { STROKES } from './strokes'
+import type { StrokeKind } from './strokes'
 import { LOGOS } from './logos'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
@@ -40,6 +42,8 @@ export const CHAT_INK: Record<Tone, readonly [string, string]> = {
   ok: ['#1a7f37', '#3fb950'],
   bad: ['#cf222e', '#ff7b72'],
   warn: ['#9a6700', '#d29922'],
+  edit: ['#0969da', '#4493f8'],
+  read: ['#0a7568', '#3ccbbb'],
 }
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
@@ -614,63 +618,110 @@ export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
   return drawing(look, W, 56, body, 'No subagents yet. They show here when Claude hands work off.')
 }
 
-const CHAT_CSS =
-  Object.entries(CHAT_INK).map(([k, v]) => `.k-${k}{fill:${v[0]}}`).join('') +
-  `@media (prefers-color-scheme: dark){${Object.entries(CHAT_INK).map(([k, v]) => `.k-${k}{fill:${v[1]}}`).join('')}}`
-const MUTED_MARK = `.m{fill:${TEXT.m[0]}}@media (prefers-color-scheme: dark){.m{fill:${TEXT.m[1]}}}`
-const LINE_W = 560
-const LINE_H = 20
-const MONO_W = 7.2 // a 12px monospace cell
+// Ink as a fill (text, bar cells) and as a stroke (icons), light then dark.
+const ink = (prefix: string, prop: 'fill' | 'stroke', colours: Record<string, readonly [string, string]>) =>
+  Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[0]}}`).join('') +
+  `@media (prefers-color-scheme: dark){${Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[1]}}`).join('')}}`
+const CHAT_CSS = ink('k', 'fill', CHAT_INK) + ink('s', 'stroke', CHAT_INK) + `.trk{fill:${TEXT.m[0]};opacity:.16}@media (prefers-color-scheme: dark){.trk{fill:${TEXT.m[1]}}}`
+// One-shot motion, each starting from a visible frame: the icons settle within half a second
+// (the terminal's cursor blinks three times), and reduced motion keeps them still.
+const CHAT_MOTION =
+  '.an-pop,.an-shake,.an-wiggle,.an-peek,.an-burst{transform-box:fill-box;transform-origin:center}' +
+  '.an-pop{animation:an-pop .45s ease-out}@keyframes an-pop{0%{transform:scale(.6)}60%{transform:scale(1.15)}100%{transform:scale(1)}}' +
+  '.an-shake{animation:an-shake .4s ease-in-out}@keyframes an-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
+  '.an-wiggle{animation:an-wiggle .5s ease-in-out}@keyframes an-wiggle{0%,100%{transform:rotate(0)}30%{transform:rotate(-12deg)}70%{transform:rotate(8deg)}}' +
+  '.an-peek{animation:an-peek .5s ease-in-out}@keyframes an-peek{0%,100%{transform:scaleY(1)}45%{transform:scaleY(.15)}}' +
+  '.an-burst{animation:an-burst .6s ease-out}@keyframes an-burst{0%{transform:scale(.7) rotate(-20deg)}55%{transform:scale(1.2) rotate(8deg)}100%{transform:scale(1) rotate(0)}}' +
+  '.an-blink{animation:an-blink .6s steps(1) 3}@keyframes an-blink{0%{opacity:1}50%{opacity:0}}' +
+  '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake,.an-wiggle,.an-peek,.an-burst,.an-blink{animation:none}}'
+const LINE_H = 24
+const CHAT_ICON = 18
+const MONO_W = 7.8 // a 13px monospace cell
 
-// A line's mark: a command's logo, nested at mark size with its dark variant where svgl has one,
-// or an Octicon.
+// Each mark and status as a stroke icon, its colour and its motion.
+const MARK_ICON: Partial<Record<Mark, { icon: StrokeKind; tone: Tone; anim?: string }>> = {
+  terminal: { icon: 'terminal', tone: 'muted' },
+  pencil: { icon: 'square-pen', tone: 'edit', anim: 'an-wiggle' },
+  'file-added': { icon: 'file-plus', tone: 'ok', anim: 'an-pop' },
+  eye: { icon: 'eye', tone: 'read', anim: 'an-peek' },
+  stop: { icon: 'ban', tone: 'muted' },
+}
+const STATUS_ICON: Record<Status, { icon: StrokeKind; tone: Tone; anim: string }> = {
+  ok: { icon: 'circle-check', tone: 'ok', anim: 'an-pop' },
+  bad: { icon: 'circle-x', tone: 'bad', anim: 'an-shake' },
+  stop: { icon: 'ban', tone: 'muted', anim: 'an-pop' },
+  party: { icon: 'party-popper', tone: 'ok', anim: 'an-burst' },
+}
+
+const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: number) =>
+  `<g class="${cls}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" transform="translate(${x},${y}) scale(${size / 24})">${STROKES[icon]}</g>`
+
+// A line's mark: a command's logo, nested at icon size with its dark variant where svgl has one,
+// or a stroke icon in its tool's colour.
 const LOGO_CSS = `.lg-d{display:none}@media (prefers-color-scheme: dark){.lg-d{display:inline}.lg-l{display:none}}`
 const markSvg = (mark: Mark, x: number, y: number, size: number) => {
   const logo = (LOGOS as Partial<Record<Mark, { viewBox: string; body: string; dark?: string }>>)[mark]
-  if (!logo) return icon(mark as IconKind, x, y, size)
-  const nest = (body: string, cls?: string) => `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="${logo.viewBox}"${cls ? ` class="${cls}"` : ''}>${body}</svg>`
-  return logo.dark ? nest(logo.body, 'lg-l') + nest(logo.dark, 'lg-d') : nest(logo.body)
+  if (logo) {
+    const nest = (body: string, cls?: string) => `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="${logo.viewBox}"${cls ? ` class="${cls}"` : ''}>${body}</svg>`
+    return logo.dark ? nest(logo.body, 'lg-l') + nest(logo.dark, 'lg-d') : nest(logo.body)
+  }
+  const m = MARK_ICON[mark] ?? MARK_ICON.terminal!
+  return stroke(m.icon, [`s-${m.tone}`, m.anim].filter(Boolean).join(' '), x, y, size)
 }
 
-// One summary line under a tool row: its mark, its words in their tones, then the bar's cells.
+// One summary line under a tool row: its mark, its status, its words in their tones, then the
+// bar's cells on a track. As wide as what it holds; the surface scales a wider one down.
 export function lineSvg(line: Line): Drawing {
-  let x = 22
+  const top = (LINE_H - CHAT_ICON) / 2
+  let x = CHAT_ICON + 8
+  let icons = markSvg(line.mark, 0, top, CHAT_ICON)
+  if (line.status) {
+    const st = STATUS_ICON[line.status]
+    icons += stroke(st.icon, `s-${st.tone} ${st.anim}`, x, top, CHAT_ICON)
+    x += CHAT_ICON + 8
+  }
   const words = line.parts
     .map(p => {
-      const t = `<text class="k-${p.tone}" x="${x}" y="14" font-family="${MONO}" font-size="12" xml:space="preserve">${xml(p.text)}</text>`
+      const t = `<text class="k-${p.tone}" x="${x}" y="16.5" font-family="${MONO}" font-size="13" xml:space="preserve">${xml(p.text)}</text>`
       x += [...p.text].length * MONO_W
       return t
     })
     .join('')
-  const bar = (line.bar ?? []).map((tone, i) => `<rect class="k-${tone}" x="${x + 10 + i * 9}" y="5" width="7" height="10" rx="1.5"/>`).join('')
+  const cells = line.bar ?? []
+  let bar = ''
+  if (cells.length) {
+    x += 12
+    bar = `<rect class="trk" x="${x - 3}" y="5" width="${cells.length * 9 + 4}" height="14" rx="4"/>` + cells.map((tone, i) => `<rect class="k-${tone}" x="${x + i * 9}" y="7.5" width="7" height="9" rx="2"/>`).join('')
+    x += cells.length * 9 + 1
+  }
+  const width = Math.min(4096, Math.ceil(x + 4))
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${LINE_W}" height="${LINE_H}" viewBox="0 0 ${LINE_W} ${LINE_H}"><style>${MUTED_MARK}${CHAT_CSS}${LOGO_CSS}</style>${markSvg(line.mark, 0, 2, 16)}${words}${bar}</svg>`,
-    width: LINE_W,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${LINE_H}" viewBox="0 0 ${width} ${LINE_H}"><style>${CHAT_CSS}${LOGO_CSS}${CHAT_MOTION}</style>${icons}${words}${bar}</svg>`,
+    width,
     height: LINE_H,
-    alt: line.parts.map(p => p.text).join(''),
+    alt: lineText(line),
   }
 }
 
-// Each callout kind: its Octicon, the theme key its box and terminal title take, a terminal
+// Each callout kind: its stroke icon, the theme key its box and terminal title take, a terminal
 // glyph, and its SVG ink as [light, dark].
 export const CALLOUT_KINDS = {
   note: { title: 'Note', icon: 'info', key: 'suggestion', glyph: 'ℹ', ink: ['#0969da', '#4493f8'] },
-  tip: { title: 'Tip', icon: 'light-bulb', key: 'success', glyph: '💡', ink: CHAT_INK.ok },
-  important: { title: 'Important', icon: 'report', key: 'claude', glyph: '✦', ink: ['#8250df', '#ab7df8'] },
-  warning: { title: 'Warning', icon: 'alert', key: 'warning', glyph: '⚠', ink: CHAT_INK.warn },
-  caution: { title: 'Caution', icon: 'stop', key: 'error', glyph: '⛔', ink: CHAT_INK.bad },
-} as const satisfies Record<CalloutKind, { title: string; icon: IconKind; key: string; glyph: string; ink: readonly [string, string] }>
+  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', glyph: '💡', ink: CHAT_INK.ok },
+  important: { title: 'Important', icon: 'badge-alert', key: 'claude', glyph: '✦', ink: ['#8250df', '#ab7df8'] },
+  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', glyph: '⚠', ink: CHAT_INK.warn },
+  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', glyph: '⛔', ink: CHAT_INK.bad },
+} as const satisfies Record<CalloutKind, { title: string; icon: StrokeKind; key: string; glyph: string; ink: readonly [string, string] }>
 
 // A callout's title: its icon and name in its kind's colour.
 export function calloutTitleSvg(kind: CalloutKind): Drawing {
   const k = CALLOUT_KINDS[kind]
-  const w = 22 + k.title.length * 8
-  const css = `.co{fill:${k.ink[0]}}@media (prefers-color-scheme: dark){.co{fill:${k.ink[1]}}}`
-  const mark = icon(k.icon, 0, 1, 16).replace('class="m"', 'class="co"')
+  const w = CHAT_ICON + 8 + k.title.length * 8.5
+  const css = `.co{stroke:${k.ink[0]}}.cot{fill:${k.ink[0]}}@media (prefers-color-scheme: dark){.co{stroke:${k.ink[1]}}.cot{fill:${k.ink[1]}}}`
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="18" viewBox="0 0 ${w} 18"><style>${css}</style>${mark}<text class="co" x="22" y="13.5" font-family="${SANS}" font-size="13" font-weight="600">${k.title}</text></svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${LINE_H}" viewBox="0 0 ${w} ${LINE_H}"><style>${css}${CHAT_MOTION}</style>${stroke(k.icon, 'co an-pop', 0, 3, CHAT_ICON)}<text class="cot" x="${CHAT_ICON + 8}" y="17" font-family="${SANS}" font-size="14" font-weight="600">${k.title}</text></svg>`,
     width: w,
-    height: 18,
+    height: LINE_H,
     alt: k.title,
   }
 }

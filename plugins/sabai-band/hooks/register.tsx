@@ -6,9 +6,8 @@ import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { CALLOUT_HINT, bashLine, editLine, isGenericWord, logoOf, readLine, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from './chat'
-import type { Line, Tone } from './chat'
-import type { IconKind } from './icons'
+import { CALLOUT_HINT, STATUS_GLYPH, bashLine, editLine, isGenericWord, logoOf, outputOf, readLine, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from './chat'
+import type { Line, Status, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -27,7 +26,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true, label: true },
+  chat: { spinner: true, tools: true, output: true, tests: true, callouts: true, label: true },
 }
 const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -49,7 +48,8 @@ const asked = new Set<string>()
 // The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
 const SVG_IN_CHAT = true
 // Theme keys for each tone: the conversation follows the person's light or dark theme.
-const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning' }
+const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning', edit: 'suggestion', read: 'suggestion' }
+const STATUS_TONE: Record<Status, Tone> = { ok: 'ok', bad: 'bad', stop: 'muted', party: 'ok' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
@@ -83,10 +83,9 @@ const CREW_LINGER_MS = 60_000
 // A hung git (a network drive, a stale lock) gives up rather than hold the band.
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
-const GLYPHS: Record<IconKind, string> = {
-  folder: '▤', git: '◆', branch: '⎇', node: '⬢',
-  pencil: '✎', 'file-added': '✚', eye: '◉', terminal: '▶', stop: '⏹', info: 'ℹ', 'light-bulb': '💡', report: '✦', alert: '⚠',
-}
+const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
+// The terminal's stand-ins for a chat line's tool marks; a command logo shows as ▶.
+const MARK_GLYPH: Record<string, string> = { pencil: '✎', 'file-added': '✚', eye: '◉', terminal: '▶', stop: '⏹' }
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
@@ -205,7 +204,8 @@ function chatLine($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
   }
   return (
     <Text>
-      <Text dimColor>{`${(GLYPHS as Record<string, string>)[shown.mark] ?? '▶'} `}</Text>
+      <Text dimColor>{`${MARK_GLYPH[shown.mark] ?? '▶'} `}</Text>
+      {shown.status ? <Text color={TONE_KEY[STATUS_TONE[shown.status]]}>{`${STATUS_GLYPH[shown.status]} `}</Text> : null}
       {shown.parts.map((p, i) => (
         <Text key={`p${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
           {p.text}
@@ -620,6 +620,7 @@ export const register: Register = on => {
           {heading('Chat', 'In the conversation')}
           {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           {chatToggle('tools', 'Tool summaries', 'A line under edits, reads and commands')}
+          {chatToggle('output', 'Tool output', "Commands' last lines and edits' diffs, without opening the row")}
           {chatToggle('tests', 'Test results', 'Passed and failed counts as a bar')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
           {chatToggle('label', 'Guard label', 'Shows 🛡 guard under the prompt while the guard is on')}
@@ -675,7 +676,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const { chat } = await read($, prefs)
     const p = e.props
-    if (p.isRunning || (!chat.tools && !chat.tests)) return next(e)
+    if (p.isRunning || (!chat.tools && !chat.tests && !chat.output)) return next(e)
     let shown: Line | undefined
     const out = p.output as { stdout?: string; stderr?: string; structuredPatch?: { lines: string[] }[]; type?: string; content?: string } | undefined
     if (p.tool === 'Bash') {
@@ -695,18 +696,27 @@ export const register: Register = on => {
         shown = writeLine({ type: out.type, content: out.content ?? '', structuredPatch: out.structuredPatch })
       if (p.tool === 'Read') shown = readLine(p.output)
     }
-    if (!shown) return next(e)
+    const backgrounded = Boolean((out as { backgroundTaskId?: string } | undefined)?.backgroundTaskId)
+    const held = chat.output && !backgrounded ? outputOf(p.tool, p.output) : undefined
+    if (!shown && !held) return next(e)
     const drawn = await next(e)
-    const { Box } = $.ui.resolve(e)
+    const { Box, Code, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column">
         {drawn}
-        {chatLine($, e, shown)}
+        {shown ? chatLine($, e, shown) : null}
+        {held ? <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.path ? { path: held.path } : {})} /> : null}
+        {held?.more ? <Text dimColor>{`… ${held.more} more line${held.more === 1 ? '' : 's'}`}</Text> : null}
       </Box>
     )
   })
 
   // Callouts: a reply holding a GitHub alert is drawn as its Markdown parts and a box per alert.
+  // With Tool output on, a folded run of reads and searches unfolds into its own rows.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
+    (await read($, prefs)).chat.output ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
+  )
+
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     if (e.props.isSummary || !(await read($, prefs)).chat.callouts) return next(e)
     const parts = splitCallouts(e.props.text)

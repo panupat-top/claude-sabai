@@ -1,29 +1,28 @@
 import { expect, test } from 'claude-code/testing'
-import { SPINNER_WORDS, bashLine, commandOf, editLine, isGenericWord, logoOf, readLine, seconds, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
+import { SPINNER_WORDS, bashLine, clean, commandOf, editLine, isGenericWord, lineText, logoOf, outputOf, readLine, seconds, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
+
+const hunk = (...lines: string[]) => ({ lines })
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
 })
 
 test('a Bash line says how the call ended, with the time when it was measured', () => {
-  expect(bashLine({ isErrored: false, isInterrupted: false, durationMs: 4210 })).toEqual({
+  expect(bashLine({ isErrored: false, isInterrupted: false, durationMs: 4210 })).toEqual({ mark: 'terminal', status: 'ok', parts: [{ text: '4.2s', tone: 'muted' }] })
+  expect(bashLine({ isErrored: true, isInterrupted: false, durationMs: 3400 })).toEqual({
     mark: 'terminal',
-    parts: [{ text: '✓', tone: 'ok' }, { text: ' 4.2s', tone: 'muted' }],
+    status: 'bad',
+    parts: [{ text: 'failed', tone: 'bad' }, { text: ' · 3.4s', tone: 'muted' }],
   })
-  expect(bashLine({ isErrored: true, isInterrupted: false, durationMs: 3400 })?.parts).toEqual([
-    { text: '✗ failed', tone: 'bad' },
-    { text: ' · 3.4s', tone: 'muted' },
-  ])
-  expect(bashLine({ isErrored: false, isInterrupted: true })).toEqual({ mark: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] })
+  expect(bashLine({ isErrored: false, isInterrupted: true, mark: 'git' })).toEqual({ mark: 'git', status: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] })
 })
 
-test('a quick success, or one the mod did not time, adds nothing; a failure without a time still shows', () => {
-  expect(bashLine({ isErrored: false, isInterrupted: false, durationMs: 300 })).toBeUndefined()
-  expect(bashLine({ isErrored: false, isInterrupted: false })).toBeUndefined()
-  expect(bashLine({ isErrored: true, isInterrupted: false })?.parts).toEqual([{ text: '✗ failed', tone: 'bad' }])
+test('every Bash call gets a line: a quick one shows its time, an untimed one says done', () => {
+  expect(lineText(bashLine({ isErrored: false, isInterrupted: false, durationMs: 300 }))).toBe('✓ 0.3s')
+  expect(lineText(bashLine({ isErrored: false, isInterrupted: false }))).toBe('✓ done')
+  expect(lineText(bashLine({ isErrored: true, isInterrupted: false }))).toBe('✗ failed')
+  expect(lineText(editLine([hunk('+a', '-b')]))).toBe('+1 −1')
 })
-
-const hunk = (...lines: string[]) => ({ lines })
 
 test('an Edit line counts added and removed lines across hunks, with a bar of the two', () => {
   const line = editLine([hunk(' a', '-b', '+c', '+d'), hunk('+e', ' f', '-g')])
@@ -95,12 +94,13 @@ test('text that only mentions passes is not a test summary', () => {
 test('a test line cheers an all-green run and counts the failures of a red one', () => {
   expect(testLine({ runner: 'bun', passed: 96, failed: 0, skipped: 0 }, 3100)).toEqual({
     mark: 'bun',
-    parts: [{ text: '✓ all 96 passed 🎉', tone: 'ok' }, { text: ' · 3.1s', tone: 'muted' }],
+    status: 'party',
+    parts: [{ text: 'all 96 passed', tone: 'ok' }, { text: ' · 3.1s', tone: 'muted' }],
     bar: Array(10).fill('ok'),
   })
   const red = testLine({ runner: 'pytest', passed: 96, failed: 2, skipped: 1 })
-  expect(red.mark).toBe('python')
-  expect(red.parts).toEqual([{ text: '✗ 2 of 98 failed', tone: 'bad' }, { text: ' · 1 skipped', tone: 'muted' }])
+  expect([red.mark, red.status]).toEqual(['python', 'bad'])
+  expect(red.parts).toEqual([{ text: '2 of 98 failed', tone: 'bad' }, { text: ' · 1 skipped', tone: 'muted' }])
   expect(red.bar?.filter(t => t === 'bad')).toHaveLength(1)
   expect(testLine({ runner: 'vitest', passed: 1, failed: 0, skipped: 0 }).mark).toBe('terminal')
 })
@@ -140,4 +140,28 @@ test('every spinner mode has Thai words, picked steadily for a seed', () => {
 
 test('only the desktop’s generic word is replaced there', () => {
   expect([isGenericWord('Working'), isGenericWord('Creating notes.md'), isGenericWord('')]).toEqual([true, false, true])
+})
+
+test('output is cleaned of terminal colour codes and carriage-return redraws', () => {
+  expect(clean('\x1b[32mok\x1b[0m\r\nstep 1\rstep 2\x07')).toBe('ok\nstep 2')
+})
+
+test('Bash output shows its last lines, counting the rest; an empty run shows nothing', () => {
+  const out = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n') + '\n\n'
+  expect(outputOf('Bash', { stdout: out, stderr: '' })).toEqual({ source: 'line 5\nline 6\nline 7\nline 8\nline 9\nline 10', more: 4 })
+  expect(outputOf('Bash', 'Exit code 1\nboom')).toEqual({ source: 'Exit code 1\nboom', more: 0 })
+  expect(outputOf('Bash', { stdout: '', stderr: '  \n' })).toBeUndefined()
+})
+
+test('an edit shows its diff as unified hunks, cut whole and re-counted when long', () => {
+  const short = outputOf('Edit', { filePath: 'a.ts', structuredPatch: [{ oldStart: 3, oldLines: 2, newStart: 3, newLines: 2, lines: [' a', '-b', '+c'] }] })
+  expect(short).toEqual({ source: '@@ -3,2 +3,2 @@\n a\n-b\n+c', format: 'diff', path: 'a.ts', more: 0 })
+  const long = outputOf('Edit', { filePath: 'a.ts', structuredPatch: [{ oldStart: 1, oldLines: 20, newStart: 1, newLines: 20, lines: Array.from({ length: 20 }, (_, i) => (i % 2 ? `+n${i}` : ` c${i}`)) }] })
+  expect(long?.more).toBe(8)
+  expect(long?.source.split('\n')[0]).toBe('@@ -1,6 +1,12 @@')
+})
+
+test('a new file shows its first lines, highlighted by its path', () => {
+  expect(outputOf('Write', { type: 'create', filePath: 'x.py', content: 'a\nb\nc\nd\ne\nf\ng\nh\n', structuredPatch: [] })).toEqual({ source: 'a\nb\nc\nd\ne\nf', path: 'x.py', more: 2 })
+  expect(outputOf('Read', { type: 'text', file: {} })).toBeUndefined()
 })

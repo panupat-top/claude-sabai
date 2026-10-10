@@ -999,7 +999,7 @@ test('settings: each chat feature has its own toggle, kept for new sessions', as
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  for (const k of ['spinner', 'tools', 'tests', 'callouts', 'label']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  for (const k of ['spinner', 'tools', 'output', 'tests', 'callouts', 'label']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
   await pane.press({ key: 'pref-chat-tools' })
   expect((await pane.find({ key: 'pref-chat-tools' }))?.props.label).toBe('○ Off')
   expect((store.prefs as { chat: { tools: boolean } }).chat.tools).toBe(false)
@@ -1038,4 +1038,45 @@ test('a Bash call that waited on a permission prompt shows no time', async ($, o
   await $.tool.call({ tool: 'Bash', command: 'rm x', description: '', tool_use_id: 'ask1' } as Parameters<typeof $.tool.call>[0])
   const ui = await mountTool($, 'desktop', { tool_use_id: 'ask1', tool: 'Bash', input: { command: 'rm x' }, isErrored: true, output: 'refused' })
   expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
+})
+
+test('a tool row shows what it holds without being opened: a command’s last lines, an edit’s diff', async ($, on) => {
+  engine(on)
+  await start($)
+  const out = Array.from({ length: 9 }, (_, i) => `step ${i + 1}`).join('\n')
+  for (const surface of SURFACES) {
+    const bash = await mountTool($, surface, { tool_use_id: `o-${surface}`, tool: 'Bash', input: { command: 'make' }, output: { stdout: out, stderr: '', interrupted: false } })
+    const code = (await bash.findAll({ type: 'Code' }))[0]
+    expect([surface, code?.props.source]).toEqual([surface, 'step 4\nstep 5\nstep 6\nstep 7\nstep 8\nstep 9'])
+    expect((await bash.findAll({ type: 'Text' })).map(t => t.text).join(' ')).toContain('… 3 more lines')
+  }
+  const edit = await mountTool($, 'desktop', { tool_use_id: 'od', tool: 'Edit', input: {}, output: { filePath: 'a.ts', structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] } })
+  expect((await edit.findAll({ type: 'Code' })).map(c => [c.props.format, c.props.source])).toEqual([['diff', '@@ -1,1 +1,1 @@\n-a\n+b']])
+})
+
+test('a quick command the mod did not time still gets its line', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'q', tool: 'Bash', input: { command: 'ls' }, output: { stdout: '', stderr: '', interrupted: false } })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✓ done'])
+})
+
+test('with Tool output on, grouped reads unfold into their own rows; off, the group is left folded', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  const group = (n: number) => $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: `g${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: [], isActive: false, isExpanded: false } as never })
+  await group(1)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-chat-output' })
+  expect((store.prefs as { chat: { output: boolean } }).chat.output).toBe(false)
+  await group(2)
+  expect([seen[0], seen.at(-1)]).toEqual([true, false])
+  const bash = await mountTool($, 'desktop', { tool_use_id: 'off', tool: 'Bash', input: { command: 'make' }, output: { stdout: 'x', stderr: '', interrupted: false } })
+  expect(await bash.findAll({ type: 'Code' })).toEqual([])
 })

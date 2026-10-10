@@ -200,18 +200,33 @@ test('chat ink reads on a light and a dark conversation', () => {
   }
 })
 
-test('a summary line is one 560×20 drawing whose text follows the OS', () => {
-  const d = lineSvg({ mark: 'terminal', parts: [{ text: '✓', tone: 'ok' }, { text: ' 4.2s', tone: 'muted' }], bar: ['ok', 'ok', 'bad'] })
-  expect([d.width, d.height]).toEqual([560, 20])
+test('a summary line is one 24px drawing as wide as what it holds, its text following the OS', () => {
+  const d = lineSvg({ mark: 'terminal', status: 'ok', parts: [{ text: '4.2s', tone: 'muted' }], bar: ['ok', 'ok', 'bad'] })
+  expect(d.height).toBe(24)
+  expect(d.width).toBeLessThan(200)
   expect(d.alt).toBe('✓ 4.2s')
   expect(d.source).toContain('prefers-color-scheme: dark')
-  expect(d.source).toContain('class="k-ok"')
+  expect(d.source).toContain('class="k-muted"')
   expect((d.source.match(/class="k-bad"/g) ?? []).length).toBe(1)
+  expect(lineSvg({ mark: 'pencil', parts: [{ text: '+'.repeat(80), tone: 'ok' }] }).width).toBeGreaterThan(560)
+})
+
+test('marks are stroked icons in their tool’s colour; a status icon follows with a one-shot animation', () => {
+  const edit = lineSvg({ mark: 'pencil', parts: [{ text: '+1', tone: 'ok' }] }).source
+  expect(edit).toMatch(/<g class="s-edit an-wiggle"[^>]*stroke-width="2"/)
+  const ok = lineSvg({ mark: 'terminal', status: 'ok', parts: [{ text: '1s', tone: 'muted' }] }).source
+  expect(ok).toContain('class="s-ok an-pop"')
+  expect(ok).toContain('class="an-blink"')
+  expect(ok).toContain('@keyframes an-pop')
+  expect(ok).toContain('prefers-reduced-motion: reduce')
+  const bad = lineSvg({ mark: 'terminal', status: 'bad', parts: [{ text: 'failed', tone: 'bad' }] }).source
+  expect(bad).toContain('class="s-bad an-shake"')
+  expect(lineSvg({ mark: 'bun', status: 'party', parts: [{ text: 'all 3 passed', tone: 'ok' }] }).source).toContain('class="s-ok an-burst"')
 })
 
 test('a line drawn with a logo nests it at mark size, with its dark variant switched by the OS', () => {
   const d = lineSvg({ mark: 'rust', parts: [{ text: '✓', tone: 'ok' }] })
-  expect(d.source).toMatch(/<svg x="0" y="2" width="16" height="16" viewBox="[^"]+"/)
+  expect(d.source).toMatch(/<svg x="0" y="3" width="18" height="18" viewBox="[^"]+"/)
   expect(d.source).toContain('class="lg-d"')
   expect(d.source).toContain('.lg-d{display:none}')
   expect(d.source.length).toBeLessThan(20_000)
@@ -223,5 +238,5 @@ test('callout inks read on light and dark, and a title is one small drawing in i
   expect(d.alt).toBe('Warning')
   expect(d.source).toContain('>Warning<')
   expect(d.source).toContain(`fill:${CALLOUT_KINDS.warning.ink[0]}`)
-  expect(d.source).toContain('class="co"')
+  expect(d.source).toMatch(/<g class="co an-pop"[^>]*fill="none"/)
 })

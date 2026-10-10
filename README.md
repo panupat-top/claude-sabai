@@ -46,7 +46,15 @@ The newest running agents get a card (up to six, fewer when their drawings would
   - Edit: `+12 −3 · 2 hunks` and a bar of the two;
   - Write: `new file · 48 lines`;
   - Read: `lines 1–20 of 131`;
-  - Bash: `✓ 4.2s`, `✗ failed` or `interrupted`, marked with the command's logo (Git, Bun, npm, Python and others). A command that succeeds in under a second gets no line.
+  - Bash: `✓ 4.2s`, `✗ failed` or `interrupted`, marked with the command's logo (Git, Bun, npm, Python and others).
+
+  Each line opens with an icon in its tool's colour and a status icon that pops, shakes or bursts once as it appears.
+- **Tool output:** what a row holds, without opening it:
+  - a command's last six lines, with a count of the rest;
+  - an edit's diff (up to twelve lines);
+  - a new file's first lines, highlighted.
+
+  Runs of reads and searches are unfolded into their own rows.
 - **Test results:** a run of bun, jest, vitest, pytest, cargo or go shows as `✓ all 96 passed 🎉` or `✗ 2 of 98 failed` with a bar.
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
 - **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
@@ -63,7 +71,7 @@ Everything applies at once and is kept for new sessions:
 | Band | Show or hide each row: Info, Tasks, Crew, Usage, Toolbar. |
 | Progress bar | How bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**, with a preview. |
 | Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
-| Chat | **Spinner words**, **Tool summaries**, **Test results**, **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request) and **Guard label**. All on by default. |
+| Chat | **Spinner words**, **Tool summaries**, **Tool output**, **Test results**, **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request) and **Guard label**. All on by default. |
 | Agents | **Step reports**: agents can send their progress (`2/4 · reading the docs`) to their card in the agents panel. Each model request then carries one small extra tool. On by default; a change takes effect from the next session. Some agent types (such as claude-code-guide) are not given the tool, and their cards show a step count instead. |
 | Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. Off by default. |
 | Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |
@@ -137,7 +145,7 @@ Development notes — how the mod is built, tested and type-checked — are in [
 
 Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins), [JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree), all MIT.
 
-Command and test-runner logos from [svgl](https://github.com/pheralb/svgl) (MIT), trademarks of their owners. Info-row and chat marks: folder, branch and the chat icons from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
+Command and test-runner logos from [svgl](https://github.com/pheralb/svgl) (MIT), trademarks of their owners. Chat icons: shapes from [Lucide](https://lucide.dev) (ISC), as animated by [pqoqubbw/icons](https://github.com/pqoqubbw/icons) (MIT). Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
 
 ## License
 

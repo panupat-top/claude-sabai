@@ -1,16 +1,20 @@
 // What the mod adds to the conversation, as plain values: a summary line under a tool row,
 // test results, callouts and the spinner's words. register.tsx draws them per surface.
 
-export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn'
+export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn' | 'edit' | 'read'
 export type Part = { text: string; tone: Tone }
 export type LogoKind =
   | 'git' | 'bun' | 'npm' | 'pnpm' | 'nodejs' | 'deno' | 'python' | 'rust'
   | 'golang' | 'docker' | 'typescript' | 'playwright' | 'mocha' | 'jest' | 'bash'
 export type Mark = 'pencil' | 'file-added' | 'eye' | 'terminal' | 'stop' | LogoKind
-export type Line = { mark: Mark; parts: Part[]; bar?: Tone[] }
+export type Status = 'ok' | 'bad' | 'stop' | 'party'
+export type Line = { mark: Mark; status?: Status; parts: Part[]; bar?: Tone[] }
 
-// A Bash call this quick that succeeded gets no line: it would only add noise.
-const QUIET_MS = 1000
+// A line's status as a glyph, for the terminal and for a drawing's alt text.
+export const STATUS_GLYPH: Record<Status, string> = { ok: '✓', bad: '✗', stop: '⏹', party: '🎉' }
+
+export const lineText = (line: Line | undefined) =>
+  line ? [line.status && STATUS_GLYPH[line.status], line.parts.map(p => p.text).join('')].filter(Boolean).join(' ') : ''
 
 export function seconds(ms: number): string {
   const s = ms / 1000
@@ -19,13 +23,12 @@ export function seconds(ms: number): string {
   return `${Math.floor(s / 60)}m ${Math.floor(s % 60)}s`
 }
 
-export function bashLine(p: { isErrored: boolean; isInterrupted: boolean; durationMs?: number; mark?: Mark }): Line | undefined {
+export function bashLine(p: { isErrored: boolean; isInterrupted: boolean; durationMs?: number; mark?: Mark }): Line {
   const time = p.durationMs === undefined ? undefined : seconds(p.durationMs)
-  if (p.isInterrupted) return { mark: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] }
   const mark = p.mark ?? 'terminal'
-  if (p.isErrored) return { mark, parts: [{ text: '✗ failed', tone: 'bad' }, ...(time ? [{ text: ` · ${time}`, tone: 'muted' as const }] : [])] }
-  if (p.durationMs === undefined || p.durationMs < QUIET_MS) return undefined
-  return { mark, parts: [{ text: '✓', tone: 'ok' }, { text: ` ${time}`, tone: 'muted' }] }
+  if (p.isInterrupted) return { mark, status: 'stop', parts: [{ text: 'interrupted', tone: 'muted' }] }
+  if (p.isErrored) return { mark, status: 'bad', parts: [{ text: 'failed', tone: 'bad' }, ...(time ? [{ text: ` · ${time}`, tone: 'muted' as const }] : [])] }
+  return { mark, status: 'ok', parts: [{ text: time ?? 'done', tone: 'muted' }] }
 }
 
 const BAR_CELLS = 10
@@ -147,9 +150,9 @@ const RUNNER_LOGO: Partial<Record<TestRunner, LogoKind>> = { bun: 'bun', jest: '
 export function testLine(r: { runner: TestRunner } & Counts, durationMs?: number): Line {
   const mark = RUNNER_LOGO[r.runner] ?? 'terminal'
   const time: Part[] = durationMs === undefined ? [] : [{ text: ` · ${seconds(durationMs)}`, tone: 'muted' }]
-  if (r.failed === 0) return { mark, parts: [{ text: `✓ all ${r.passed} passed 🎉`, tone: 'ok' }, ...time], bar: Array<Tone>(BAR_CELLS).fill('ok') }
+  if (r.failed === 0) return { mark, status: 'party', parts: [{ text: `all ${r.passed} passed`, tone: 'ok' }, ...time], bar: Array<Tone>(BAR_CELLS).fill('ok') }
   const skipped: Part[] = r.skipped ? [{ text: ` · ${r.skipped} skipped`, tone: 'muted' }] : []
-  return { mark, parts: [{ text: `✗ ${r.failed} of ${r.passed + r.failed} failed`, tone: 'bad' }, ...skipped, ...time], bar: split(r.passed, r.failed, 'ok', 'bad') }
+  return { mark, status: 'bad', parts: [{ text: `${r.failed} of ${r.passed + r.failed} failed`, tone: 'bad' }, ...skipped, ...time], bar: split(r.passed, r.failed, 'ok', 'bad') }
 }
 
 export type CalloutKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
@@ -214,3 +217,62 @@ export function spinnerWord(mode: SpinnerMode, seed: number): string {
 
 // The desktop says `Working` while its row names no step; a word naming a step is kept.
 export const isGenericWord = (word: string) => word.trim() === '' || word.trim() === 'Working'
+
+// What a tool row holds, drawn under it so it need not be opened: a command's last lines, an
+// edit's diff, a new file's first lines.
+export type Output = { source: string; format?: 'diff'; path?: string; more: number }
+const OUTPUT_LINES = 6
+const DIFF_LINES = 12
+
+// Text a Code element can draw: no colour codes, no carriage-return redraws, no control characters.
+export function clean(text: string): string {
+  return text
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, '')
+    .split('\n')
+    .map(l => l.replace(/\r$/, '').split('\r').pop()!)
+    .join('\n')
+    .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
+}
+
+const lines = (text: string) => clean(text).replace(/\s+$/, '').split('\n')
+
+function tail(text: string): Output | undefined {
+  const all = lines(text)
+  if (!all.join('').trim()) return undefined
+  return { source: all.slice(-OUTPUT_LINES).join('\n'), more: Math.max(0, all.length - OUTPUT_LINES) }
+}
+
+type Hunk = { oldStart: number; newStart: number; lines: string[] }
+
+// Unified hunks up to DIFF_LINES lines, whole hunks first; a hunk cut short is re-counted so it parses.
+function diff(patch: Hunk[], path?: string): Output | undefined {
+  const total = patch.reduce((n, h) => n + h.lines.length, 0)
+  if (!total) return undefined
+  const out: string[] = []
+  let used = 0
+  for (const h of patch) {
+    if (used >= DIFF_LINES) break
+    const body = h.lines.slice(0, DIFF_LINES - used)
+    const oldN = body.filter(l => !l.startsWith('+')).length
+    const newN = body.filter(l => !l.startsWith('-')).length
+    out.push(`@@ -${h.oldStart},${oldN} +${h.newStart},${newN} @@`, ...body)
+    used += body.length
+  }
+  return { source: out.join('\n'), format: 'diff', ...(path ? { path } : {}), more: total - used }
+}
+
+export function outputOf(tool: string, output: unknown): Output | undefined {
+  if (tool === 'Bash') {
+    if (typeof output === 'string') return tail(output)
+    const o = output as { stdout?: string; stderr?: string } | undefined
+    return tail([o?.stdout ?? '', o?.stderr ?? ''].filter(t => t.trim()).join('\n'))
+  }
+  const o = output as { filePath?: string; type?: string; content?: string; structuredPatch?: Hunk[] } | undefined
+  if (tool === 'Write' && o?.type === 'create' && o.content !== undefined) {
+    const all = lines(o.content)
+    return { source: all.slice(0, OUTPUT_LINES).join('\n'), ...(o.filePath ? { path: o.filePath } : {}), more: Math.max(0, all.length - OUTPUT_LINES) }
+  }
+  if ((tool === 'Edit' || tool === 'Write') && o?.structuredPatch) return diff(o.structuredPatch, o.filePath)
+  return undefined
+}
