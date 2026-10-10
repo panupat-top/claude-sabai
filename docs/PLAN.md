@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar + ปุ่มคำสั่ง + รูปแบบ bar เสร็จ (`sabai-band` 0.7.0)
+> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar + ปุ่มคำสั่ง + รูปแบบ bar + agents pane รอบ 2 เสร็จ (`sabai-band` 0.8.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
