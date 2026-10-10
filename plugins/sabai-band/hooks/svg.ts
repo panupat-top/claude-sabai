@@ -2,7 +2,9 @@ import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
+import type { Line, Mark, Tone } from './chat'
 import { icon } from './icons'
+import type { IconKind } from './icons'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
@@ -29,6 +31,15 @@ export const TEXT = {
   warn: ['#a8490a', '#ff9d57'],
   alert: ['#c0262c', '#ff7377'],
 } as const
+// The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
+// a skin's card. Checked at 4.5:1 against white and a dark conversation by the tests.
+export const CHAT_INK: Record<Tone, readonly [string, string]> = {
+  text: TEXT.t,
+  muted: TEXT.m,
+  ok: ['#1a7f37', '#3fb950'],
+  bad: ['#cf222e', '#ff7b72'],
+  warn: ['#9a6700', '#d29922'],
+}
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
@@ -600,4 +611,34 @@ export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
     `<text class="t" x="${PAD + clawd.width + 12}" y="24" font-family="${SANS}" font-size="12.5" font-weight="600">No subagents yet</text>` +
     `<text class="m" x="${PAD + clawd.width + 12}" y="41" font-family="${SANS}" font-size="11.5">${xml(fit('They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.', 11.5, W - PAD * 2 - clawd.width - 12))}</text>`
   return drawing(look, W, 56, body, 'No subagents yet. They show here when Claude hands work off.')
+}
+
+const CHAT_CSS =
+  Object.entries(CHAT_INK).map(([k, v]) => `.k-${k}{fill:${v[0]}}`).join('') +
+  `@media (prefers-color-scheme: dark){${Object.entries(CHAT_INK).map(([k, v]) => `.k-${k}{fill:${v[1]}}`).join('')}}`
+const MUTED_MARK = `.m{fill:${TEXT.m[0]}}@media (prefers-color-scheme: dark){.m{fill:${TEXT.m[1]}}}`
+const LINE_W = 560
+const LINE_H = 20
+const MONO_W = 7.2 // a 12px monospace cell
+
+// A line's mark: an Octicon.
+const markSvg = (mark: Mark, x: number, y: number, size: number) => icon(mark as IconKind, x, y, size)
+
+// One summary line under a tool row: its mark, its words in their tones, then the bar's cells.
+export function lineSvg(line: Line): Drawing {
+  let x = 22
+  const words = line.parts
+    .map(p => {
+      const t = `<text class="k-${p.tone}" x="${x}" y="14" font-family="${MONO}" font-size="12" xml:space="preserve">${xml(p.text)}</text>`
+      x += [...p.text].length * MONO_W
+      return t
+    })
+    .join('')
+  const bar = (line.bar ?? []).map((tone, i) => `<rect class="k-${tone}" x="${x + 10 + i * 9}" y="5" width="7" height="10" rx="1.5"/>`).join('')
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${LINE_W}" height="${LINE_H}" viewBox="0 0 ${LINE_W} ${LINE_H}"><style>${MUTED_MARK}${CHAT_CSS}</style>${markSvg(line.mark, 0, 2, 16)}${words}${bar}</svg>`,
+    width: LINE_W,
+    height: LINE_H,
+    alt: line.parts.map(p => p.text).join(''),
+  }
 }

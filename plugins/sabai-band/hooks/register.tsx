@@ -4,8 +4,11 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, agentCardSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
+import { bashLine } from './chat'
+import type { Line, Tone } from './chat'
+import type { IconKind } from './icons'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -24,14 +27,27 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
+  chat: { spinner: true, tools: true, tests: true, callouts: true, label: true },
 }
 const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
 const withDefaults = (v: unknown): Prefs => {
   const p = (v && typeof v === 'object' ? v : {}) as Partial<Prefs>
-  return { ...DEFAULT_PREFS, ...p, rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) } }
+  return {
+    ...DEFAULT_PREFS,
+    ...p,
+    rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
+    chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
+  }
 }
 const STEP_TOOL = 'mcp__sabai-band__step'
+// When each Bash call ran, by tool_use_id: the result carries no duration of its own.
+const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, {} as Record<string, number>)
+const DURATIONS_KEPT = 200
+// The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
+const SVG_IN_CHAT = true
+// Theme keys for each tone: the conversation follows the person's light or dark theme.
+const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
@@ -65,7 +81,10 @@ const CREW_LINGER_MS = 60_000
 // A hung git (a network drive, a stale lock) gives up rather than hold the band.
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
-const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
+const GLYPHS: Record<IconKind, string> = {
+  folder: '▤', git: '◆', branch: '⎇', node: '⬢',
+  pencil: '✎', 'file-added': '✚', eye: '◉', terminal: '▶', stop: '⏹', info: 'ℹ', 'light-bulb': '💡', report: '✦', alert: '⚠',
+}
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
@@ -170,6 +189,32 @@ async function guarded($: EngineInterface, tool: string, input: { command?: unkn
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
+}
+
+// One chat line under a row: an SVG on the desktop, Text in theme keys elsewhere.
+function chatLine($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], shown: Line) {
+  const ui = $.ui.resolve(e)
+  const { Text } = ui
+  if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
+    const d = lineSvg(shown)
+    return <ui.Svg source={d.source} alt={d.alt} />
+  }
+  return (
+    <Text>
+      <Text dimColor>{`${(GLYPHS as Record<string, string>)[shown.mark] ?? '▶'} `}</Text>
+      {shown.parts.map((p, i) => (
+        <Text key={`p${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
+          {p.text}
+        </Text>
+      ))}
+      {shown.bar ? ' ' : null}
+      {(shown.bar ?? []).map((tone, i) => (
+        <Text key={`b${i}`} color={TONE_KEY[tone]}>
+          ▮
+        </Text>
+      ))}
+    </Text>
+  )
 }
 
 export const register: Register = on => {
@@ -455,7 +500,16 @@ export const register: Register = on => {
   // The guard, when turned on: refuse the few commands that are almost never meant.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const risk = await guarded($, 'Bash', e)
-    return risk ? { deny: risk } : next(e)
+    if (risk) return { deny: risk }
+    // Timed here, as the result carries no duration of its own.
+    const id = (e as { tool_use_id?: string }).tool_use_id
+    const startedAt = await $.clock.now()
+    const called = await next(e)
+    if (id) {
+      const ms = (await $.clock.now()) - startedAt
+      await update($, durations, d => Object.fromEntries([...Object.entries(d), [id, ms] as const].slice(-DURATIONS_KEPT)))
+    }
+    return called
   })
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     const risk = await guarded($, 'Read', e)
@@ -593,6 +647,24 @@ export const register: Register = on => {
             )
           })}
         </Box>
+      </Box>
+    )
+  })
+
+  // A summary line under a resolved tool row: the engine's row stays, ours follows it.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const { chat } = await read($, prefs)
+    const p = e.props
+    if (p.isRunning || !chat.tools) return next(e)
+    let shown: Line | undefined
+    if (p.tool === 'Bash') shown = bashLine({ isErrored: p.isErrored, isInterrupted: p.isInterrupted, durationMs: (await read($, durations))[p.tool_use_id] })
+    if (!shown) return next(e)
+    const drawn = await next(e)
+    const { Box } = $.ui.resolve(e)
+    return (
+      <Box flexDirection="column">
+        {drawn}
+        {chatLine($, e, shown)}
       </Box>
     )
   })

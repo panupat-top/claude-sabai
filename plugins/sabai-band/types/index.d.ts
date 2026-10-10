@@ -45,6 +45,7 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
+  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; label: boolean }
 }
 
 declare module 'claude-code' {
@@ -60,6 +61,7 @@ declare module 'claude-code' {
       finishedOpen: boolean
       openResults: string[]
       agents: AgentRun[]
+      durations: Record<string, number>
     }
   }
 }

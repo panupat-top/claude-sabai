@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CARD, TEXT, bandSvg, fillColor, lookOf, textClass } from '../hooks/svg'
+import { CARD, CHAT_INK, TEXT, bandSvg, fillColor, lineSvg, lookOf, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -192,4 +192,19 @@ test('every skin’s empty bar track stands out from its card', () => {
     const track = lookOf(key).css.match(/\.k\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
     expect([key, contrast(track, card) >= 1.35]).toEqual([key, true])
   }
+})
+
+test('chat ink reads on a light and a dark conversation', () => {
+  for (const [tone, [light, dark]] of Object.entries(CHAT_INK)) {
+    expect([tone, contrast(light, '#ffffff') >= 4.5, contrast(dark, '#1a1a1a') >= 4.5]).toEqual([tone, true, true])
+  }
+})
+
+test('a summary line is one 560×20 drawing whose text follows the OS', () => {
+  const d = lineSvg({ mark: 'terminal', parts: [{ text: '✓', tone: 'ok' }, { text: ' 4.2s', tone: 'muted' }], bar: ['ok', 'ok', 'bad'] })
+  expect([d.width, d.height]).toEqual([560, 20])
+  expect(d.alt).toBe('✓ 4.2s')
+  expect(d.source).toContain('prefers-color-scheme: dark')
+  expect(d.source).toContain('class="k-ok"')
+  expect((d.source.match(/class="k-bad"/g) ?? []).length).toBe(1)
 })

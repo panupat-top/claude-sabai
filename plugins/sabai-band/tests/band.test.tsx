@@ -839,3 +839,50 @@ test('agents report their own steps through the mod’s tool, filling their card
   expect(card?.props.source).toContain('>2/4<')
   expect(card?.props.source).toContain('>Reading the docs<')
 })
+
+const mountTool = ($: Engine, surface: Surface, props: Record<string, unknown>) =>
+  $.ui.mount({
+    plugin: 'sabai-band',
+    surface,
+    component: 'ToolUse',
+    requestId: String(props.tool_use_id),
+    viewport: { columns: 120, rows: 30 },
+    props: { isRunning: false, isErrored: false, isInterrupted: false, ...props } as never,
+  })
+
+// The words of a chat line: the desktop's drawings by their alt, the terminal's Text.
+async function lineWords(ui: Awaited<ReturnType<typeof mountTool>>, surface: Surface) {
+  if (surface === 'desktop') return (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
+  return (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
+}
+
+test('a Bash row keeps the engine’s drawing and gains its measured time underneath', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(4200)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', description: '', tool_use_id: 'tu1' } as Parameters<typeof $.tool.call>[0])
+  for (const surface of SURFACES) {
+    const ui = await mountTool($, surface, { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'npm run build' }, output: { stdout: '', stderr: '', interrupted: false } })
+    expect([surface, (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')]).toEqual([surface, true])
+    expect([surface, await lineWords(ui, surface)]).toEqual([surface, expect.stringContaining('✓ 4.2s')])
+  }
+})
+
+test('an untimed quick Bash row, another tool, or the toggle off pass straight through', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: false, tests: true, callouts: true, label: true } } } })
+  await start($)
+  const off = await mountTool($, 'desktop', { tool_use_id: 'x', tool: 'Bash', input: { command: 'ls' }, isErrored: true, output: {} })
+  expect(await off.findAll({ type: 'Svg' })).toEqual([])
+  const other = await mountTool($, 'desktop', { tool_use_id: 'y', tool: 'Glob', input: {}, output: {} })
+  expect(await other.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('settings saved before the Chat group load with every chat toggle on', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: false, toolbar: true }, notify: true, limits: true, guard: true, steps: true } } })
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'f', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
+})
