@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
-import { clock, elapsed, finished, groups, modelName, spawned, stepped } from '../hooks/agents'
+import { RESULT_MAX, clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
 import { agentsSvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -32,8 +32,8 @@ test('a run is added once, steps count up with the latest context, and it ends d
   list = stepped(list, 'a', '', USAGE)
   expect([list[0]?.steps, list[0]?.contextTokens, list[0]?.model]).toEqual([2, 42_100, 'claude-opus-5-5'])
   expect(stepped(list, 'nobody', 'x', USAGE)).toEqual(list)
-  expect(finished(list, 'a', true, 5000)[0]).toMatchObject({ status: 'done', endedAt: 5000 })
-  expect(finished(list, 'a', false, 5000)[0]?.status).toBe('failed')
+  expect(finished(list, 'a', 'answer', 5000)[0]).toMatchObject({ status: 'done', endedAt: 5000 })
+  expect(finished(list, 'a', 'error', 5000)[0]?.status).toBe('failed')
 })
 
 test('the pane keeps the newest forty runs', () => {
@@ -72,4 +72,52 @@ test('with no runs the pane says so; a skin colours its cards, no background', (
   const nord = agentsSvg([run('a')], [], 600, 0, 'nord').source
   expect(nord).toContain('.p{fill:#3b4252}')
   expect(nord).not.toContain('rx="10" fill=')
+})
+
+test('effort and type give a label, a hat and a colour; unknown ones fall back', () => {
+  expect(['low', 'medium', 'high', 'xhigh', 'max', '7', undefined].map(effortLabel)).toEqual(['quick', 'steady', 'careful', 'deep', 'deep', undefined, undefined])
+  expect(typeStyle('Explore')).toEqual({ hat: 'explorer', accent: 'context' })
+  expect(typeStyle('Plan')).toEqual({ hat: 'hardhat', accent: 'session' })
+  expect(typeStyle('general-purpose')).toEqual({ hat: 'cap', accent: 'tasks' })
+  expect(typeStyle('claude-code-guide')).toEqual({ hat: 'grad', accent: 'week' })
+  expect(typeStyle('my-reviewer')).toEqual({ hat: 'beanie' })
+})
+
+test('a step records effort; an agent keeps its own task list and line', () => {
+  let list = stepped([run('a')], 'a', 'claude-opus-5-5', USAGE, 'high')
+  expect(list[0]?.effort).toBe('high')
+  list = stepped(list, 'a', '', USAGE)
+  expect(list[0]?.effort).toBe('high')
+  list = withTasks(list, 'a', () => [
+    { id: '1', subject: 'Draft', status: 'completed' },
+    { id: '2', subject: 'Hero copy', activeForm: 'Writing hero copy', status: 'in_progress' },
+    { id: '3', subject: 'Polish', status: 'pending' },
+  ])
+  expect(taskLine(list[0]?.tasks)).toEqual({ done: 1, total: 3, title: 'Writing hero copy' })
+  expect(taskLine([{ id: '1', subject: 'x', status: 'completed' }])).toEqual({ done: 1, total: 1, title: 'Done' })
+  expect(taskLine(undefined)).toBeUndefined()
+})
+
+test('a finished run keeps its reason and a cut answer; Result text never comes out empty', () => {
+  const long = 'x'.repeat(5000)
+  const [done] = finished([run('a')], 'a', 'answer', 9000, long)
+  expect([done?.status, done?.reason, done?.result?.length]).toEqual(['done', 'answer', RESULT_MAX])
+  expect(done?.result?.endsWith('…')).toBe(true)
+  expect(finished([run('b')], 'b', 'refusal', 9000)[0]?.status).toBe('failed')
+  expect(resultText(run('c', { status: 'done', reason: 'answer' }))).toBe('No report.')
+  expect(resultText(run('d', { status: 'failed', reason: 'aborted' }))).toBe('Stopped before it finished.')
+  expect(resultText(run('e', { status: 'failed', reason: 'refusal' }))).toBe('Declined the task.')
+  expect(resultText(run('f', { status: 'failed', reason: 'error' }))).toBe('Ended with an error.')
+  expect(resultText(run('g', { status: 'done', reason: 'answer', result: 'Found 3.' }))).toBe('Found 3.')
+})
+
+test('the summary counts agents, sums context and spans the wall time; Clear keeps running ones', () => {
+  const list = [
+    run('a', { status: 'done', startedAt: 1000, endedAt: 9000, contextTokens: 40_000 }),
+    run('b', { startedAt: 3000, contextTokens: 2_000 }),
+  ]
+  expect(summary(list, 21_000)).toEqual({ running: 1, done: 1, context: 42_000, ms: 20_000 })
+  expect(summary([list[0]!], 21_000).ms).toBe(8000)
+  expect(summary([], 21_000)).toEqual({ running: 0, done: 0, context: 0, ms: 0 })
+  expect(clearFinished(list).map(a => a.id)).toEqual(['b'])
 })

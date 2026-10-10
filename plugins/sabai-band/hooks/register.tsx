@@ -177,7 +177,7 @@ export const register: Register = on => {
       await readRepo($)
     } else {
       const at = await $.clock.now()
-      await update($, agents, list => finished(list, agentId, e.reason === 'answer', at))
+      await update($, agents, list => finished(list, agentId, e.reason, at, e.answer))
       await update($, now, () => at)
     }
     return completed

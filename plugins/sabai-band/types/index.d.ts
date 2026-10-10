@@ -15,7 +15,8 @@ export type Task = {
 // How the band draws its bars: savvy-progress's dither, square pixel segments, or a solid fill.
 export type BarStyle = 'dither' | 'blocks' | 'solid'
 
-// One subagent as the agents pane shows it.
+// One subagent as the agents pane shows it. `tasks`, `effort`, `result` and `reason` are absent
+// on runs from before they were recorded, and while the engine has not said.
 export type AgentRun = {
   id: string
   agentId?: string
@@ -27,6 +28,10 @@ export type AgentRun = {
   endedAt?: number
   contextTokens: number
   steps: number
+  effort?: string
+  tasks?: Task[]
+  result?: string
+  reason?: 'answer' | 'aborted' | 'refusal' | 'error'
 }
 
 declare module 'claude-code' {
