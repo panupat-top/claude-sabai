@@ -49,7 +49,8 @@ Everything applies at once and is kept for new sessions:
 | Band | Show or hide each row: Info, Tasks, Crew, Usage, Toolbar. |
 | Progress bar | How bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**, with a preview. |
 | Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
-| Agents and safety | **Step reports**: let agents report their steps (a small tool every request carries; from the next session). **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main`/`master`, and reading `.env` files, with a toast saying why. Off by default. |
+| Agents | **Step reports**: agents can send their progress (`2/4 · reading the docs`) to their card in the agents panel. Each model request then carries one small extra tool. On by default; a change takes effect from the next session. Some agent types (such as claude-code-guide) are not given the tool, and their cards show a step count instead. |
+| Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. Off by default. |
 | Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |
 
 ## Requirements

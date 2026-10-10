@@ -18,11 +18,24 @@ export function riskOf(tool: string, input: { command?: unknown; file_path?: unk
     if (target === '/' || target === '/*') return 'deletes the whole disk'
     if (['~', '~/', '$HOME', '$HOME/', '${HOME}', '${HOME}/'].includes(target)) return 'deletes your home folder'
   }
-  const push = /\bgit\s+push\b(.*)/.exec(cmd)
-  if (push && /(\s--force(?!-with-lease)\b|\s-f\b)/.test(push[1]!)) {
-    const branch = /\b(main|master)\b/.exec(push[1]!)
-    if (branch) return `force-pushes to ${branch[1]}`
+  const force = forcedPush(cmd)
+  if (force) return `force-pushes to ${force}`
+  if (/\b(cat|less|more|head|tail|bat|source|grep|rg)\b/.test(cmd) && ENV_FILE.test(cmd)) return 'reads a .env file'
+  return undefined
+}
+
+// The branch a force push lands on, when it is main or master: the push's own arguments up to the
+// next shell operator, its refspecs read for their destination (`src:dst`, `+dst`), so a word
+// inside another branch's name or a later command never counts.
+function forcedPush(cmd: string): string | undefined {
+  const m = /\bgit\s+push\b([^;&|]*)/.exec(cmd)
+  if (!m) return undefined
+  const args = m[1]!.trim().split(/\s+/).filter(Boolean)
+  const isForced = args.some(a => a === '-f' || a === '--force' || /^-[a-z]*f[a-z]*$/.test(a))
+  const refs = args.filter(a => !a.startsWith('-')).slice(1)
+  for (const ref of refs) {
+    const branch = ref.replace(/^\+/, '').split(':').pop()!.replace(/^refs\/heads\//, '')
+    if ((branch === 'main' || branch === 'master') && (isForced || ref.startsWith('+'))) return branch
   }
-  if (/\b(cat|less|more|head|tail|bat|source)\b/.test(cmd) && ENV_FILE.test(cmd)) return 'reads a .env file'
   return undefined
 }

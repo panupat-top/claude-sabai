@@ -13,6 +13,13 @@ test('the guard names risky commands and lets ordinary ones through', () => {
   expect(bash('git push -f origin master')).toBe('force-pushes to master')
   expect(bash('git push --force-with-lease origin main')).toBeUndefined()
   expect(bash('git push --force origin feature/x')).toBeUndefined()
+  // Only the branch pushed to counts, not a word inside another branch's name.
+  expect(bash('git push --force origin feature/main-thing')).toBeUndefined()
+  expect(bash('git push -f origin main-backup')).toBeUndefined()
+  expect(bash('git push --force origin HEAD:main')).toBe('force-pushes to main')
+  expect(bash('git push origin +refs/heads/master')).toBe('force-pushes to master')
+  expect(bash('git push --force origin feature/x && echo main')).toBeUndefined()
+  expect(bash('grep KEY .env')).toBe('reads a .env file')
   expect(bash('cat .env')).toBe('reads a .env file')
   expect(bash('cat .env.example')).toBeUndefined()
   expect(riskOf('Read', { file_path: '/work/app/.env.local' })).toBe('reads a .env file')
