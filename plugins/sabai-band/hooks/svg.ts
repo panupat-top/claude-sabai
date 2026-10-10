@@ -1,9 +1,9 @@
 import type { AgentRun, BarStyle } from '../types'
-import { clock, elapsed, modelName } from './agents'
+import { clock, effortLabel, elapsed, modelName, summary, taskLine, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import { icon } from './icons'
-import { ICON_COLORS, SPRITE_CSS, sprite, spriteSize } from './sprites'
+import { ICON_COLORS, HAT_H, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
 
@@ -327,54 +327,88 @@ function swatch(look: Look, w: number, body: string, alt: string): Drawing {
 
 const drawing = (look: Look, W: number, height: number, body: string, alt: string): Drawing => ({ source: svg(look, W, height, body), width: W, height, alt })
 
-const HEAD_H = 16
+const AGENT_H = 64
+const HOP_MS = 3000
 
-// One subagent: Clawd, the task and its elapsed time, then the agent type, model, model requests
-// and context, and a mark for its state. A finished run is drawn faded and its Clawd waits.
-function agentCard(look: Look, a: AgentRun, x: number, y: number, w: number, now: number): string {
-  const right = x + w - PAD
+// One subagent, a drawing of its own so a Result button can sit under it: Clawd in his type's
+// hat, the task and clock, effort · type · model, own progress or steps with the context, and a
+// bar in the type's colour (an indeterminate sweep while running with no list).
+export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto', style: BarStyle = 'dither'): Drawing {
+  const look = lookOf(skin)
+  const { hat, accent } = typeStyle(a.type)
+  const color = accent ? look.bar(accent, 0) : look.bar('session', 0)
+  const textCls = accent ? `c-${accent}` : 'm'
+  const right = W - PAD
   const clawd = spriteSize('tasks')
-  const textX = x + PAD + clawd.width + 10
-  const type = a.type.toUpperCase()
-  const typeW = monoWidth(type, 10) + type.length * 0.8
-  const detail = `${modelName(a.model)} · ${a.steps} ${a.steps === 1 ? 'step' : 'steps'} · ${tokens(a.contextTokens)} ctx`
+  const textX = PAD + clawd.width + 12
+  const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : a.endedAt !== undefined && now - a.endedAt < HOP_MS ? 'hop' : 'idle'
+  const line = taskLine(a.tasks)
+  const effort = effortLabel(a.effort)
+  const effortW = effort ? monoWidth(effort, 10) + 12 : 0
+  const meta = `${a.type} · ${modelName(a.model)}`
   const mark =
     a.status === 'running'
-      ? `<circle class="live" cx="${right - 4}" cy="${y + 31}" r="3.5" fill="${look.clawd}"/>`
-      : `<text class="${a.status === 'failed' ? 'c-alert' : 'm'}" x="${right}" y="${y + 35}" text-anchor="end" font-family="${MONO}" font-size="12" font-weight="700">${a.status === 'failed' ? '✗' : '✓'}</text>`
-  const card =
-    `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H}" rx="8"/>` +
-    sprite('tasks', x + PAD, y + (CARD_H - clawd.height) / 2, a.status === 'running' ? 'run' : 'idle', look.clawd) +
-    `<text class="t" x="${textX}" y="${y + 18}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, Math.max(40, right - textX - 70)))}</text>` +
-    `<text class="m" x="${right}" y="${y + 18}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${clock(elapsed(a, now))}</text>` +
-    `<text class="m" x="${textX}" y="${y + 34}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(type)}</text>` +
-    `<text class="m" x="${textX + typeW + 8}" y="${y + 34}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(40, right - textX - typeW - 8 - 18)))}</text>` +
-    mark
-  return a.status === 'running' ? card : `<g opacity=".6">${card}</g>`
+      ? `<circle class="live" cx="${right - 4}" cy="14" r="3.5" fill="${color}"/>`
+      : `<text class="${a.status === 'failed' ? 'c-alert' : 'c-context'}" x="${right}" y="18" text-anchor="end" font-family="${MONO}" font-size="12" font-weight="700">${a.status === 'failed' ? '✗' : '✓'}</text>`
+  const markW = 16
+  const progressText = line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`
+  const ctx = `${tokens(a.contextTokens)} ctx`
+  const barY = 52
+  const barW = right - textX
+  const bar = line
+    ? pixelBar(`sabai-band-agent-${a.id}`, textX, barY, barW, 5, line.done / line.total, color, 0, style)
+    : a.status === 'running'
+      ? `<defs><clipPath id="sabai-band-sw-${a.id}"><rect x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/></clipPath></defs>` +
+        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
+        `<g clip-path="url(#sabai-band-sw-${a.id})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="5" fill="${color}"/></g>` +
+        `<style>.sweep{animation:sw 1.6s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
+      : pixelBar(`sabai-band-agent-${a.id}`, textX, barY, barW, 5, 1, color, 0, style)
+  const body =
+    `<rect class="p" width="${W}" height="${AGENT_H}" rx="8"/>` +
+    sprite('tasks', PAD, 14 + HAT_H, mode, look.clawd, { kind: hat, color: accent ? color : undefined }) +
+    `<text class="t" x="${textX}" y="18" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, Math.max(40, right - textX - 60)))}</text>` +
+    `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${clock(elapsed(a, now))}</text>` +
+    mark +
+    (effort
+      ? `<rect x="${textX}" y="24" width="${effortW}" height="14" rx="4" fill="${color}" fill-opacity=".16"/><text class="${textCls}" x="${textX + 6}" y="34" font-family="${MONO}" font-size="10" font-weight="600">${effort}</text>`
+      : '') +
+    `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="34" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, Math.max(40, right - textX - effortW - 6)))}</text>` +
+    `<text class="m" x="${textX}" y="47" font-family="${MONO}" font-size="11">${xml(fitMono(progressText, 11, Math.max(40, barW - monoWidth(ctx, 11) - 10)))}</text>` +
+    `<text class="m" x="${right}" y="47" text-anchor="end" font-family="${MONO}" font-size="11">${ctx}</text>` +
+    bar
+  return drawing(look, W, AGENT_H, body, `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`)
 }
 
-// The agents pane: running runs, then finished ones, each under a small heading.
-export function agentsSvg(running: readonly AgentRun[], done: readonly AgentRun[], W: number, now: number, skin = 'auto'): Drawing {
+// Three cards: how many agents run and finished, their context together, and the wall time.
+export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'auto'): Drawing {
   const look = lookOf(skin)
-  let y = 0
-  let body = ''
-  const section = (label: string, list: readonly AgentRun[]) => {
-    if (list.length === 0) return
-    body += `<text class="m" x="0" y="${y + 11}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label} · ${list.length}</text>`
-    y += HEAD_H
-    for (const a of list) {
-      body += agentCard(look, a, 0, y, W, now)
-      y += CARD_H + GAP
-    }
-  }
-  section('RUNNING', running)
-  section('DONE', done)
-  if (!body) {
-    body = `<text class="m" x="0" y="13" font-family="${SANS}" font-size="12.5">No subagents yet. They show here while they work.</text>`
-    y = 20 + GAP
-  }
-  const alt = [...running, ...done]
-    .map(a => `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`)
-    .join('; ')
-  return drawing(look, W, y - GAP, body, alt || 'No subagents yet')
+  const s = summary(list, now)
+  const cells = [
+    ['AGENTS', s.running > 0 ? `${s.running} running · ${s.done} done` : `${s.done} done`],
+    ['CONTEXT', tokens(s.context)],
+    ['TIME', clock(s.ms)],
+  ] as const
+  const cw = (W - GAP * 2) / 3
+  const body = cells
+    .map(([label, value], i) => {
+      const x = i * (cw + GAP)
+      return (
+        `<rect class="p" x="${x}" y="0" width="${cw}" height="44" rx="8"/>` +
+        `<text class="m" x="${x + PAD}" y="16" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+        `<text class="t" x="${x + PAD}" y="35" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(value, 12.5, cw - PAD * 2))}</text>`
+      )
+    })
+    .join('')
+  return drawing(look, W, 44, body, `Agents ${cells[0][1]}; context ${cells[1][1]}; time ${cells[2][1]}`)
+}
+
+export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
+  const look = lookOf(skin)
+  const clawd = spriteSize('tasks')
+  const body =
+    `<rect class="p" width="${W}" height="56" rx="8"/>` +
+    sprite('tasks', PAD, 20, 'idle', look.clawd) +
+    `<text class="t" x="${PAD + clawd.width + 12}" y="24" font-family="${SANS}" font-size="12.5" font-weight="600">No subagents yet</text>` +
+    `<text class="m" x="${PAD + clawd.width + 12}" y="41" font-family="${SANS}" font-size="11.5">${xml(fit('They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.', 11.5, W - PAD * 2 - clawd.width - 12))}</text>`
+  return drawing(look, W, 56, body, 'No subagents yet. They show here when Claude hands work off.')
 }

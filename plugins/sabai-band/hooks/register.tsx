@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
 import { clock, elapsed, finished, groups, modelName, spawned, stepped } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, agentsSvg, bandSvg, barPreview, lookOf, skinPreview } from './svg'
+import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -195,7 +195,9 @@ export const register: Register = on => {
     const { Box, Text } = ui
     if (e.surface !== 'terminal' && 'Svg' in ui) {
       const { Svg } = ui
-      const pane = agentsSvg(running, done, Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))), at, skinName)
+      // temporary until Task 5: first card only
+      const first = [...running, ...done][0]
+      const pane = first ? agentCardSvg(first, Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))), at, skinName) : emptyAgentsSvg(240, skinName)
       return <Svg source={pane.source} alt={pane.alt} />
     }
     const look = lookOf(skinName)

@@ -316,7 +316,6 @@ test('a subagent shows running with its clock, then done when its turn ends', as
   const ui = await mountPane($, 'desktop')
   const svg = (await ui.find({ type: 'Svg' })) as { props: { alt: string; source: string } } | undefined
   expect(svg?.props.alt).toBe('api routes: Explore, sonnet 5.5, done, 1m 4s')
-  expect(svg?.props.source).toContain('>DONE · 1<')
 })
 
 test('an empty panel says there is nothing yet', async ($, on) => {

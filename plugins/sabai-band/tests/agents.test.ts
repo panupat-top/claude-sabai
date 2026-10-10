@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
 import { RESULT_MAX, clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
-import { agentsSvg } from '../hooks/svg'
+import { agentCardSvg, emptyAgentsSvg, summarySvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id,
@@ -53,27 +53,6 @@ test('running runs come first, each group newest first', () => {
   expect([g.running.map(a => a.id), g.finished.map(a => a.id)]).toEqual([['d', 'b'], ['c', 'a']])
 })
 
-test('the pane draws a card per run under its heading; finished runs fade, failed ones are marked', () => {
-  const d = agentsSvg([run('r', { steps: 12, contextTokens: 42_100 })], [run('ok', { status: 'done', endedAt: 42_000 }), run('bad', { status: 'failed', endedAt: 2000 })], 600, 65_000)
-  expect(d.source).toContain('>RUNNING · 1<')
-  expect(d.source).toContain('>DONE · 2<')
-  expect(d.source).toContain('sonnet 5.5 · 12 steps · 42.1k ctx')
-  expect(d.source).toContain('class="live"')
-  expect(d.source.match(/<g opacity="\.6">/g)?.length).toBe(2)
-  expect(d.source).toContain('class="c-alert"')
-  expect(d.source.match(/class="run"/g)?.length).toBe(1)
-  expect(d.height).toBe(16 + 44 + 8 + 16 + 44 + 8 + 44)
-  expect(d.alt).toBe('task r: Explore, sonnet 5.5, running, 1m 4s; task ok: Explore, sonnet 5.5, done, 41s; task bad: Explore, sonnet 5.5, failed, 1s')
-})
-
-test('with no runs the pane says so; a skin colours its cards, no background', () => {
-  expect(agentsSvg([], [], 600, 0).alt).toBe('No subagents yet')
-  expect(agentsSvg([], [], 600, 0).source).toContain('No subagents yet. They show here while they work.')
-  const nord = agentsSvg([run('a')], [], 600, 0, 'nord').source
-  expect(nord).toContain('.p{fill:#3b4252}')
-  expect(nord).not.toContain('rx="10" fill=')
-})
-
 test('effort and type give a label, a hat and a colour; unknown ones fall back', () => {
   expect(['low', 'medium', 'high', 'xhigh', 'max', '7', undefined].map(effortLabel)).toEqual(['quick', 'steady', 'careful', 'deep', 'deep', undefined, undefined])
   expect(typeStyle('Explore')).toEqual({ hat: 'explorer', accent: 'context' })
@@ -120,4 +99,38 @@ test('the summary counts agents, sums context and spans the wall time; Clear kee
   expect(summary([list[0]!], 21_000).ms).toBe(8000)
   expect(summary([], 21_000)).toEqual({ running: 0, done: 0, context: 0, ms: 0 })
   expect(clearFinished(list).map(a => a.id)).toEqual(['b'])
+})
+
+test('a card shows hat, task, clock, effort · type · model, own progress and context', () => {
+  const a = run('a', {
+    type: 'Plan', effort: 'medium', contextTokens: 39_000, steps: 9,
+    tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'Draw', activeForm: 'Drawing', status: 'in_progress' }],
+  })
+  const d = agentCardSvg(a, 420, 19_000, 'dracula', 'blocks')
+  expect(d.height).toBe(64)
+  expect(d.source).toContain('>task a<')
+  expect(d.source).toContain('>steady<')
+  expect(d.source).toContain('Plan · sonnet 5.5')
+  expect(d.source).toContain('1/2 · Drawing')
+  expect(d.source).toContain('39k ctx')
+  expect(d.source).toContain('class="run"')
+  expect(d.source).toContain('fill="#bd93f9"')
+  expect(d.alt).toBe('task a: Plan, sonnet 5.5, running, 18s')
+})
+
+test('without tasks a card counts steps; it hops just after finishing, shuts its eyes on failure', () => {
+  const plain = agentCardSvg(run('b', { steps: 14 }), 420, 5000)
+  expect(plain.source).toContain('>14 steps<')
+  expect(plain.source).not.toContain('steady')
+  expect(agentCardSvg(run('c', { status: 'done', endedAt: 4000 }), 420, 5000).source).toContain('class="hop"')
+  expect(agentCardSvg(run('c', { status: 'done', endedAt: 4000 }), 420, 60_000).source).toContain('class="idle"')
+  expect(agentCardSvg(run('d', { status: 'failed', endedAt: 4000 }), 420, 5000).source).toContain('class="dizzy"')
+})
+
+test('the summary reads agents, context and time; the empty drawing invites a first agent', () => {
+  const s = summarySvg([run('a', { status: 'done', endedAt: 9000, contextTokens: 40_000 }), run('b', { contextTokens: 2000 })], 420, 21_000)
+  expect(s.source).toContain('>1 running · 1 done<')
+  expect(s.source).toContain('>42k<')
+  expect(s.source).toContain('>20s<')
+  expect(emptyAgentsSvg(420).source).toContain('No subagents yet')
 })
