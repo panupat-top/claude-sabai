@@ -44,6 +44,8 @@ const STEP_TOOL = 'mcp__sabai-band__step'
 // When each Bash call ran, by tool_use_id: the result carries no duration of its own.
 const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, {} as Record<string, number>)
 const DURATIONS_KEPT = 200
+// Bash calls that waited on a permission prompt: their time would be the person's, not the command's.
+const asked = new Set<string>()
 // The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
 const SVG_IN_CHAT = true
 // Theme keys for each tone: the conversation follows the person's light or dark theme.
@@ -507,7 +509,7 @@ export const register: Register = on => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     const called = await next(e)
-    if (id) {
+    if (id && !asked.delete(id)) {
       const ms = (await $.clock.now()) - startedAt
       await update($, durations, d => Object.fromEntries([...Object.entries(d), [id, ms] as const].slice(-DURATIONS_KEPT)))
     }
@@ -663,6 +665,12 @@ export const register: Register = on => {
     )
   })
 
+  on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
+    const checked = await next(e)
+    if (checked.decision === 'ask' && e.tool_use_id) asked.add(e.tool_use_id)
+    return checked
+  })
+
   // A summary line under a resolved tool row: the engine's row stays, ours follows it.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const { chat } = await read($, prefs)
@@ -672,9 +680,14 @@ export const register: Register = on => {
     const out = p.output as { stdout?: string; stderr?: string; structuredPatch?: { lines: string[] }[]; type?: string; content?: string } | undefined
     if (p.tool === 'Bash') {
       const ms = (await read($, durations))[p.tool_use_id]
-      const tests = chat.tests ? testResult(`${out?.stdout ?? ''}\n${out?.stderr ?? ''}`) : undefined
-      if (tests) shown = testLine(tests, ms)
-      else if (chat.tools)
+      // An errored call's output is the text the model read; a resolved one is the result record.
+      const said = typeof p.output === 'string' ? p.output : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
+      const tests = chat.tests ? testResult(said) : undefined
+      // A backgrounded call resolved early and is still running: nothing to say yet.
+      if ((out as { backgroundTaskId?: string } | undefined)?.backgroundTaskId) shown = undefined
+      // All tests passed but the command failed (a later step, say): the failure is the news.
+      else if (tests && !(p.isErrored && tests.failed === 0)) shown = testLine(tests, ms)
+      else if (chat.tools || (tests && p.isErrored))
         shown = bashLine({ isErrored: p.isErrored, isInterrupted: p.isInterrupted, durationMs: ms, mark: logoOf(String((p.input as { command?: unknown }).command ?? '')) })
     } else if (chat.tools) {
       if (p.tool === 'Edit' && out?.structuredPatch) shown = editLine(out.structuredPatch)
@@ -745,7 +758,7 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (!(await read($, prefs)).chat.callouts) return composed
-    return { sections: [...composed.sections, { id: 'sabai-band-callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
+    return { sections: [...composed.sections, { id: 'sabai-band:callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

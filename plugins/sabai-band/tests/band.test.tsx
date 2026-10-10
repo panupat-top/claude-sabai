@@ -903,7 +903,8 @@ test('Edit, Write and Read rows gain their summary on both surfaces', async ($, 
   }
 })
 
-const TEST_ROW = { tool_use_id: 't', tool: 'Bash', input: { command: 'bun test' }, isErrored: true, output: { stdout: ' 9 pass\n 1 fail\nRan 10 tests across 2 files.', stderr: '', interrupted: false } }
+// An errored call's output is the text the model read, not the result record.
+const TEST_ROW = { tool_use_id: 't', tool: 'Bash', input: { command: 'bun test' }, isErrored: true, output: 'Exit code 1\n 9 pass\n 1 fail\nRan 10 tests across 2 files.' }
 
 test('a Bash row whose output is a test summary becomes a test line', async ($, on) => {
   engine(on)
@@ -951,7 +952,7 @@ test('Claude is told about callouts only while Callouts is on', async ($, on) =>
   engine(on)
   on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
   await start($)
-  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai-band-callouts'])
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai-band:callouts'])
 })
 
 test('with Callouts off, replies and the prompt are left alone', async ($, on) => {
@@ -1004,4 +1005,37 @@ test('settings: each chat feature has its own toggle, kept for new sessions', as
   expect((store.prefs as { chat: { tools: boolean } }).chat.tools).toBe(false)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'z', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
   expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('a run whose tests all passed but whose command failed says it failed', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'bt', tool: 'Bash', input: { command: 'bun test && tsc' }, isErrored: true, output: 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS2304' })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
+})
+
+test('a backgrounded Bash call gets no line, though its tool.call resolved', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(120_000)
+    return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', description: '', tool_use_id: 'bg' } as Parameters<typeof $.tool.call>[0])
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'bg', tool: 'Bash', input: { command: 'npm run dev' }, output: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } })
+  expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('a Bash call that waited on a permission prompt shows no time', async ($, on) => {
+  on('tool.check', () => ({ decision: 'ask' as const }))
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(6000)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.check({ tool: 'Bash', input: { command: 'rm x' }, tool_use_id: 'ask1' })
+  await $.tool.call({ tool: 'Bash', command: 'rm x', description: '', tool_use_id: 'ask1' } as Parameters<typeof $.tool.call>[0])
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'ask1', tool: 'Bash', input: { command: 'rm x' }, isErrored: true, output: 'refused' })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['✗ failed'])
 })
