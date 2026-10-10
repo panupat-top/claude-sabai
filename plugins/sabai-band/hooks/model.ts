@@ -18,7 +18,8 @@ export const toUsage = (u: {
   rateLimits: u.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt })),
 })
 
-const clamp = (p: number) => Math.max(0, Math.min(100, Math.round(p)))
+// A reading the engine could not give (NaN) counts as nothing used, never "NaN%".
+const clamp = (p: number) => (Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : 0)
 const resetsIn = (resetsAt: string | undefined, now: number) => {
   const at = resetsAt ? Date.parse(resetsAt) : NaN
   return Number.isNaN(at) ? undefined : Math.max(0, at - now)
@@ -95,7 +96,7 @@ export function updated(
   return tasks.map(t =>
     t.id !== input.taskId
       ? t
-      : { ...t, subject: input.subject ?? t.subject, activeForm: input.activeForm ?? t.activeForm, status: status ?? t.status },
+      : { ...t, subject: input.subject || t.subject, activeForm: input.activeForm ?? t.activeForm, status: status ?? t.status },
   )
 }
 

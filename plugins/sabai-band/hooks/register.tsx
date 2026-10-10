@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
-import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, taskLine, typeEmoji, typeStyle, withTasks } from './agents'
+import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
+import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { riskOf } from './guard'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -17,15 +18,36 @@ const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai-band', key: 'bar' } as const, 'dither' as BarStyle)
+const DEFAULT_PREFS: Prefs = {
+  rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
+  notify: true,
+  limits: true,
+  guard: false,
+  steps: true,
+}
+const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
+// A saved Prefs, filled from the defaults where it predates a field.
+const withDefaults = (v: unknown): Prefs => {
+  const p = (v && typeof v === 'object' ? v : {}) as Partial<Prefs>
+  return { ...DEFAULT_PREFS, ...p, rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) } }
+}
+const STEP_TOOL = 'mcp__sabai-band__step'
+// A main turn this long earns a notification when it ends.
+const LONG_TURN_MS = 60_000
+const LIMIT_WARN_AT = 90
+// Each plan-limit window warned about already, by kind and reset time.
+const warned = new Set<string>()
 const finishedOpen = atom({ plugin: 'sabai-band', key: 'finishedOpen' } as const, false)
 const openResults = atom({ plugin: 'sabai-band', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
 const FINISHED_SHOWN = 8
 // Likewise the newest running agents: a wide workflow fan-out would otherwise outgrow the pane.
 const RUNNING_SHOWN = 6
+// The card drawings a pane may carry, in characters, newest first: its whole tree, escaping and
+// the rest included, must stay under the engine's 100,000.
+const PANE_BUDGET = 70_000
 
 const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
-const BAR_NOTES: Record<BarStyle, string> = { dither: 'Twinkling dots', blocks: 'Square cells', solid: 'One smooth fill' }
 // The terminal's stand-ins for each style's filled and empty cells.
 const BAR_GLYPHS: Record<BarStyle, [string, string]> = { dither: ['▓', '░'], blocks: ['▰', '▱'], solid: ['█', '░'] }
 
@@ -33,24 +55,29 @@ const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
 
 // The toolbar's shortcuts, those of them this surface offers (the Code tab has no /rewind, say).
-// Ordered by how far each reaches: looking first, then acting on the work, then moving through the
-// conversation, and /clear last, away from the buttons pressed often.
-const QUICK = ['context', 'usage', 'review', 'compact', 'rewind', 'resume', 'clear']
+// The band's own cards already show context and usage, and /clear is one click from losing the
+// conversation, so the toolbar keeps the commands that act: review and compact, then rewind
+// and resume to move through the conversation.
+const QUICK = ['review', 'compact', 'rewind', 'resume']
 
 const TICK_MS = 30_000
+const CREW_LINGER_MS = 60_000
+// A hung git (a network drive, a stale lock) gives up rather than hold the band.
+const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
 let lastBranch: string | undefined
+let reading: Promise<void> | undefined
 let quick: string[] = []
 
 // One line of a command's output, or nothing when it fails or is missing: a chip without a
 // value is simply not drawn.
 async function line($: EngineInterface, argv: string[]): Promise<string | undefined> {
   try {
-    const run = await $.process.run(argv, { cwd })
+    const run = await $.process.run(argv, { cwd, timeoutMs: GIT_TIMEOUT_MS })
     return run.exitCode === 0 ? run.stdout.trim() || undefined : undefined
   } catch {
     return undefined
@@ -60,7 +87,15 @@ async function line($: EngineInterface, argv: string[]): Promise<string | undefi
 // The branch's state: uncommitted files and commits ahead/behind its upstream. Run when a
 // session starts, when a turn ends and when the branch changes, since `git status` can be slow
 // on a large repository.
-async function readRepo($: EngineInterface) {
+// One read at a time: a slower older read must not land over a newer one.
+function readRepo($: EngineInterface): Promise<void> {
+  reading ??= readRepoNow($).finally(() => {
+    reading = undefined
+  })
+  return reading
+}
+
+async function readRepoNow($: EngineInterface) {
   const [branch, status, counts] = await Promise.all([
     line($, ['git', 'branch', '--show-current']),
     line($, ['git', 'status', '--porcelain']),
@@ -78,7 +113,16 @@ async function updateTasks($: EngineInterface, agentId: string | undefined, fn: 
 }
 
 // The tick's cheap check: only a switched branch costs a full read.
+// The tick's cheap check: only a switched branch, or a session moved to another folder (a
+// worktree, say), costs a full read.
 async function checkBranch($: EngineInterface) {
+  const here = await $.session.cwd().catch(() => cwd)
+  if (here !== cwd) {
+    cwd = here
+    await update($, env, e => ({ ...e, dir: cwd.split(/[\\/]/).filter(Boolean).pop() }))
+    await readRepo($)
+    return
+  }
   if ((await line($, ['git', 'branch', '--show-current'])) !== lastBranch) await readRepo($)
 }
 
@@ -110,6 +154,19 @@ async function setBar($: EngineInterface, style: string) {
   await $.store.set('bar', style)
 }
 
+async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
+  const next = await update($, prefs, fn)
+  await $.store.set('prefs', next)
+}
+
+// The guard's refusal for a call, told to the person too, or nothing when it passes or is off.
+async function guarded($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }): Promise<string | undefined> {
+  const risk = (await read($, prefs)).guard ? riskOf(tool, input) : undefined
+  if (!risk) return undefined
+  $.ui.toast(`Blocked: this ${risk}`)
+  return `sabai-band's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -119,15 +176,43 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     cwd = started.cwd
-    const offered = new Set((await $.command.list()).map(c => c.name))
+    // What the person sees first: their saved choices and the commands, before any slow read.
+    const saved = await $.store.get('skin').catch(() => undefined)
+    if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
+    const savedBar = await $.store.get('bar').catch(() => undefined)
+    if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
+    const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
+    await update($, prefs, () => savedPrefs)
+    await $.command.register({ name: 'sabai-skin', description: 'Open the sabai-band settings, or switch skin', argumentHint: '[name]' })
+    await $.command.register({ name: 'sabai-settings', description: 'Open the sabai-band settings' })
+    // Agents can report their own steps: a subagent rarely has a task list of its own.
+    if (savedPrefs.steps)
+      await $.tool
+        .register({
+          name: 'step',
+          description:
+            'For subagents: report progress on your own task to the agents panel. Right after reading your brief, call it with `total` ' +
+            '(your plan in 3-8 steps) and `done: 0`; call it again as each step finishes, with `note` naming the step in progress. Silent and cheap.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              done: { type: 'integer', minimum: 0, description: 'Steps finished so far.' },
+              total: { type: 'integer', minimum: 1, description: 'Steps planned; may change.' },
+              note: { type: 'string', description: 'The step in progress, a few words.' },
+            },
+            required: ['done'],
+          },
+          isDeferred: false,
+        })
+        .catch(() => undefined)
+    await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
+    const offered = new Set((await $.command.list().catch(() => [])).map(c => c.name))
     quick = QUICK.filter(c => offered.has(c))
-    // session.measure fires only on the next response, so a fresh load reads what is known now.
-    const known = await $.session.usage()
-    await update($, usage, () => toUsage(known))
+    // The clock first, so no countdown is ever measured from zero.
     await tick($)
-    const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
-    await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node }))
-    await readRepo($)
+    // session.measure fires only on the next response, so a fresh load reads what is known now.
+    const known = await $.session.usage().catch(() => undefined)
+    if (known) await update($, usage, () => toUsage(known))
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -136,12 +221,12 @@ export const register: Register = on => {
         if ((await read($, agents)).some(a => a.status === 'running')) await tick($)
       })()
     })
-    const saved = await $.store.get('skin')
-    if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
-    const savedBar = await $.store.get('bar')
-    if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
-    await $.command.register({ name: 'sabai-skin', description: 'Change the sabai-band skin', argumentHint: '[name]' })
-    await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
+    // git and node last, and not waited on: a slow repository must not hold the session.
+    void (async () => {
+      const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
+      await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node }))
+      await readRepo($)
+    })()
     return started
   })
 
@@ -155,10 +240,11 @@ export const register: Register = on => {
 
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
-    if (started.deny !== undefined) return started
+    // A remote workflow agent has no local loop: nothing would ever step or end its run.
+    if (started.deny !== undefined || started.agentId === undefined) return started
     const at = await $.clock.now()
     const run: AgentRun = {
-      id: started.agentId ?? e.tool_use_id,
+      id: started.agentId,
       agentId: started.agentId,
       type: e.subagentType,
       description: e.description,
@@ -188,11 +274,16 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
     const { agentId } = e
+    const { notify } = await read($, prefs)
     if (agentId === undefined) {
-      await readRepo($)
+      // Not waited on: a large repository's status must not delay the turn's end.
+      void readRepo($)
+      if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
     } else {
       const at = await $.clock.now()
-      await update($, agents, list => finished(list, agentId, e.reason, at, e.answer))
+      const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
+      const run = list.find(a => a.agentId === agentId)
+      if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Agent' }).catch(() => undefined)
       // The hop and confetti last a few seconds; with nothing left running, nothing else would
       // tick the clock to end them.
       $.clock.after(3100, () => void tick($))
@@ -238,10 +329,20 @@ export const register: Register = on => {
     // Report button at the right), the drawing (text rows on the terminal) and, once opened, the
     // report. The Box takes no colour: the title and the report are the surface's own text, whose
     // ink follows the OS theme, which a fixed skin colour behind them could not.
+    const reportColor = (a: AgentRun) => {
+      const { accent } = typeStyle(a.type)
+      return a.status === 'failed' ? look.bar('tasks', 100) : look.bar(accent ?? 'session', 0)
+    }
+    const drawings = new Map<string, ReturnType<typeof agentCardSvg>>()
+    const drawnOf = (a: AgentRun) => {
+      const d = drawings.get(a.id) ?? agentCardSvg(a, W, at, skinName, style)
+      drawings.set(a.id, d)
+      return d
+    }
     const card = (a: AgentRun) => {
       const title = a.description || a.type
-      const isOpen = opened.includes(a.id)
-      const line = taskLine(a.tasks)
+      const reportOpen = opened.includes(a.id)
+      const line = progressOf(a)
       const effort = effortLabel(a.effort)
       const head = (
         <Box flexDirection="row" alignItems="center" columnGap={1}>
@@ -249,11 +350,11 @@ export const register: Register = on => {
             <Text bold wrap="truncate-end">{`${typeEmoji(a.type)} ${title}`}</Text>
           </Box>
           {a.status !== 'running' && (
-            <Button key={`result-${a.id}`} label={isOpen ? '▾ Report' : 'Report'} onPress={() => toggleResult(a.id)} />
+            <Button key={`result-${a.id}`} label={reportOpen ? '▾ Report' : 'Report'} onPress={() => toggleResult(a.id)} />
           )}
         </Box>
       )
-      const drawn = Svg && agentCardSvg(a, W, at, skinName, style)
+      const drawn = Svg && drawnOf(a)
       const body = Svg && drawn ? (
         <Svg source={drawn.source} alt={drawn.alt} />
       ) : (
@@ -270,7 +371,7 @@ export const register: Register = on => {
         <Box key={`card-${a.id}`} flexDirection="column">
           {head}
           {body}
-          {isOpen && a.status !== 'running' && (
+          {reportOpen && a.status !== 'running' && (
             // Agents write their reports in markdown, so they are drawn as such, framed in the
             // agent's colour (red when it failed).
             <Box paddingX={1}>
@@ -284,11 +385,20 @@ export const register: Register = on => {
     }
 
     const sum = Svg && summarySvg(list, W, at, skinName)
-    const shown = done.slice(0, FINISHED_SHOWN)
-    const reportColor = (a: AgentRun) => {
-      const { accent } = typeStyle(a.type)
-      return a.status === 'failed' ? look.bar('tasks', 100) : look.bar(accent ?? 'session', 0)
+    // Newest cards first while their drawings fit the budget; the rest are counted.
+    let spent = sum ? sum.source.length : 0
+    const fitting = (runs: AgentRun[], cap: number) => {
+      const out: AgentRun[] = []
+      for (const a of runs.slice(0, cap)) {
+        const size = Svg ? drawnOf(a).source.length : 0
+        if (spent + size > PANE_BUDGET) break
+        spent += size
+        out.push(a)
+      }
+      return out
     }
+    const liveShown = fitting(running, RUNNING_SHOWN)
+    const shown = isOpen ? fitting(done, FINISHED_SHOWN) : []
     // One report open at a time: opening another closes the first, keeping the pane short.
     const toggleResult = (id: string) => update($, openResults, ids => (ids.includes(id) ? [] : [id]))
 
@@ -298,8 +408,8 @@ export const register: Register = on => {
         {running.length > 0 && (
           <Box flexDirection="column" rowGap={1}>
             <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>
-            {running.slice(0, RUNNING_SHOWN).map(card)}
-            {running.length > RUNNING_SHOWN && <Text dimColor>{`+ ${running.length - RUNNING_SHOWN} more running`}</Text>}
+            {liveShown.map(card)}
+            {running.length > liveShown.length && <Text dimColor>{`+ ${running.length - liveShown.length} more running`}</Text>}
           </Box>
         )}
         {done.length > 0 && (
@@ -329,7 +439,38 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
+    if ((await read($, prefs)).limits) {
+      const at = await read($, now)
+      for (const l of e.rateLimits) {
+        const label = l.kind === 'five_hour' ? '5H' : l.kind === 'seven_day' ? '7D' : undefined
+        const key = `${l.kind}:${l.resetsAt ?? ''}`
+        if (!label || l.percentUsed < LIMIT_WARN_AT || warned.has(key)) continue
+        warned.add(key)
+        const left = l.resetsAt ? Date.parse(l.resetsAt) - at : NaN
+        $.ui.toast(`${label} limit at ${Math.round(l.percentUsed)}%${Number.isFinite(left) && left > 0 ? ` — resets in ${countdown(left)}` : ''}`)
+      }
+    }
     return measured
+  })
+
+  // The guard, when turned on: refuse the few commands that are almost never meant.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const risk = await guarded($, 'Bash', e)
+    return risk ? { deny: risk } : next(e)
+  })
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    const risk = await guarded($, 'Read', e)
+    return risk ? { deny: risk } : next(e)
+  })
+
+  // A subagent reporting its own steps through the mod's tool.
+  // (Matched by hand: the mod's own tool is not in the engine's typed list of tool names.)
+  on('tool.call', async ($, e, next) => {
+    if ((e.tool as string) !== STEP_TOOL) return next(e)
+    const { agentId } = e
+    if (!agentId) return { result: 'ignored: only subagents report steps' } as never
+    await update($, agents, list => reported(list, agentId, e as unknown as { done?: unknown; total?: unknown; note?: unknown }))
+    return { result: 'ok' } as never
   })
 
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
@@ -351,8 +492,12 @@ export const register: Register = on => {
     return called
   })
 
+  on('command.run', { command: 'sabai-settings' }, async $ => ({
+    text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.',
+  }))
+
   on('command.run', { command: 'sabai-skin' }, async ($, e) => {
-    if (!e.args.trim()) return { text: (await togglePane($, SKIN_PANE, 'Skins', true)) ? 'Skins panel opened.' : 'Skins panel closed.' }
+    if (!e.args.trim()) return { text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.' }
     const picked = pickSkin(e.args)
     if (!picked) {
       const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
@@ -362,77 +507,99 @@ export const register: Register = on => {
     return { text: `Skin set to ${THEMES[picked]?.name ?? 'auto'}.` }
   })
 
-  // Two groups, each a list of choices drawn alike: a name and a note on the left, Use or
-  // "In use" on the right, and a sample underneath (a swatch on the desktop, coloured text on
-  // the terminal).
+  // The settings: the band's rows, the bar style, alerts, agents and safety, then the colour
+  // themes (the longest list last). Each choice is a name and a note on the left with its
+  // control on the right; themes and the bar style carry a sample (coloured text on the terminal).
   on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e) => {
     const current = await read($, skin)
     const style = await read($, bar)
+    const p = await read($, prefs)
     const look = lookOf(current)
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
-    const W = Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))
+    const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const heading = (title: string, note: string) => (
       <Text>
         <Text bold>{title}</Text>
         <Text dimColor>{`  ${note}`}</Text>
       </Text>
     )
-    const head = (key: string, name: string, note: string, inUse: boolean, accent: string, pick: () => Promise<void>) => (
-      <Box flexDirection="row" alignItems="center" columnGap={2}>
-        <Box flexGrow={1}>
-          <Text wrap="truncate-end">
-            <Text bold>{name}</Text>
-            <Text dimColor>{`  ${note}`}</Text>
-          </Text>
-        </Box>
-        {inUse ? (
-          <Text color={accent} bold>
-            ✓ In use
-          </Text>
-        ) : (
-          <Button key={key} label="Use" variant="primary" onPress={pick} />
-        )}
+    const named = (name: string, note: string) => (
+      <Box flexGrow={1}>
+        <Text wrap="truncate-end">
+          <Text bold>{name}</Text>
+          <Text dimColor>{`  ${note}`}</Text>
+        </Text>
       </Box>
     )
+    const toggle = (key: string, name: string, note: string, isOn: boolean, flip: (p: Prefs) => Prefs) => (
+      <Box key={`row-pref-${key}`} flexDirection="row" alignItems="center" columnGap={2}>
+        {named(name, note)}
+        <Button key={`pref-${key}`} label={isOn ? '● On' : '○ Off'} onPress={() => setPrefs($, flip)} />
+      </Box>
+    )
+    const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
+      toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
+    const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const preview = Svg && barPreview(style, current, W)
     return (
       <Box flexDirection="column" rowGap={2}>
-        <Text dimColor>Choices apply at once and are kept for new sessions. Esc closes.</Text>
+        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Band', 'Rows above the prompt')}
+          {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
+          {rowToggle('tasks', 'Tasks', "Claude's own task list")}
+          {rowToggle('crew', 'Crew', 'Subagents at work')}
+          {rowToggle('usage', 'Usage', 'Context and plan limits')}
+          {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
+        </Box>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Progress bar', 'Tasks and usage cards')}
+          <Box flexDirection="row" columnGap={1}>
+            {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
+              <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
+            ))}
+          </Box>
+          {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+        </Box>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Alerts', 'Outside the band')}
+          {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
+          {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
+        </Box>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Agents and safety', '')}
+          {flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session')}
+          {flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files')}
+        </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Color theme', 'The band and panels')}
           {SKINS.map(k => {
             const t = THEMES[k]
             const tone = t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'
             const kLook = lookOf(k)
-            const preview = Svg && skinPreview(k, W, k === current)
+            const swatch = Svg && skinPreview(k, W, k === current)
             return (
               <Box key={`row-${k}`} flexDirection="column">
-                {head(`use-${k}`, t?.name ?? 'Auto', tone, k === current, kLook.clawd, () => setSkin($, k))}
-                {Svg && preview ? (
-                  <Svg source={preview.source} alt={preview.alt} />
+                <Box flexDirection="row" alignItems="center" columnGap={2}>
+                  {named(t?.name ?? 'Auto', tone)}
+                  {k === current ? (
+                    <Text color={kLook.clawd} bold>
+                      ✓ In use
+                    </Text>
+                  ) : (
+                    <Button key={`use-${k}`} label="Use" variant="primary" onPress={() => setSkin($, k)} />
+                  )}
+                </Box>
+                {Svg && swatch ? (
+                  <Svg source={swatch.source} alt={swatch.alt} />
                 ) : (
                   <Text>
                     {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
                       <Text key={kind} color={kLook.bar(kind, 0)}>{'▰▰▰ '}</Text>
                     ))}
                   </Text>
-                )}
-              </Box>
-            )
-          })}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Progress bar', 'Tasks and usage cards')}
-          {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => {
-            const preview = Svg && barPreview(b, current, W)
-            return (
-              <Box key={`row-bar-${b}`} flexDirection="column">
-                {head(`bar-${b}`, BAR_STYLES[b], BAR_NOTES[b], b === style, look.clawd, () => setBar($, b))}
-                {Svg && preview ? (
-                  <Svg source={preview.source} alt={preview.alt} />
-                ) : (
-                  <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[b])}</Text>
                 )}
               </Box>
             )
@@ -445,12 +612,17 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const p = progress(await read($, tasks))
+    const { rows } = await read($, prefs)
+    const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const list = meters(measured, at)
-    const info = chips(await read($, env))
-    const runs = await read($, agents)
+    const list = rows.usage ? meters(measured, at) : []
+    const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
+    const everyone = await read($, agents)
+    const all = rows.crew ? everyone : []
+    // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
+    const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
+    const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
     if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
 
     const skinName = await read($, skin)
@@ -458,8 +630,10 @@ export const register: Register = on => {
     const look = lookOf(skinName)
     const { running: active, finished: ended } = groups(runs)
     const running = active.length
+    // The toolbar's count holds whether or not the crew row shows.
+    const working = everyone.filter(a => a.status === 'running').length
     const lead = active[0]
-    const leadLine = lead && taskLine(lead.tasks)
+    const leadLine = lead && progressOf(lead)
     const leadDetail = lead ? (leadLine ? `${leadLine.done}/${leadLine.total} · ${leadLine.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
     const failedCount = ended.filter(a => a.status === 'failed').length
     const endedText = failedCount ? `${ended.length - failedCount} done · ${failedCount} failed` : `${ended.length} done`
@@ -492,11 +666,11 @@ export const register: Register = on => {
           ))}
         </Box>
         <Box flexGrow={1} />
-        <Button key="agents" label={running > 0 ? `✻ ${running}` : '✻'} hotkey="a" plain onPress={() => toggleAgents($)}>
+        <Button key="agents" label={working > 0 ? `✻ ${working}` : '✻'} hotkey="a" plain onPress={() => toggleAgents($)}>
           {tile('✻', look.clawd)}
-          {running > 0 ? <Text bold>{` ${running}`}</Text> : null}
+          {working > 0 ? <Text bold>{` ${working}`}</Text> : null}
         </Button>
-        <Button key="skins" label="⚙" hotkey="s" plain onPress={() => togglePane($, SKIN_PANE, 'Skins', true)}>
+        <Button key="skins" label="⚙" hotkey="s" plain onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
           {tile('⚙', look.bar('session', 0))}
         </Button>
       </Box>
@@ -512,7 +686,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
-          {toolbar}
+          {rows.toolbar && toolbar}
           {theirs}
         </Box>
       )
@@ -566,7 +740,7 @@ export const register: Register = on => {
             ))}
           </Box>
         )}
-        {toolbar}
+        {rows.toolbar && toolbar}
         {theirs}
       </Box>
     )

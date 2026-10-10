@@ -10,9 +10,11 @@ A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its o
 |---|---|
 | Info | Current directory, git user and branch on the left — the branch with commits ahead `↑` / behind `↓` its upstream and uncommitted files `±` — and the Node.js version on the right. |
 | Tasks | Clawd, a pixel Claude mascot, beside a progress bar of Claude's own task list: the task in progress, `done/total` and percent. Clawd walks while Claude works and blinks while it waits. The row leaves once every task is done. |
-| Crew | While subagents are around: a small Clawd per running agent in its type's hat, holding its tool, walking; the newest agent's task and progress; running ●, done ✓ and failed ✗ counts and the time. Once all are done the crew stands by with a summary. |
+| Crew | While subagents are around: a small Clawd per running agent in its type's hat, holding its tool, walking; the newest agent's task and progress; running ●, done ✓ and failed ✗ counts and the time. Once all are done the crew stands by with a summary for a minute, then leaves the band. |
 | Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
-| Toolbar | Under the band: `/context`, `/usage`, `/review`, `/compact`, `/rewind`, `/resume` and `/clear` on the left (those your surface offers), and icon buttons on the right: `✻` **Agents** (with the number of running subagents) and `⚙` **Skins**. Each opens or hides its panel; `a` and `s` press them while the band has the focus. |
+| Toolbar | Under the band: `/review`, `/compact`, `/rewind` and `/resume` on the left (those your surface offers; the cards above already show context and usage), and icon buttons on the right: `✻` **Agents** (with the number of running subagents) and `⚙` **Settings**. Each opens or hides its panel; `a` and `s` press them while the band has the focus (click the band, or press ctrl+x tab). |
+
+Every row can be hidden in **Settings**.
 
 **The agents panel** (`/sabai-agents`, or `✻` under the band)
 
@@ -36,13 +38,19 @@ A summary of how many subagents run and finished, their context and the wall tim
 - its effort as Claude names it (`low`, `medium`, `high`, `xhigh`, `max`, or `budget 32k` for a token budget), its type and model, and `workflow` for an agent a workflow started;
 - its own step progress, drawn like the band's bar with its `3/5` pill, or its step count, context and time.
 
-The newest six running agents get a card and the rest are counted. Finished agents fold away. Show them, then press **Report** to read an agent's whole report as Markdown in its colour, one at a time; a failed one says why it stopped. **Clear** them when you are done.
+The newest running agents get a card (up to six, fewer when their drawings would outgrow the panel) and the rest are counted. An agent can report its own steps through the mod's small `step` tool, which fills its card's `3/5` pill; Claude's subagents rarely keep a task list of their own. Finished agents fold away. Show them, then press **Report** to read an agent's whole report as Markdown in its colour, one at a time; a failed one says why it stopped. **Clear** them when you are done.
 
-**Skins**
+**Settings** (`/sabai-settings`, `/sabai-skin`, or `⚙` under the band)
 
-Ten looks for the band and the panels, picked from a panel of previews (`/sabai-skin`): `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`.
+Everything applies at once and is kept for new sessions:
 
-The panel has two groups, each choice with a preview and a **Use** button: **Color theme**, and **Progress bar**, how the bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**. Both are remembered across sessions.
+| Group | Choices |
+|---|---|
+| Band | Show or hide each row: Info, Tasks, Crew, Usage, Toolbar. |
+| Progress bar | How bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**, with a preview. |
+| Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
+| Agents and safety | **Step reports**: let agents report their steps (a small tool every request carries; from the next session). **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main`/`master`, and reading `.env` files, with a toast saying why. Off by default. |
+| Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |
 
 ## Requirements
 
@@ -71,7 +79,7 @@ claude plugin install sabai-band@claude-sabai
 
 | Command | What it does |
 |---|---|
-| `/sabai-skin` | Opens the skins panel, or hides it if it is open: every skin with a swatch in its colours. Press **Use** to switch. |
+| `/sabai-settings` or `/sabai-skin` | Opens the settings panel, or hides it if it is open. |
 | `/sabai-skin <name>` | Switches skin. Names are forgiving: `mocha`, `Catppuccin Mocha`, `TokyoNight` and `Frappé` all work. Your choice is remembered across sessions. |
 | `/sabai-agents` | Shows the agents panel, or hides it if it is open. |
 
@@ -95,7 +103,7 @@ Restart Claude Code after either one. Open sessions keep the version they starte
 
 ## Privacy
 
-sabai-band reads only what Claude Code gives a mod (context, plan limits, tasks, subagents) and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Your skin choice is kept in Claude Code's own mod store.
+sabai-band reads only what Claude Code gives a mod (context, plan limits, tasks, subagents) and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Your settings are kept in Claude Code's own mod store. Notifications go through Claude Code's own notification channel. The guard, when on, only refuses calls; it never runs anything.
 
 ## Troubleshooting
 

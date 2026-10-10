@@ -1,5 +1,5 @@
 import type { AgentRun, BarStyle } from '../types'
-import { clock, effortLabel, elapsed, modelName, summary, taskLine, typeStyle } from './agents'
+import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import { icon } from './icons'
@@ -21,6 +21,7 @@ const MONO = 'ui-monospace,SFMono-Regular,Menlo,monospace'
 export const CARD = ['#f4f4f2', '#262626'] as const
 export const TEXT = {
   t: ['#1f1f1f', '#ececec'],
+  tasks: ['#a8490a', '#ff9d57'],
   m: ['#5f5f5c', '#a3a39f'],
   context: ['#13766b', '#3ccbbb'],
   session: ['#5450cf', '#aba8ff'],
@@ -99,7 +100,7 @@ export function lookOf(skin: string): Look {
   const ink = (c: string) => readable(c, card)
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${t.track}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
     bar: (kind, percent) => {
       const l = level(percent)
       return l === 'alert' ? t.alert : l === 'warn' ? t.warn : t.accents[kind]
@@ -110,6 +111,8 @@ export function lookOf(skin: string): Look {
 }
 
 const CELL = 3
+const DOT_COLS = 200
+const MAX_TICKS = 12
 
 export const BAR_STYLES: Record<BarStyle, string> = { dither: 'Dither', blocks: 'Pixel blocks', solid: 'Solid' }
 
@@ -127,19 +130,23 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
     })
     return `<g transform="translate(${x},${y})">${cells.join('')}</g>`
   }
-  const cols = Math.floor(fillW / CELL)
+  // At most DOT_COLS columns of dots, each wider on a wider bar: a very wide band would
+  // otherwise outgrow the engine's limit on a drawing.
+  const cellX = Math.max(CELL, w / DOT_COLS)
+  const cols = style === 'dither' ? Math.floor(fillW / cellX) : 0
   const dots: string[] = []
   for (let c = 0; c < cols; c++) {
     const density = 0.55 + 0.45 * Math.pow(c / Math.max(1, cols), 1.2)
     for (let r = 0; r < Math.floor(h / CELL); r++) {
       if (noise(c, r) < density) {
-        dots.push(`<rect class="d${Math.floor(noise(r, c) * 4)}" x="${c * CELL + 1}" y="${r * CELL + 1}" width="2" height="2"/>`)
+        dots.push(`<rect class="d${Math.floor(noise(r, c) * 4)}" x="${+(c * cellX + 1).toFixed(1)}" y="${r * CELL + 1}" width="${+(cellX - 1).toFixed(1)}" height="2"/>`)
       }
     }
   }
   const marks: string[] = []
-  for (let i = 1; i < ticks; i++) {
-    const tx = Math.round((w * i) / ticks)
+  const steps = Math.min(ticks, MAX_TICKS)
+  for (let i = 1; i < steps; i++) {
+    const tx = Math.round((w * i) / steps)
     if (tx > fillW + 4) marks.push(`<rect class="m" x="${tx}" y="${h / 2 - 3}" width="1.5" height="6" rx="0.75"/>`)
   }
   const fill = style === 'solid' ? `<rect fill="${color}" width="${fillW}" height="${h}"/>` : `<g fill="${color}">${dots.join('')}</g>`
@@ -150,9 +157,13 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
   )
 }
 
+// Text drawn straight on the surface, with no card behind it, takes the OS's light or dark ink
+// whatever the skin: a skin's ink is only checked against its own card.
+const SURFACE_INK = `.st{fill:${TEXT.t[0]}}.sm{fill:${TEXT.m[0]}}@media (prefers-color-scheme: dark){.st{fill:${TEXT.t[1]}}.sm{fill:${TEXT.m[1]}}}`
+
 // `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
 const svg = (look: Look, w: number, h: number, body: string, still = false) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${still ? '' : MOTION}</style>${body}</svg>`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${SURFACE_INK}${still ? '' : MOTION}</style>${body}</svg>`
 
 const ROW_H = 20
 const GAP = 8
@@ -179,11 +190,11 @@ function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, to
   const y0 = (ROW_H - barH) / 2
   const body =
     sprite('tasks', 0, (ROW_H - clawd.height) / 2, isWorking ? 'run' : 'idle', look.clawd) +
-    `<text class="t" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
+    `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
     pixelBar('sabai-band-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
-    `<text class="m" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
+    `<text class="sm" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
   return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}` }
 }
 
@@ -226,9 +237,11 @@ const CHIP_PAD = 8
 const ICON = 13
 const monoWidth = (s: string, size: number) => s.length * size * 0.6
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
+// Cut on whole characters, never inside a surrogate pair, which would leave the SVG malformed.
 const fitMono = (s: string, size: number, maxW: number) => {
   const room = Math.floor(maxW / (size * 0.64))
-  return s.length <= room ? s : `${s.slice(0, Math.max(1, room - 1))}…`
+  const chars = [...s]
+  return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
 }
 
 // The info row: one chip per fact, its mark then its value. The left group runs from the
@@ -268,8 +281,10 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   const running = newest.filter(a => a.status === 'running')
   const ended = newest.filter(a => a.status !== 'running')
   const failed = ended.filter(a => a.status === 'failed').length
-  const shown = (running.length ? running : ended).slice(0, CREW_MAX)
   const step = (spriteSize('tasks').width + PROP_W) * CREW_SCALE + 3
+  // As many Clawds as leave room for the words and counts on a narrow band.
+  const room = Math.max(1, Math.min(CREW_MAX, Math.floor((W - 200) / step)))
+  const shown = (running.length ? running : ended).slice(0, room)
   const avatars = shown
     .map((a, i) => {
       const { hat, hatColor } = hatOf(look, a.type)
@@ -283,33 +298,35 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
     .join('')
   const more = running.length - shown.length
   let x = shown.length * step + 4
-  const moreText = more > 0 ? `<text class="m" x="${x}" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="600">+${more}</text>` : ''
+  const moreText = more > 0 ? `<text class="sm" x="${x}" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="600">+${more}</text>` : ''
   if (more > 0) x += monoWidth(`+${more}`, 11) + 8
   const lead = running[0]
-  const line = lead && taskLine(lead.tasks)
+  const line = lead && progressOf(lead)
   const title = lead ? lead.description || lead.type : failed ? `${ended.length - failed} done · ${failed} failed` : `All ${ended.length} done`
   const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
   // The right side, laid out from the edge: time, then failed, done and running counts.
   const s = summary([...runs], now)
   const time = clock(s.ms)
   let rx = W - monoWidth(time, 11)
-  const right: string[] = [`<text class="m" x="${W}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="11">${time}</text>`]
+  const right: string[] = [`<text class="sm" x="${W}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="11">${time}</text>`]
   const count = (n: number, status: AgentRun['status']) => {
     rx -= monoWidth(String(n), 11.5) + 18
     right.push(statusMark(look, status, rx + 4, top + 11, look.clawd, false))
-    right.push(`<text class="t" x="${rx + 12}" y="${top + 15}" font-family="${MONO}" font-size="11.5" font-weight="700">${n}</text>`)
+    right.push(`<text class="st" x="${rx + 12}" y="${top + 15}" font-family="${MONO}" font-size="11.5" font-weight="700">${n}</text>`)
   }
   if (failed) count(failed, 'failed')
   if (ended.length - failed) count(ended.length - failed, 'done')
   if (running.length) count(running.length, 'running')
-  const textW = Math.max(40, rx - x - 12)
-  const titleText = fit(title, 12.5, textW * 0.6)
+  const textW = rx - x - 12
+  // Too little room for the words: leave them out rather than draw them over the counts.
+  const hasWords = textW >= 60
+  const titleText = hasWords ? fit(title, 12.5, textW * 0.6) : ''
   const titleW = textWidth(titleText, 12.5)
   const body =
     avatars +
     moreText +
-    `<text class="t" x="${x}" y="${top + 15}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(titleText)}</text>` +
-    (detail ? `<text class="m" x="${x + titleW + 10}" y="${top + 15}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(20, textW - titleW - 10)))}</text>` : '') +
+    (hasWords ? `<text class="st" x="${x}" y="${top + 15}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(titleText)}</text>` : '') +
+    (hasWords && detail ? `<text class="sm" x="${x + titleW + 10}" y="${top + 15}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(20, textW - titleW - 10)))}</text>` : '') +
     right.join('')
   const counts = [running.length ? `${running.length} running` : '', ended.length ? `${ended.length - failed} done` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(', ')
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
@@ -430,7 +447,7 @@ const HOP_MS = 3000
 function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio: number, color: string, style: BarStyle, steps = 0, pill = ''): string {
   const h = CARD_BAR_H
   const fillW = Math.round(w * Math.max(0, Math.min(1, ratio)))
-  const ticks = Array.from({ length: Math.max(0, Math.min(steps, 12) - 1) }, (_, i) => Math.round((w * (i + 1)) / Math.min(steps, 12)))
+  const ticks = Array.from({ length: Math.max(0, Math.min(steps, MAX_TICKS) - 1) }, (_, i) => Math.round((w * (i + 1)) / Math.min(steps, MAX_TICKS)))
     .filter(tx => tx > fillW + 4)
     .map(tx => `<rect class="m" x="${x + tx}" y="${y + h / 2 - 2.5}" width="1.5" height="5" rx=".75"/>`)
     .join('')
@@ -450,7 +467,8 @@ function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio
       style === 'solid'
         ? `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="${color}"/>`
         : `<defs><pattern id="sabai-band-dots-${uid}" width="6" height="6" patternUnits="userSpaceOnUse" x="${x}" y="${y}">` +
-          [0, 1, 2, 3].map(i => `<rect class="d${i}" x="${(i % 2) * 3 + 0.5}" y="${Math.floor(i / 2) * 3 + 0.5}" width="2" height="2" fill="${color}"/>`).join('') +
+          // Still dots: the pane restarts every animation each second, which would make them snap.
+          [0, 1, 2, 3].map(i => `<rect x="${(i % 2) * 3 + 0.5}" y="${Math.floor(i / 2) * 3 + 0.5}" width="2" height="2" fill="${color}"/>`).join('') +
           `</pattern><linearGradient id="sabai-band-fade-${uid}"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
           `<mask id="sabai-band-mask-${uid}"><rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-fade-${uid})"/></mask></defs>` +
           `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-dots-${uid})" mask="url(#sabai-band-mask-${uid})"/>`
@@ -494,7 +512,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
   const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : fresh ? 'hop' : 'idle'
   const prop = a.status === 'running' ? true : a.status === 'done' ? 'scroll' : false
-  const line = taskLine(a.tasks)
+  const line = progressOf(a)
   const effort = effortLabel(a.effort)
   const effortW = effort ? monoWidth(effort, 10) + 12 : 0
   const meta = `${a.type} · ${modelName(a.model)}`
@@ -517,9 +535,10 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
     : a.status === 'running'
       ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/></clipPath></defs>` +
         `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/>` +
-        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
-        // One sweep per second: the pane redraws each second while an agent runs, restarting it.
-        `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
+        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
+        // One sweep per second, starting in view: the pane redraws each second while an agent
+        // runs, restarting it, and a frozen first frame must still show the bar moving.
+        `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 0.7)}px)}}</style>`
       : cardBar(look, uid, textX, barY, barW, 1, barColor, style)
   const confetti =
     a.status === 'done' && fresh

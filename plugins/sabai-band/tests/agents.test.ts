@@ -186,3 +186,17 @@ test('a run that ended a while ago is drawn still, without the motion stylesheet
   expect(agentCardSvg(run('a', { status: 'done', endedAt: 4000 }), 420, 5000).source).toContain('.ripple{')
   expect(agentCardSvg(run('b'), 420, 5000).source).toContain('.ripple{')
 })
+
+test('a finished agent that is sent more work runs again, its old end and report cleared', () => {
+  const [done] = finished([run('a')], 'a', 'answer', 9000, 'first report')
+  const [again] = stepped([done!], 'a', 'claude-opus-5-5', USAGE)
+  expect([again?.status, again?.endedAt, again?.result, again?.reason]).toEqual(['running', undefined, undefined, undefined])
+})
+
+test('a card’s bar dots hold still (the pane restarts animations each second), and its sweep starts in view', () => {
+  const live = agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'b', status: 'pending' }] }), 420, 5000).source
+  expect(live).not.toMatch(/<pattern[^>]*>.*class="d\d"/)
+  const sweep = agentCardSvg(run('s'), 420, 5000).source
+  const x = Number(sweep.match(/class="sweep" x="([-\d.]+)"/)?.[1])
+  expect(x).toBeGreaterThanOrEqual(64)
+})

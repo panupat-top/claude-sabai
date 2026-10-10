@@ -2,7 +2,8 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
-import { CARD, TEXT, bandSvg, fillColor, textClass } from '../hooks/svg'
+import { THEMES, contrast } from '../hooks/themes'
+import { CARD, TEXT, bandSvg, fillColor, lookOf, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -84,16 +85,6 @@ test('only Clawd and the context draw a sprite, each within the row', () => {
   }
 })
 
-// WCAG 2 contrast ratio of two #rrggbb colours.
-const contrast = (a: string, b: string) => {
-  const lum = (hex: string) => {
-    const [r, g, bl] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
-    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
-  }
-  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x)
-  return (hi! + 0.05) / (lo! + 0.05)
-}
-
 test('every text colour reads at 4.5:1 on its card, in light and dark', () => {
   for (const [name, [light, dark]] of Object.entries(TEXT)) {
     expect([name, contrast(light, CARD[0]) >= 4.5]).toEqual([name, true])
@@ -156,4 +147,49 @@ test('the crew row walks one Clawd per running agent, names the latest, and coun
   expect(mixed?.alt).toBe('Agents: 1 done, 1 failed; 1 done · 1 failed')
   expect(mixed?.source.match(/>1<\/text>/g)?.length).toBe(2)
   expect(bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs: [], now: 0 })).toBeUndefined()
+})
+
+test('a dithered band stays inside the engine limits at any width, its dots widening instead of multiplying', () => {
+  const list = [{ kind: 'context', label: 'Context', percent: 60, amount: '1k / 1M' }] as const
+  for (const W of [800, 2400, 4096]) {
+    const d = bandSvg({ done: 3, total: 5, title: 't' }, NONE, list, W, true, 'auto', 'dither')
+    expect([W, (d?.source.length ?? 0) < 70_000]).toEqual([W, true])
+  }
+  // Many tasks still draw at most a dozen tick marks.
+  const many = bandSvg({ done: 1, total: 120, title: 't' }, NONE, [], 800, false, 'auto', 'dither')?.source ?? ''
+  expect((many.match(/width="1.5" height="6"/g) ?? []).length).toBeLessThanOrEqual(12)
+})
+
+test('a title of emoji is cut on whole characters, never mid-pair', () => {
+  const d = bandSvg({ done: 0, total: 1, title: '🚀'.repeat(60) }, NONE, [], 300)?.source ?? ''
+  const run = crewRun('x', { description: '🚀'.repeat(60), tasks: [{ id: '1', subject: '🚀'.repeat(60), status: 'in_progress' }] })
+  const crew = bandSvg(undefined, NONE, [], 330, false, 'auto', 'dither', { runs: [run], now: 1 })?.source ?? ''
+  for (const s of [d, crew]) expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)).toBe(false)
+})
+
+test('text the band draws on the bare surface follows the OS, whatever the skin; auto defines every meter class', () => {
+  for (const skin of ['auto', 'catppuccin-latte', 'nord']) {
+    const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, NONE, [], 600, false, skin)?.source ?? ''
+    expect([skin, d.includes('<text class="st"'), d.includes('.st{fill:#1f1f1f}'), d.includes('prefers-color-scheme: dark){.st')]).toEqual([skin, true, true, true])
+    const crew = bandSvg(undefined, NONE, [], 600, false, skin, 'dither', { runs: [crewRun('a')], now: 1 })?.source ?? ''
+    expect(crew).toContain('<text class="st"')
+  }
+  expect(lookOf('auto').css).toContain('.c-tasks{')
+})
+
+test('on a narrow band the crew walks fewer Clawds and drops words it has no room for, never overlapping the counts', () => {
+  const runs = [...Array.from({ length: 5 }, (_, i) => crewRun(String(i))), crewRun('f', { status: 'failed', endedAt: 1 })]
+  const d = bandSvg(undefined, NONE, [], 330, false, 'auto', 'dither', { runs, now: 1000 })?.source ?? ''
+  expect((d.match(/class="run"/g) ?? []).length).toBeLessThan(5)
+  const titleX = Number(d.match(/<text class="st" x="([\d.]+)"[^>]*font-size="12.5"/)?.[1] ?? 0)
+  const firstCount = Math.min(...[...d.matchAll(/<text class="st" x="([\d.]+)"[^>]*font-size="11.5"/g)].map(m => Number(m[1])))
+  if (titleX) expect(titleX).toBeLessThan(firstCount - 40)
+})
+
+test('every skin’s empty bar track stands out from its card', () => {
+  for (const key of Object.keys(THEMES)) {
+    const card = lookOf(key).css.match(/\.p\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
+    const track = lookOf(key).css.match(/\.k\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
+    expect([key, contrast(track, card) >= 1.35]).toEqual([key, true])
+  }
 })

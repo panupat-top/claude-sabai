@@ -119,7 +119,7 @@ const PROPS: Record<HatKind, { rows: string[]; colors: Record<string, string>; c
   },
   beanie: {
     rows: ['.v.v...', 'v.v....', 'cccc...', 'ccccmm.', 'cccc.m.', 'cccc...', '.cc....'],
-    colors: { v: '#9aa0c0', c: '#f8f6f1', m: '#f8f6f1' },
+    colors: { v: '#9aa0c0', c: '#c9a66b', m: '#c9a66b' },
     classes: { v: 'pr-steam', c: 'pr-cup', m: 'pr-cup' },
   },
 }

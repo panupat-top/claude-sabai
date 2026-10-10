@@ -34,6 +34,17 @@ export type AgentRun = {
   reason?: 'answer' | 'aborted' | 'refusal' | 'error'
   // Launched by a Workflow script's agent().
   workflow?: boolean
+  // What the agent reported through the mod's step tool, when it did.
+  progress?: { done: number; total: number; note?: string }
+}
+
+// The person's choices in the settings pane, kept across sessions.
+export type Prefs = {
+  rows: { info: boolean; tasks: boolean; crew: boolean; usage: boolean; toolbar: boolean }
+  notify: boolean
+  limits: boolean
+  guard: boolean
+  steps: boolean
 }
 
 declare module 'claude-code' {
@@ -45,6 +56,7 @@ declare module 'claude-code' {
       env: Env
       skin: string
       bar: BarStyle
+      prefs: Prefs
       finishedOpen: boolean
       openResults: string[]
       agents: AgentRun[]

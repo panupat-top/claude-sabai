@@ -9,7 +9,8 @@ test('every skin paints text that reads at 4.5:1 on its cards, and white on its 
     const card = cardOf(t)
     // The wink keyframes paint Clawd's body, not text.
     for (const [, color] of look.css.replace(/@keyframes wink\{.*\}\}/, '').matchAll(/fill:(#[0-9a-f]{6})/g)) {
-      if (color === t.track || color === card) continue
+      const track = look.css.match(/\.k\{fill:(#[0-9a-f]{6})\}/)?.[1]
+      if (color === track || color === card) continue
       expect([key, color, contrast(color!, card) >= 4.5]).toEqual([key, color, true])
     }
     expect([key, contrast('#ffffff', look.pill) >= 4.5]).toEqual([key, true])

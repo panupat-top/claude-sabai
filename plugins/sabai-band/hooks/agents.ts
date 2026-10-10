@@ -27,6 +27,8 @@ export const stepped = (list: AgentRun[], agentId: string, model: string, u: Usa
           steps: a.steps + 1,
           contextTokens: u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
           effort: effort === undefined ? a.effort : String(effort),
+          // A finished agent sent more work runs again: its old end and report no longer stand.
+          ...(a.status === 'running' ? {} : { status: 'running' as const, endedAt: undefined, reason: undefined, result: undefined }),
         },
   )
 
@@ -58,6 +60,24 @@ export function taskLine(tasks: Task[] | undefined): Progress | undefined {
 }
 
 // Claude's effort levels as the engine names them; a number is a thinking budget in tokens.
+// An agent's progress: what it reported through the mod's step tool, else its own task list.
+export function progressOf(a: Pick<AgentRun, 'progress' | 'tasks'>): Progress | undefined {
+  const p = a.progress
+  if (p && p.total > 0) return { done: Math.min(p.done, p.total), total: p.total, title: p.note || (p.done >= p.total ? 'Done' : 'Working') }
+  return taskLine(a.tasks)
+}
+
+// A step report from the agent itself, clamped to sense.
+export const reported = (list: AgentRun[], agentId: string, input: { done?: unknown; total?: unknown; note?: unknown }): AgentRun[] =>
+  list.map(a => {
+    if (a.agentId !== agentId) return a
+    const num = (v: unknown, prev: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : prev)
+    const total = num(input.total, a.progress?.total ?? 0)
+    const done = num(input.done, a.progress?.done ?? 0)
+    const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 80) : undefined
+    return { ...a, progress: { done: total ? Math.min(done, total) : done, total, note } }
+  })
+
 const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
 export const effortLabel = (effort?: string): string | undefined =>
   effort === undefined ? undefined : EFFORT_LEVELS.includes(effort) ? effort : /^\d+$/.test(effort) ? `budget ${tokens(Number(effort))}` : undefined

@@ -24,11 +24,11 @@ git config core.hooksPath .githooks                       # once per clone: pre-
 
 ## sabai-band architecture
 
-A band above the prompt (info row, task progress with an animated Pixel Clawd, usage cards, and a toolbar of Buttons under it) and two panes, agents and skins, with ten skins.
+A band above the prompt (info row, task progress with an animated Pixel Clawd, a crew of subagents, usage cards, and a toolbar of Buttons under it) and two panes: agents (cards and reports) and settings (band rows, bar style, alerts, the guard, step reports, ten skins).
 
 - `hooks/register.tsx` is the only module that touches `$`. It hooks engine events (`session.start`, `session.measure`, `tool.call` on `TaskCreate`/`TaskUpdate`/`TodoWrite`, `agent.spawn`, `turn.step`, `turn.complete`, `classic.SessionStart`), writes state, registers `/sabai-skin` and `/sabai-agents`, and renders `AbovePrompt` (the band) and `Pane` (agents).
 - **State** lives in `$.state` atoms declared in the contract `types/index.d.ts` (`interface PluginState['sabai-band']`); a draw `read`s them and redraws when an `update` writes. Module variables (e.g. `cwd`) are only for things `session.start` re-sets, since a reload starts the module over. The chosen skin is also persisted with `$.store`.
-- **Pure logic** — `model.ts` (meters, chips, task reducers, formatting), `agents.ts` (subagent run reducers), `themes.ts` (palettes, `contrast`, `readable`, `pickSkin`) — takes plain values and is unit-tested directly.
+- **Pure logic** — `model.ts` (meters, chips, task reducers, formatting), `agents.ts` (subagent run reducers, `progressOf`, type styles), `themes.ts` (palettes, `contrast`, `readable`, `pickSkin`), `guard.ts` (`riskOf`, the commands the guard refuses) — takes plain values and is unit-tested directly.
 - **Drawing** — `svg.ts` builds the desktop SVGs (`bandSvg`, `agentsSvg`) from a `Look` (`lookOf(skin)`: stylesheet, bar colours, pill, Clawd tint; no skin paints a background, so the band sits on the surface like `auto`); `sprites.ts` holds pixel sprites and their CSS animations; `icons.ts` holds the info-row vector marks (Octicons / Simple Icons path data).
 - Desktop and other SVG-capable surfaces get one SVG per site; the terminal gets `Box`/`Text` rows built in `register.tsx`.
 
@@ -45,6 +45,7 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, u
 - `session.measure` only fires on the next API response, so `session.start` reads `$.session.usage()` itself.
 - Work started from a button press is cancelled when the press ends; run it via `$.clock.after`.
 - In the desktop Code tab `$.ui.status` is not shown and `/config` is unavailable, so settings are slash commands.
+- A drawn tree's size depends on the drawings in it: the agents pane picks cards by their drawn size (`PANE_BUDGET`), and repeated marks (dither dots, ticks) are capped so a very wide band stays inside the limits.
 - Everything the band shows must come from the engine or the project's own `git`/`node`; values that cannot be read are hidden, never faked. No credentials or external files.
 
 ## Conventions

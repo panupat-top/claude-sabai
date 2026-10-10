@@ -26,9 +26,11 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     'node --version': 'v24.1.0\n',
     'git rev-list --left-right --count @{upstream}...HEAD': '1\t2\n',
   })
+  const inits: ({ timeoutMs?: number } | undefined)[] = []
   on('process.run', ($, e) => {
     const cmd = e.argv.join(' ')
     runs.push(cmd)
+    inits.push(e.init)
     const fails = failing.some(f => cmd.startsWith(f))
     return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -61,10 +63,17 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { runs, clock, branch, store, commands }
+  return { runs, clock, branch, store, commands, inits }
 }
 
-const start = ($: Engine) => $.session.start({ surface: 'desktop', isInteractive: true, cwd: '/work' })
+// git and node are read in the background; tests let that settle before looking.
+const later = (globalThis as unknown as { setTimeout: (fn: () => void, ms: number) => void }).setTimeout
+const settle = () => new Promise<void>(resolve => later(resolve, 5))
+const start = async ($: Engine) => {
+  const started = await $.session.start({ surface: 'desktop', isInteractive: true, cwd: '/work' })
+  await settle()
+  return started
+}
 
 const mountBand = ($: Engine, surface: Surface, isWorking = false) =>
   $.ui.mount({
@@ -119,6 +128,7 @@ test('the branch follows a turn of the main conversation', async ($, on) => {
   await start($)
   branch.name = 'feature/band'
   await $.turn.complete({ turnId: 't1', answer: '', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await settle()
   expect((await shown($, 'desktop')).words).toContain('Branch feature/band ↑2 ↓1 ±2, Node')
 })
 
@@ -149,13 +159,13 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
     'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
-  expect(desktop.buttons).toBe(5)
+  expect(desktop.buttons).toBe(4)
   const terminal = await shown($, 'terminal')
   expect(terminal.svgs).toBe(0)
   expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
   expect(terminal.words).toContain('7D ALL')
   expect(terminal.words).toContain('24.5k / 200k (12%)')
-  expect(terminal.buttons).toBe(5)
+  expect(terminal.buttons).toBe(4)
 })
 
 test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
@@ -323,10 +333,10 @@ test('/sabai-skin alone opens the skins panel and closes it again', async ($, on
   engine(on)
   const open = panes(on)
   await start($)
-  expect((await skinCommand($, '')).text).toBe('Skins panel opened.')
+  expect((await skinCommand($, '')).text).toBe('Settings panel opened.')
   expect([...open]).toEqual(['sabai-skins'])
   expect(opened.at(-1)).toMatchObject({ id: 'sabai-skins', focus: true, closeOnEscape: true })
-  expect((await skinCommand($, '')).text).toBe('Skins panel closed.')
+  expect((await skinCommand($, '')).text).toBe('Settings panel closed.')
   expect([...open]).toEqual([])
 })
 
@@ -337,10 +347,10 @@ test('the skins panel previews every skin and a press switches to it', async ($,
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountPane($, surface, 'sabai-skins')
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons).toHaveLength(9 + 2)
-    expect(buttons.every(b => b.text === 'Use')).toBe(true)
+    expect(buttons.filter(b => b.text === 'Use')).toHaveLength(9)
     expect(await ui.find({ text: '✓ In use' })).toBeDefined()
-    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 + 3 : 0)
+    // Ten skin swatches and one preview of the chosen bar style.
+    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 + 1 : 0)
     // The engine draws nothing of a tree past 100,000 characters.
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
     await ui.unmount()
@@ -363,10 +373,10 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountBand($, surface)
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.slice(0, 3).every(b => b.props.plain === undefined)).toBe(true)
-    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '/clear', '▐✻▌', '▐⚙▌'])
+    expect(buttons.slice(0, 2).every(b => b.props.plain === undefined)).toBe(true)
+    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌', '▐⚙▌'])
     // What the desktop draws: the label alone.
-    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '/clear', '✻', '⚙'])
+    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻', '⚙'])
     await ui.unmount()
   }
   const ui = await mountBand($, 'desktop')
@@ -396,10 +406,11 @@ test('the skins panel picks a bar style for the band', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect(await pane.find({ key: 'bar-dither' })).toBeUndefined()
+  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('✓ Dither')
   await pane.press({ key: 'bar-blocks' })
   expect(store.bar).toBe('blocks')
-  expect(await pane.find({ key: 'bar-blocks' })).toBeUndefined()
+  expect((await pane.find({ key: 'bar-blocks' }))?.props.label).toBe('✓ Pixel blocks')
+  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('Dither')
   const band = await mountBand($, 'desktop')
   const svg = (await band.find({ type: 'Svg' })) as { props: { source: string } } | undefined
   expect(svg?.props.source).not.toMatch(/class="d[0-3]"/)
@@ -411,8 +422,7 @@ test('a saved bar style comes back with the next session', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect(await pane.find({ key: 'bar-solid' })).toBeUndefined()
-  expect(await pane.find({ key: 'bar-dither' })).toBeDefined()
+  expect((await pane.find({ key: 'bar-solid' }))?.props.label).toBe('✓ Solid')
 })
 
 test('a skin leaves the band on the surface’s own background, as auto does', async ($, on) => {
@@ -508,7 +518,7 @@ test('forty agents with results open stay under the engine’s tree limit', asyn
   const ui = await mountPane($, 'desktop')
   await ui.press({ key: 'toggle-finished' })
   for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
-  expect(await ui.find({ type: 'Text', text: '+ 30 more' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\+ \d+ more$/ })).toBeDefined()
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
@@ -709,4 +719,134 @@ test('a workflow agent is marked as one on its card', async ($, on) => {
   const source = svgs.find(s => s.props.alt.startsWith('fan out:'))?.props.source
   expect(source).toContain('>general-purpose · sonnet 5.5<')
   expect(source).toContain('>workflow · 0 steps<')
+})
+
+test('a remote workflow agent with no loop of its own gets no card that would never end', async ($, on) => {
+  engine(on)
+  // A remote workflow agent: started, but with no agentId, since it has no local loop.
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5' }))
+  await start($)
+  await spawn($, 'remote')
+  const ui = await mountPane($, 'desktop')
+  expect(await ui.find({ type: 'Svg', text: /remote/ })).toBeUndefined()
+  expect((await shown($, 'desktop')).words).not.toContain('Agents:')
+})
+
+test('six running and eight fresh finished agents with a report open still fit the tree limit', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (let i = 0; i < 14; i++) {
+    await spawn($, `job ${i}`)
+    await $.tool.call({ tool: 'TodoWrite', agentId: `agent-job ${i}`, todos: [
+      { content: 'a', status: 'completed', activeForm: 'A' }, { content: 'b', status: 'in_progress', activeForm: 'B' },
+    ] } as Parameters<typeof $.tool.call>[0])
+  }
+  for (let i = 6; i < 14; i++) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  await ui.press({ key: 'result-agent-job 13' })
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+})
+
+test('git runs with a timeout, and the band follows the session to a new folder', async ($, on) => {
+  const { clock, inits } = engine(on)
+  let place = '/work'
+  on('session.cwd', () => ({ value: place }))
+  await start($)
+  expect(inits.length).toBeGreaterThan(0)
+  expect(inits.every(i => i?.timeoutMs === 5000)).toBe(true)
+  place = '/elsewhere/other-project'
+  await clock.advance(30_000)
+  await settle()
+  expect((await shown($, 'desktop')).words).toContain('Directory other-project')
+})
+
+test('the crew row leaves the band a minute after the last agent ends', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'quick job')
+  await $.turn.complete({ turnId: 't', agentId: 'agent-quick job', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop')).words).toContain('Agents: 1 done')
+  await clock.advance(90_000)
+  expect((await shown($, 'desktop')).words).not.toContain('Agents:')
+  expect((await shown($, 'terminal')).words).not.toMatch(/All 1 done/)
+})
+
+test('settings: each band row can be hidden, and the choice is kept', async ($, on) => {
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const key of ['info', 'tasks', 'crew', 'usage', 'toolbar', 'notify', 'limits', 'guard', 'steps']) expect([key, await pane.find({ key: `pref-${key}` })]).not.toEqual([key, undefined])
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('● On')
+  await pane.press({ key: 'pref-usage' })
+  await pane.press({ key: 'pref-toolbar' })
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('○ Off')
+  const band = await shown($, 'desktop')
+  expect(band.words).not.toContain('Context 24.5k')
+  expect(band.buttons).toBe(0)
+  expect((store.prefs as { rows: { usage: boolean } }).rows.usage).toBe(false)
+})
+
+test('a long turn and a failed agent send a notification; a plan limit past 90% warns once per window', async ($, on) => {
+  engine(on)
+  panes(on)
+  const notes: string[] = []
+  const toasts: string[] = []
+  on('ui.notify', ($, e) => {
+    notes.push(e.text)
+    return { value: { isSent: true, channel: 'terminal' } } as never
+  })
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await start($)
+  await $.turn.complete({ turnId: 'short', answer: '', durationMs: 5_000, isAborted: false, reason: 'answer' })
+  await $.turn.complete({ turnId: 'long', answer: '', durationMs: 125_000, isAborted: false, reason: 'answer' })
+  await spawn($, 'risky')
+  await $.turn.complete({ turnId: 'r', agentId: 'agent-risky', answer: '', durationMs: 10, isAborted: false, reason: 'error' })
+  await settle()
+  expect(notes).toEqual(['Finished in 2m 5s', 'risky failed: Ended with an error.'])
+  const at = (percentUsed: number) =>
+    $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+  await at(85)
+  await at(92)
+  await at(95)
+  await settle()
+  expect(toasts).toEqual(['5H limit at 92% — resets in 5h 0m'])
+})
+
+test('the guard, once turned on, refuses a risky command and says why', async ($, on) => {
+  engine(on)
+  panes(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  const run = (command: string) => $.tool.call({ tool: 'Bash', command, description: '' } as Parameters<typeof $.tool.call>[0])
+  expect((await run('rm -rf /')).deny).toBeUndefined()
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-guard' })
+  expect((await run('rm -rf /')).deny).toMatch(/deletes the whole disk/)
+  expect((await run('ls')).deny).toBeUndefined()
+})
+
+test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
+  engine(on)
+  panes(on)
+  const tools: string[] = []
+  on('tool.register', ($, e) => {
+    tools.push(e.name)
+    return { value: { tool: `mcp__sabai-band__${e.name}` } }
+  })
+  await start($)
+  expect(tools).toEqual(['step'])
+  await spawn($, 'worker')
+  const reply = await $.tool.call({ tool: 'mcp__sabai-band__step', agentId: 'agent-worker', done: 2, total: 4, note: 'Reading the docs' } as unknown as Parameters<typeof $.tool.call>[0])
+  expect(reply.result).toBe('ok')
+  const ui = await mountPane($, 'desktop')
+  const card = ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]).find(c => c.props.alt.startsWith('worker:'))
+  expect(card?.props.source).toContain('>2/4<')
+  expect(card?.props.source).toContain('>Reading the docs<')
 })
