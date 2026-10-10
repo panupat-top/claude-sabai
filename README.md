@@ -13,9 +13,14 @@ A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its o
 | Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
 | Toolbar | Under the band: `/context`, `/usage`, `/review`, `/compact`, `/rewind`, `/resume` and `/clear` on the left (those your surface offers), and icon buttons on the right: `✻` **Agents** (with the number of running subagents) and `⚙` **Skins**. Each opens or hides its panel; `a` and `s` press them while the band has the focus. |
 
-**The agents panel** (`/sabai-agents`)
+**The agents panel** (`/sabai-agents`, or `✻` under the band)
 
-A card per subagent: Clawd, the task, the agent type, model, number of model requests, context used and elapsed time. Running agents come first; finished ones fade, and failed ones are marked ✗.
+A summary of how many subagents run and finished, their context and the wall time, then a card per agent:
+- Clawd in a hat for its type (Explore, Plan, general-purpose, guide, others), walking while it works, hopping when it finishes and dazed if it fails;
+- the task, an effort label (quick, steady, careful, deep), its type and model;
+- its own step progress (`3/5 · current step`) or its step count, context and time.
+
+Finished agents fold away. Show them to read each one's **Result** (its report, or why it stopped), and **Clear** them when you are done.
 
 **Skins**
 
