@@ -631,8 +631,8 @@ const CHAT_MOTION =
   '.an-shake{animation:an-shake .4s ease-in-out}@keyframes an-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
   '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake{animation:none}}'
 const CHAT_ICON = 18
-const STEP_W = 640
-const STEP_H = 30
+const STEP_W = 560
+const STEP_H = 24
 const TITLE_H = 24
 
 const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: number) =>
@@ -650,24 +650,24 @@ const fitSans = (s: string, size: number, maxW: number) => {
   return `${chars.join('')}…`
 }
 
-// One tool call as a step on one line, like a row of a timeline: its icon in a soft circle, a
+// One tool call as a minimal step on one line: a small stroke icon in its tool's colour, a
 // title saying what it was about, then what it did, dim; at the right a meter, the result in a
 // tinted pill and the time. Drawn at a fixed size, which the row is told, so it never stretches.
 export function stepSvg(step: Step): Drawing {
   const resultText = step.result.map(p => p.text).join('')
   const pillTone = step.result[0]?.tone ?? 'muted'
-  const timeW = step.time ? monoWidth(step.time, 11.5) + 10 : 0
-  const pillW = resultText ? monoWidth(resultText, 12) + 16 : 0
-  const meterW = step.meter ? 5 * 6 + 8 : 0
+  const timeW = step.time ? monoWidth(step.time, 10.5) + 8 : 0
+  const pillW = resultText ? monoWidth(resultText, 11) + 12 : 0
+  const meterW = step.meter ? 5 * 5 + 6 : 0
   const right = STEP_W - 2 - timeW
   let x = right - pillW
   let pill = ''
   if (resultText) {
-    pill = `<rect class="k-${pillTone}" opacity=".14" x="${x.toFixed(1)}" y="6" width="${pillW.toFixed(1)}" height="18" rx="9"/>`
-    let tx = x + 8
+    pill = `<rect class="k-${pillTone}" opacity=".14" x="${x.toFixed(1)}" y="4" width="${pillW.toFixed(1)}" height="16" rx="8"/>`
+    let tx = x + 6
     for (const p of step.result) {
-      pill += `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="19" font-family="${MONO}" font-size="12" xml:space="preserve">${xml(p.text)}</text>`
-      tx += monoWidth(p.text, 12)
+      pill += `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="15.5" font-family="${MONO}" font-size="11" xml:space="preserve">${xml(p.text)}</text>`
+      tx += monoWidth(p.text, 11)
     }
   }
   let meter = ''
@@ -678,21 +678,20 @@ export function stepSvg(step: Step): Drawing {
     if (good > 0 && goodCells === 0) goodCells = 1
     if (bad > 0 && goodCells === 5) goodCells = 4
     const start = x - meterW
-    meter = Array.from({ length: 5 }, (_, i) => `<rect class="k-${i < goodCells ? 'ok' : 'bad'}" x="${start + i * 6}" y="10" width="4" height="10" rx="1.5"/>`).join('')
+    meter = Array.from({ length: 5 }, (_, i) => `<rect class="k-${i < goodCells ? 'ok' : 'bad'}" x="${start + i * 5}" y="8" width="3" height="8" rx="1"/>`).join('')
     x = start
   }
-  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="19" text-anchor="end" font-family="${MONO}" font-size="11.5">${xml(step.time)}</text>` : ''
-  const room = x - 34 - 12
-  const title = fitSans(step.title, 13.5, Math.min(room, room * 0.7 + 60))
-  const titleW = sansWidth(title, 13.5)
-  const detailRoom = room - titleW - 12
-  const detail = detailRoom > 40 ? fitMono(step.detail, 11.5, detailRoom) : ''
+  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="15.5" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(step.time)}</text>` : ''
+  const room = x - 20 - 10
+  const title = fitSans(step.title, 12, Math.min(room, room * 0.7 + 60))
+  const titleW = sansWidth(title, 12)
+  const detailRoom = room - titleW - 10
+  const detail = detailRoom > 40 ? fitMono(step.detail, 10.5, detailRoom) : ''
   const motion = step.tone === 'ok' ? ' an-pop' : step.tone === 'bad' ? ' an-shake' : ''
   const body =
-    `<circle class="trk" cx="14" cy="15" r="12"/>` +
-    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 6, 7, 16) +
-    `<text class="k-text" x="34" y="19.5" font-family="${SANS}" font-size="13.5" font-weight="600">${xml(title)}</text>` +
-    (detail ? `<text class="k-muted" x="${(34 + titleW + 12).toFixed(1)}" y="19" font-family="${MONO}" font-size="11.5" xml:space="preserve">${xml(detail)}</text>` : '') +
+    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 1, 5.5, 13) +
+    `<text class="k-text" x="20" y="16" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` +
+    (detail ? `<text class="k-muted" x="${(20 + titleW + 10).toFixed(1)}" y="15.5" font-family="${MONO}" font-size="10.5" xml:space="preserve">${xml(detail)}</text>` : '') +
     meter +
     pill +
     time
@@ -701,6 +700,27 @@ export function stepSvg(step: Step): Drawing {
     width: STEP_W,
     height: STEP_H,
     alt: stepText(step),
+  }
+}
+
+// The footer's mode labels with the guard's: each dim, the guard's after a shield drawn like a
+// step's icon. One small drawing, since a drawing sets its siblings on lines of their own.
+export function modesSvg(modes: readonly string[]): Drawing {
+  let x = 0
+  let body = ''
+  for (const m of modes) {
+    body += `<text class="k-muted" x="${x}" y="12" font-family="${SANS}" font-size="11">${xml(m)}</text>`
+    x += sansWidth(m, 11) * 0.95 + 4
+    body += `<text class="k-muted" x="${x}" y="12" font-family="${SANS}" font-size="11">&amp;</text>`
+    x += 12
+  }
+  body += stroke('shield-check', 's-ok', x, 1, 12) + `<text class="k-muted" x="${x + 15}" y="12" font-family="${SANS}" font-size="11">guard</text>`
+  const w = Math.ceil(x + 15 + sansWidth('guard', 11) * 0.95 + 2)
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="16" viewBox="0 0 ${w} 16"><style>${CHAT_CSS}</style>${body}</svg>`,
+    width: w,
+    height: 16,
+    alt: [...modes, 'guard'].join(' & '),
   }
 }
 

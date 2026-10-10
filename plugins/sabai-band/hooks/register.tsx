@@ -4,9 +4,9 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, modesSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { CALLOUT_HINT, isGenericWord, outputOf, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -26,7 +26,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, output: true, tests: true, callouts: true, label: true },
+  chat: { spinner: true, tools: true, tests: true, callouts: true, label: true },
 }
 const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -618,7 +618,6 @@ export const register: Register = on => {
           {heading('Chat', 'In the conversation')}
           {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           {chatToggle('tools', 'Tool summaries', 'A line under edits, reads and commands')}
-          {chatToggle('output', 'Tool output', "Commands' last lines and edits' diffs, without opening the row")}
           {chatToggle('tests', 'Test results', 'Passed and failed counts as a bar')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
           {chatToggle('label', 'Guard label', 'Shows 🛡 guard under the prompt while the guard is on')}
@@ -664,28 +663,14 @@ export const register: Register = on => {
     )
   })
 
-  // A tool call drawn as a step in place of its row (what it was about, what it did, how it
-  // ended), with what it holds under it so the row need not be opened.
+  // A tool call drawn as a step in place of its row: what it was about, what it did, how it ended.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     const { chat } = await read($, prefs)
     const p = e.props
-    if (!chat.tools && !chat.output) return next(e)
+    if (!chat.tools) return next(e)
     const durationMs = p.tool === 'Bash' ? (await read($, durations))[p.tool_use_id] : undefined
     const step = stepOf({ ...p, ...(durationMs === undefined ? {} : { durationMs }), tests: chat.tests })
-    if (!step) return next(e)
-    const held = chat.output && !step.quiet && !p.isRunning ? outputOf(p.tool, p.output, p.input) : undefined
-    const { Box, Code, Text } = $.ui.resolve(e)
-    const shown = chat.tools ? stepView($, e, step) : await next(e)
-    if (!held) return chat.tools ? shown : next(e)
-    return (
-      <Box flexDirection="column" rowGap={0}>
-        {shown}
-        <Box paddingLeft={chat.tools ? 4 : 0} flexDirection="column">
-          <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.language ? { language: held.language } : {})} {...(held.path ? { path: held.path } : {})} />
-          {held.more ? <Text dimColor>{`… ${held.more} more line${held.more === 1 ? '' : 's'}`}</Text> : null}
-        </Box>
-      </Box>
-    )
+    return step ? stepView($, e, step) : next(e)
   })
 
   on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
@@ -694,9 +679,9 @@ export const register: Register = on => {
     return checked
   })
 
-  // With Tool output on, a folded run of reads and searches unfolds into its own rows.
+  // With Tool summaries on, a folded run of reads and searches unfolds into its own steps.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
-    (await read($, prefs)).chat.output ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
+    (await read($, prefs)).chat.tools ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
   )
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
@@ -744,7 +729,12 @@ export const register: Register = on => {
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const p = await read($, prefs)
     if (!p.chat.label || !p.guard) return next(e)
-    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '🛡 guard'] } })
+    const ui = $.ui.resolve(e)
+    if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
+      const d = modesSvg(e.props.modes)
+      return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
+    }
+    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '⛨ guard'] } })
   })
 
   on('prompt.compose', async ($, e, next) => {

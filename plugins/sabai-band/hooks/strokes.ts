@@ -2,9 +2,10 @@
 // pqoqubbw/icons (https://github.com/pqoqubbw/icons, MIT) animates; svg.ts gives them its own
 // CSS animations. A part a whole-icon animation should not move carries its own class.
 
-export type StrokeKind = 'flask-conical' | 'book-open' | 'terminal' | 'square-pen' | 'file-plus' | 'eye' | 'circle-check' | 'circle-x' | 'ban' | 'party-popper' | 'info' | 'lightbulb' | 'badge-alert' | 'triangle-alert' | 'octagon-x'
+export type StrokeKind = 'shield-check' | 'flask-conical' | 'book-open' | 'terminal' | 'square-pen' | 'file-plus' | 'eye' | 'circle-check' | 'circle-x' | 'ban' | 'party-popper' | 'info' | 'lightbulb' | 'badge-alert' | 'triangle-alert' | 'octagon-x'
 
 export const STROKES: Record<StrokeKind, string> = {
+  "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/><path d=\"m9 12 2 2 4-4\"/>",
   "flask-conical": "<path d=\"M14 2v6a2 2 0 0 0 .245.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.755-2.96l5.51-10.08A2 2 0 0 0 10 8V2\"/><path d=\"M6.453 15h11.094\"/><path d=\"M8.5 2h7\"/>",
   "book-open": "<path d=\"M12 5v16\"/><path d=\"M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z\"/>",
   "terminal": "<path class=\"an-blink\" d=\"M12 19h8\"/><path d=\"m4 17 6-6-6-6\"/>",

@@ -43,23 +43,18 @@ The newest running agents get a card (up to six, fewer when their drawings would
 **In the conversation**
 
 - **Tool summaries:** each Edit, Write, Read and Bash call is drawn as a one-line step, in place of its folded row:
-  - an icon in a soft circle;
+  - a small stroke icon in the tool's colour;
   - a title saying what it was about (`Run the mod's test suite`, `Edited svg.ts`);
   - what it did, dimmed (the command, or the file's path);
   - at the right:
     - a small meter (added against removed lines, passed against failed tests);
     - the result in a tinted pill (`✓ done`, `✗ exit 1`, `+12 −3`, `lines 1–20`);
     - the time, with ⚡ under a second and 🐢 past thirty.
-- **Tool output:** what a call holds, under its step, without opening anything:
-  - a command's last six lines, with a count of the rest;
-  - an edit's diff (up to twelve lines);
-  - a new file's first lines, highlighted.
-
-  A passing test run shows only its counts. Runs of reads and searches are unfolded into their own steps.
+  Runs of reads and searches are unfolded into their own steps.
 - **Test results:** a run of bun, jest, vitest, pytest, cargo or go gets a flask icon and its counts (`✓ 141 passed`, `✗ 2 of 98 failed`).
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
 - **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
-- **Guard label:** `🛡 guard` under the prompt while the guard is on.
+- **Guard label:** a shield and `guard` under the prompt while the guard is on, drawn like the steps' icons.
 
 Colours in the conversation follow your light or dark theme, not the skin.
 
@@ -72,7 +67,7 @@ Everything applies at once and is kept for new sessions:
 | Band | Show or hide each row: Info, Tasks, Crew, Usage, Toolbar. |
 | Progress bar | How bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**, with a preview. |
 | Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
-| Chat | **Spinner words**, **Tool summaries**, **Tool output**, **Test results**, **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request) and **Guard label**. All on by default. |
+| Chat | **Spinner words**, **Tool summaries**, **Test results**, **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request) and **Guard label**. All on by default. |
 | Agents | **Step reports**: agents can send their progress (`2/4 · reading the docs`) to their card in the agents panel. Each model request then carries one small extra tool. On by default; a change takes effect from the next session. Some agent types (such as claude-code-guide) are not given the tool, and their cards show a step count instead. |
 | Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. Off by default. |
 | Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |

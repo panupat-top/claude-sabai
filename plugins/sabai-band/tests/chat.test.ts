@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { SPINNER_WORDS, clean, isGenericWord, outputOf, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { SPINNER_WORDS, clean, isGenericWord, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -64,26 +64,6 @@ test('output is cleaned of terminal colour codes and carriage-return redraws', (
   expect(clean('\x1b[32mok\x1b[0m\r\nstep 1\rstep 2\x07')).toBe('ok\nstep 2')
 })
 
-test('Bash output shows its last lines, counting the rest; an empty run shows nothing', () => {
-  const out = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n') + '\n\n'
-  expect(outputOf('Bash', { stdout: out, stderr: '' })).toEqual({ source: 'line 6\nline 7\nline 8\nline 9\nline 10', more: 5 })
-  expect(outputOf('Bash', 'Exit code 1\nboom')).toEqual({ source: 'Exit code 1\nboom', more: 0 })
-  expect(outputOf('Bash', { stdout: '', stderr: '  \n' })).toBeUndefined()
-})
-
-test('an edit shows its diff as unified hunks, cut whole and re-counted when long', () => {
-  const short = outputOf('Edit', { filePath: 'a.ts', structuredPatch: [{ oldStart: 3, oldLines: 2, newStart: 3, newLines: 2, lines: [' a', '-b', '+c'] }] })
-  expect(short).toEqual({ source: '@@ -3,2 +3,2 @@\n a\n-b\n+c', format: 'diff', path: 'a.ts', more: 0 })
-  const long = outputOf('Edit', { filePath: 'a.ts', structuredPatch: [{ oldStart: 1, oldLines: 20, newStart: 1, newLines: 20, lines: Array.from({ length: 20 }, (_, i) => (i % 2 ? `+n${i}` : ` c${i}`)) }] })
-  expect(long?.more).toBe(8)
-  expect(long?.source.split('\n')[0]).toBe('@@ -1,6 +1,12 @@')
-})
-
-test('a new file shows its first lines, highlighted by its path', () => {
-  expect(outputOf('Write', { type: 'create', filePath: 'x.py', content: 'a\nb\nc\nd\ne\nf\ng\nh\n', structuredPatch: [] })).toEqual({ source: 'a\nb\nc\nd\ne', path: 'x.py', more: 3 })
-  expect(outputOf('Read', { type: 'text', file: {} })).toBeUndefined()
-})
-
 const call = (tool: string, input: Record<string, unknown>, output: unknown, more: Record<string, unknown> = {}) =>
   stepOf({ tool, input, output, isRunning: false, isErrored: false, isInterrupted: false, tests: true, ...more })
 
@@ -98,18 +78,17 @@ test('a command is a step titled by what it was for, with the command as its det
 test('a command ends failed, interrupted, in the background, or still running', () => {
   expect(stepText(call('Bash', { command: 'false', description: 'fail' }, 'Exit code 1', { isErrored: true, durationMs: 400 })!)).toBe('Fail · ✗ exit 1 · ⚡ 0.4s')
   expect(call('Bash', { command: 'x' }, {}, { isInterrupted: true })).toMatchObject({ icon: 'stop', result: [{ text: 'interrupted' }] })
-  expect(call('Bash', { command: 'dev' }, { backgroundTaskId: 'b1' })).toMatchObject({ result: [{ text: 'in the background' }], quiet: true })
+  expect(call('Bash', { command: 'dev' }, { backgroundTaskId: 'b1' })).toMatchObject({ result: [{ text: 'in the background' }] })
   const running = call('Bash', { command: 'sleep 9' }, undefined, { isRunning: true, durationMs: 100 })
-  expect(running).toMatchObject({ result: [{ text: 'running…' }], quiet: true })
+  expect(running).toMatchObject({ result: [{ text: 'running…' }] })
   expect(running?.time).toBeUndefined()
 })
 
-test('a test run is a flask step with its counts; passing, its output is not repeated', () => {
+test('a test run is a flask step with its counts', () => {
   const pass = call('Bash', { command: 'bun test', description: 'run the tests' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' })
-  expect(pass).toMatchObject({ icon: 'flask', tone: 'ok', result: [{ text: '✓ 9 passed', tone: 'ok' }], quiet: true })
+  expect(pass).toMatchObject({ icon: 'flask', tone: 'ok', result: [{ text: '✓ 9 passed', tone: 'ok' }] })
   const fail = call('Bash', { command: 'bun test' }, 'Exit code 1\n 8 pass\n 1 fail\nRan 9 tests across 1 files.', { isErrored: true })
   expect(fail).toMatchObject({ icon: 'flask', tone: 'bad', result: [{ text: '✗ 1 of 9 failed', tone: 'bad' }] })
-  expect(fail?.quiet).toBeUndefined()
   const later = call('Bash', { command: 'bun test && tsc' }, 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS1', { isErrored: true })
   expect(later?.result).toEqual([{ text: '✗ exit 2', tone: 'bad' }])
   expect(call('Bash', { command: 'bun test' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' }, { tests: false })?.icon).toBe('terminal')
@@ -122,7 +101,7 @@ test('edits, writes and reads are steps named by their file, with the path as th
   })
   expect(call('Edit', { file_path: 'a.ts' }, { structuredPatch: [{ lines: [' same'] }] })?.result).toEqual([{ text: 'no change', tone: 'muted' }])
   expect(call('Write', { file_path: 'docs/new.md' }, { type: 'create', content: 'a\nb\n' })).toMatchObject({ icon: 'file', title: 'Created new.md', result: [{ text: 'new · 2 lines' }] })
-  expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 20, totalLines: 131 } })).toMatchObject({ title: 'Read README.md', result: [{ text: 'lines 1–20 of 131' }], quiet: true })
+  expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 20, totalLines: 131 } })).toMatchObject({ title: 'Read README.md', result: [{ text: 'lines 1–20 of 131' }] })
   expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 131, totalLines: 131 } })?.result).toEqual([{ text: '131 lines', tone: 'muted' }])
   expect(call('Grep', { pattern: 'x' }, {})).toBeUndefined()
 })
@@ -130,5 +109,4 @@ test('edits, writes and reads are steps named by their file, with the path as th
 test('a test run carries a pass/fail meter; an edit read from its input counts its lines', () => {
   expect(call('Bash', { command: 'bun test' }, 'Exit code 1\n 8 pass\n 2 fail\nRan 10 tests across 1 files.', { isErrored: true })?.meter).toEqual({ good: 8, bad: 2 })
   expect(call('Edit', { file_path: 'a.ts', old_string: 'a\nb', new_string: 'c' }, undefined)).toMatchObject({ result: [{ text: '+1' }, { text: ' −2' }], meter: { good: 1, bad: 2 } })
-  expect(outputOf('Edit', undefined, { old_string: '', new_string: 'x' })).toEqual({ source: '+x', language: 'diff', more: 0 })
 })

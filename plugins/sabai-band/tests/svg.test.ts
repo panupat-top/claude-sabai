@@ -209,17 +209,16 @@ test('callout inks read on light and dark, and a title is one small drawing in i
   expect(d.source).toMatch(/<g class="co an-pop"[^>]*fill="none"/)
 })
 
-test('a step is one fixed 640×30 line: icon in a circle, title, detail, a meter, the result in a pill, the time', () => {
+test('a step is one minimal 560×24 line: a small icon, title, detail, a meter, the result in a pill, the time', () => {
   const d = stepSvg({ icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 141 passed', tone: 'ok' }], meter: { good: 141, bad: 0 }, time: '5.1s' })
-  expect([d.width, d.height]).toEqual([640, 30])
+  expect([d.width, d.height]).toEqual([560, 24])
   expect(d.alt).toBe('Run the tests · ✓ 141 passed · 5.1s')
-  expect(d.source).toContain('<circle class="trk"')
-  expect(d.source).toMatch(/<g class="s-ok an-pop" fill="none" stroke-width="2"/)
-  expect(d.source).toContain('>Run the tests<')
+  expect(d.source).not.toContain('<circle class="trk"')
+  expect(d.source).toMatch(/scale\(0\.5416666666666666\)"><g class="s-ok an-pop" fill="none" stroke-width="2"/)
+  expect(d.source).toMatch(/font-size="12" font-weight="600">Run the tests</)
   expect(d.source).toContain('>$ bun test<')
-  expect(d.source).toMatch(/<rect class="k-ok" opacity=".14"[^>]*rx="9"/)
-  expect((d.source.match(/height="10" rx="1.5"/g) ?? []).length).toBe(5)
-  expect(d.source).toContain('text-anchor="end"')
+  expect(d.source).toMatch(/<rect class="k-ok" opacity=".14"[^>]*height="16" rx="8"/)
+  expect((d.source.match(/height="8" rx="1"/g) ?? []).length).toBe(5)
 })
 
 test('a long title is cut short of the result, never under it', () => {
@@ -232,7 +231,7 @@ test('a long title is cut short of the result, never under it', () => {
 
 test('an animated icon keeps its place: the motion sits inside the group that positions it', () => {
   const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 't', detail: 'd', result: [] })
-  expect(d.source).toMatch(/<g transform="translate\(6,7\) scale\(0\.6666666666666666\)"><g class="s-ok an-pop"/)
+  expect(d.source).toMatch(/<g transform="translate\(1,5\.5\) scale\(0\.5416666666666666\)"><g class="s-ok an-pop"/)
 })
 
 test('motion starts and ends on the icon’s own size, so an image held on its first frame looks right', () => {
@@ -242,6 +241,6 @@ test('motion starts and ends on the icon’s own size, so an image held on its f
 
 test('the detail starts after the title it follows, measured by its letters', () => {
   const at = (title: string) => Number(stepSvg({ icon: 'read', tone: 'read', title, detail: 'README.md', result: [] }).source.match(/<text class="k-muted" x="([\d.]+)"/)?.[1])
-  expect(at('Read README.md')).toBeGreaterThan(34 + 14 * 13.5 * 0.56 + 12)
+  expect(at('Read README.md')).toBeGreaterThan(20 + 14 * 12 * 0.56 + 10)
   expect(at('iiiiiiiiii')).toBeLessThan(at('MMMMMMMMMM'))
 })
