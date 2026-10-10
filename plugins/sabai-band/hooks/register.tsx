@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
-import type { AgentRun, Env, Task, Usage } from '../types'
+import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
 import { clock, elapsed, finished, groups, modelName, spawned, stepped } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { agentsSvg, bandSvg, lookOf, skinPreview } from './svg'
+import { BAR_STYLES, agentsSvg, bandSvg, barPreview, lookOf, skinPreview } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -16,6 +16,12 @@ const now = atom({ plugin: 'sabai-band', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as AgentRun[])
+const bar = atom({ plugin: 'sabai-band', key: 'bar' } as const, 'dither' as BarStyle)
+
+const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
+const BAR_NOTES: Record<BarStyle, string> = { dither: 'Twinkling dots', blocks: 'Square cells', solid: 'One smooth fill' }
+// The terminal's stand-ins for each style's filled and empty cells.
+const BAR_GLYPHS: Record<BarStyle, [string, string]> = { dither: ['▓', '░'], blocks: ['▰', '▱'], solid: ['█', '░'] }
 
 const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
@@ -86,6 +92,12 @@ async function toggleAgents($: EngineInterface): Promise<boolean> {
   return togglePane($, PANE, 'Agents')
 }
 
+async function setBar($: EngineInterface, style: string) {
+  if (!isBarStyle(style)) return
+  await update($, bar, () => style)
+  await $.store.set('bar', style)
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -114,6 +126,8 @@ export const register: Register = on => {
     })
     const saved = await $.store.get('skin')
     if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
+    const savedBar = await $.store.get('bar')
+    if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
     await $.command.register({ name: 'sabai-skin', description: 'Change the sabai-band skin', argumentHint: '[name]' })
     await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
     return started
@@ -242,49 +256,82 @@ export const register: Register = on => {
     return { text: `Skin set to ${THEMES[picked]?.name ?? 'auto'}.` }
   })
 
-  // Every skin: its name and tone on the left, Use on the right, its colours underneath.
+  // Two groups, each a list of choices drawn alike: a name and a note on the left, Use or
+  // "In use" on the right, and a sample underneath (a swatch on the desktop, coloured text on
+  // the terminal).
   on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e) => {
     const current = await read($, skin)
+    const style = await read($, bar)
+    const look = lookOf(current)
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const W = Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))
+    const heading = (title: string, note: string) => (
+      <Text>
+        <Text bold>{title}</Text>
+        <Text dimColor>{`  ${note}`}</Text>
+      </Text>
+    )
+    const head = (key: string, name: string, note: string, inUse: boolean, accent: string, pick: () => Promise<void>) => (
+      <Box flexDirection="row" alignItems="center" columnGap={2}>
+        <Box flexGrow={1}>
+          <Text wrap="truncate-end">
+            <Text bold>{name}</Text>
+            <Text dimColor>{`  ${note}`}</Text>
+          </Text>
+        </Box>
+        {inUse ? (
+          <Text color={accent} bold>
+            ✓ In use
+          </Text>
+        ) : (
+          <Button key={key} label="Use" variant="primary" onPress={pick} />
+        )}
+      </Box>
+    )
     return (
-      <Box flexDirection="column" rowGap={1}>
-        <Text dimColor>Choose how the band and panels look. Your choice is kept for new sessions. Esc closes.</Text>
-        {SKINS.map(k => {
-          const t = THEMES[k]
-          const look = lookOf(k)
-          const preview = Svg && skinPreview(k, W, k === current)
-          return (
-            <Box key={`row-${k}`} flexDirection="column">
-              <Box flexDirection="row" alignItems="center" columnGap={2}>
-                <Box flexGrow={1}>
-                  <Text wrap="truncate-end">
-                    <Text bold>{t?.name ?? 'Auto'}</Text>
-                    <Text dimColor>{`  ${t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'}`}</Text>
-                  </Text>
-                </Box>
-                {k === current ? (
-                  <Text color={look.clawd} bold>
-                    ✓ In use
-                  </Text>
+      <Box flexDirection="column" rowGap={2}>
+        <Text dimColor>Choices apply at once and are kept for new sessions. Esc closes.</Text>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Color theme', 'The band and panels')}
+          {SKINS.map(k => {
+            const t = THEMES[k]
+            const tone = t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'
+            const kLook = lookOf(k)
+            const preview = Svg && skinPreview(k, W, k === current)
+            return (
+              <Box key={`row-${k}`} flexDirection="column">
+                {head(`use-${k}`, t?.name ?? 'Auto', tone, k === current, kLook.clawd, () => setSkin($, k))}
+                {Svg && preview ? (
+                  <Svg source={preview.source} alt={preview.alt} />
                 ) : (
-                  <Button key={`use-${k}`} label="Use" variant="primary" onPress={() => setSkin($, k)} />
+                  <Text>
+                    {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
+                      <Text key={kind} color={kLook.bar(kind, 0)}>{'▰▰▰ '}</Text>
+                    ))}
+                  </Text>
                 )}
               </Box>
-              {Svg && preview ? (
-                <Svg source={preview.source} alt={preview.alt} />
-              ) : (
-                <Text>
-                  {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
-                    <Text key={kind} color={look.bar(kind, 0)}>{'▰▰▰ '}</Text>
-                  ))}
-                </Text>
-              )}
-            </Box>
-          )
-        })}
+            )
+          })}
+        </Box>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Progress bar', 'Tasks and usage cards')}
+          {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => {
+            const preview = Svg && barPreview(b, current, W)
+            return (
+              <Box key={`row-bar-${b}`} flexDirection="column">
+                {head(`bar-${b}`, BAR_STYLES[b], BAR_NOTES[b], b === style, look.clawd, () => setBar($, b))}
+                {Svg && preview ? (
+                  <Svg source={preview.source} alt={preview.alt} />
+                ) : (
+                  <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[b])}</Text>
+                )}
+              </Box>
+            )
+          })}
+        </Box>
       </Box>
     )
   })
@@ -299,6 +346,7 @@ export const register: Register = on => {
     if (!p && info.left.length + info.right.length === 0 && list.length === 0) return next(e)
 
     const skinName = await read($, skin)
+    const style = await read($, bar)
     const look = lookOf(skinName)
     const running = groups(await read($, agents)).running.length
     const ui = $.ui.resolve(e)
@@ -346,7 +394,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName)
+      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName, style)
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}

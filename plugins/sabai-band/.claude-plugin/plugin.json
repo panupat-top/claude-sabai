@@ -1,6 +1,6 @@
 {
   "name": "sabai-band",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Pixel-art band above the prompt: directory, git and node; task progress with Clawd; context, 5H and 7D usage with reset countdowns. An agents panel with a Clawd per subagent. Ten skins.",
   "author": {
     "name": "Panupat Top",

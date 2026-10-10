@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar + ปุ่มคำสั่ง เสร็จ (`sabai-band` 0.6.0)
+> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel + toolbar + ปุ่มคำสั่ง + รูปแบบ bar เสร็จ (`sabai-band` 0.7.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -17,7 +17,8 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | Toolbar | ซ้าย: `/context` `/usage` `/review` `/compact` `/rewind` `/resume` `/clear` (เฉพาะที่ surface มี, `$.command.list`) · ขวา: ปุ่ม icon: `✻` Agents (+จำนวน agent ที่ทำงาน) · `⚙` Skins · hotkey `a` / `s` เมื่อ band ถูก focus | ปุ่ม native ของ desktop — skin เปลี่ยนได้แค่สีสัญลักษณ์ |
 
 - **Agents panel (C2):** `/sabai-agents` เปิด/ปิด pane · การ์ดต่อ subagent: Clawd (เดินเมื่อทำงาน), ชื่องาน, ชนิด agent, model, จำนวนรอบเรียก model, context, เวลา · กลุ่ม RUNNING / DONE (จางลง, ✗ เมื่อล้มเหลว) · เก็บ 40 รายการล่าสุด · ข้อมูลจาก `agent.spawn`, `turn.step`, `turn.complete` · นาฬิกานับทุกวินาทีเฉพาะตอนมี agent ทำงาน · ใช้ skin เดียวกับ band
-- **Skin:** `/sabai-skin` เปิด/ปิด pane เลือก skin (ชื่อ skin ชิดซ้าย ปุ่ม Use ชิดขวา + ตัวอย่างสีของ skin นั้น, กดแล้วเปลี่ยนทันที) · `/sabai-skin <name>` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนพื้นหลัง band, การ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`)
+- **Skin:** `/sabai-skin` เปิด/ปิด pane เลือก skin (ชื่อ skin ชิดซ้าย ปุ่ม Use ชิดขวา + ตัวอย่างสีของ skin นั้น, กดแล้วเปลี่ยนทันที) · `/sabai-skin <name>` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนการ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`) · ไม่มีพื้นหลัง band (วางบนพื้นของแอปเหมือน `auto`) · การ์ดใช้ชั้นที่สว่างกว่าของ theme (`cardOf`)
+- **Progress bar (A2):** กลุ่มที่สองของ pane Skins (ต่อจาก Color theme) เลือกรูปแบบ bar — Dither / Pixel blocks / Solid แต่ละแบบมีตัวอย่างและปุ่ม Use · จำใน `$.store` · มีผลกับ band บน desktop (terminal ยังใช้ตัวอักษรเดิม)
 - **รอบการอ่าน:** countdown และ branch ทุก 30 วิ · `git status` + ahead/behind เฉพาะตอนเริ่ม session, จบ turn และเมื่อ branch เปลี่ยน
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 
@@ -49,4 +50,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | D2 | แจ้งเตือนเมื่อ turn ยาวจบ (toast + เสียง) | S | |
 | D1 | Guard คำสั่งอันตราย (`rm -rf /`, `git push --force` ไป main, อ่าน `.env`) | S | `tool.call` → `{ deny }` |
 | C1 | File tree pane | L | filetree ทำไว้แล้ว |
+| S-A | Customize: คู่ skin สว่าง/มืด, มุม, พื้นหลัง, density, animation | S–M | ต่อจาก A2 |
+| S-B | เลือกส่วนที่แสดง: การ์ด, info row, Clawd, ปุ่มคำสั่ง, เกณฑ์เตือน | M | |
+| S-C | Custom skin (hex), export/import JSON, skin ต่อ project | L | |
 | A1–A4 | ธีมทั้ง transcript | L | เสี่ยงพังเมื่อ Claude Code อัปเดต — ไม่แนะนำ |

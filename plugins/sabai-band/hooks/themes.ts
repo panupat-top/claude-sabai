@@ -96,6 +96,9 @@ export function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05)
 }
 
+// A theme's card colour: the lighter of its base and surface, so cards read alike on every skin.
+export const cardOf = (t: Palette): string => (contrast(t.base, '#000000') > contrast(t.surface, '#000000') ? t.base : t.surface)
+
 // `color` as is when it reads on `bg`, else stepped toward white or black (whichever `bg` is
 // not) until it does. A theme's own colour wins wherever it is legible.
 export function readable(color: string, bg: string, min = 4.5): string {

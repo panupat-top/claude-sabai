@@ -216,7 +216,7 @@ test('/sabai-skin switches by any spelling, and remembers the choice', async ($,
   expect((await skinCommand($, 'TokyoNight')).text).toBe('Skin set to Tokyo Night.')
   const ui = await mountBand($, 'desktop')
   const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
-  expect(svg?.props.source).toContain('fill="#1a1b26"')
+  expect(svg?.props.source).toContain('.p{fill:#1a1b26}')
   expect(store.skin).toBe('tokyo-night')
 })
 
@@ -241,7 +241,7 @@ test('a saved skin comes back with the next session', async ($, on) => {
   await start($)
   const ui = await mountBand($, 'desktop')
   const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
-  expect(svg?.props.source).toContain('fill="#282a36"')
+  expect(svg?.props.source).toContain('.p{fill:#282a36}')
 })
 
 // The agents pane, opened and closed through the engine's own ui noun.
@@ -345,10 +345,10 @@ test('the skins panel previews every skin and a press switches to it', async ($,
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountPane($, surface, 'sabai-skins')
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons).toHaveLength(9)
+    expect(buttons).toHaveLength(9 + 2)
     expect(buttons.every(b => b.text === 'Use')).toBe(true)
-    expect((await ui.find({ text: '✓ In use' })) !== undefined).toBe(true)
-    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 : 0)
+    expect(await ui.find({ text: '✓ In use' })).toBeDefined()
+    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 + 3 : 0)
     // The engine draws nothing of a tree past 100,000 characters.
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
     await ui.unmount()
@@ -360,7 +360,7 @@ test('the skins panel previews every skin and a press switches to it', async ($,
   expect(await ui.find({ key: 'use-auto' })).toBeDefined()
   const previews = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
   const dracula = previews.find(p => p.props.alt === 'Dracula skin colours')
-  expect(dracula?.props.source).toContain('fill="#282a36"')
+  expect(dracula?.props.source).toContain('.p{fill:#282a36}')
   expect(dracula?.props.source).toContain('class="run"')
 })
 
@@ -397,4 +397,36 @@ test('the toolbar runs common commands, only those this surface offers', async (
   await ui.press({ key: 'run-compact' })
   await clock.advance(1)
   expect(commands).toEqual(['compact'])
+})
+
+test('the skins panel picks a bar style for the band', async ($, on) => {
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  expect(await pane.find({ key: 'bar-dither' })).toBeUndefined()
+  await pane.press({ key: 'bar-blocks' })
+  expect(store.bar).toBe('blocks')
+  expect(await pane.find({ key: 'bar-blocks' })).toBeUndefined()
+  const band = await mountBand($, 'desktop')
+  const svg = (await band.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+  expect(svg?.props.source).not.toMatch(/class="d[0-3]"/)
+  expect(svg?.props.source).toContain('rx="1.5"')
+})
+
+test('a saved bar style comes back with the next session', async ($, on) => {
+  engine(on, { store: { bar: 'solid' } })
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  expect(await pane.find({ key: 'bar-solid' })).toBeUndefined()
+  expect(await pane.find({ key: 'bar-dither' })).toBeDefined()
+})
+
+test('a skin leaves the band on the surface’s own background, as auto does', async ($, on) => {
+  engine(on, { store: { skin: 'dracula' } })
+  await start($)
+  const ui = await mountBand($, 'desktop')
+  const tree = (await ui.drawn()) as { props: { backgroundColor?: string; borderStyle?: string } }
+  expect([tree.props.backgroundColor, tree.props.borderStyle]).toEqual([undefined, undefined])
 })

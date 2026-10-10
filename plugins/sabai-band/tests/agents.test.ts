@@ -66,8 +66,10 @@ test('the pane draws a card per run under its heading; finished runs fade, faile
   expect(d.alt).toBe('task r: Explore, sonnet 5.5, running, 1m 4s; task ok: Explore, sonnet 5.5, done, 41s; task bad: Explore, sonnet 5.5, failed, 1s')
 })
 
-test('with no runs the pane says so; a skin frames it', () => {
+test('with no runs the pane says so; a skin colours its cards, no background', () => {
   expect(agentsSvg([], [], 600, 0).alt).toBe('No subagents yet')
   expect(agentsSvg([], [], 600, 0).source).toContain('No subagents yet. They show here while they work.')
-  expect(agentsSvg([run('a')], [], 600, 0, 'nord').source).toContain('rx="10" fill="#2e3440"')
+  const nord = agentsSvg([run('a')], [], 600, 0, 'nord').source
+  expect(nord).toContain('.p{fill:#3b4252}')
+  expect(nord).not.toContain('rx="10" fill=')
 })

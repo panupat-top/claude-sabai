@@ -21,6 +21,8 @@ A card per subagent: Clawd, the task, the agent type, model, number of model req
 
 Ten looks for the band and the panels, picked from a panel of previews (`/sabai-skin`): `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`.
 
+The panel has two groups, each choice with a preview and a **Use** button: **Color theme**, and **Progress bar**, how the bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**. Both are remembered across sessions.
+
 ## Requirements
 
 - Claude Code **2.1.287** or later.

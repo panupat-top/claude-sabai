@@ -12,6 +12,9 @@ export type Task = {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+// How the band draws its bars: savvy-progress's dither, square pixel segments, or a solid fill.
+export type BarStyle = 'dither' | 'blocks' | 'solid'
+
 // One subagent as the agents pane shows it.
 export type AgentRun = {
   id: string
@@ -34,6 +37,7 @@ declare module 'claude-code' {
       now: number
       env: Env
       skin: string
+      bar: BarStyle
       agents: AgentRun[]
     }
   }

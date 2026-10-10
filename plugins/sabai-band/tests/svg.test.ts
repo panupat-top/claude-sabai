@@ -106,15 +106,28 @@ test('figures take their meter colour, then the warning ones', () => {
   expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
-test('a skin draws its background behind the rows, inset 10px; auto draws none', () => {
+test('a skin colours the cards and bars but draws no background or inset, as auto does', () => {
   const themed = bandSvg(undefined, NONE, LIST, 900, false, 'catppuccin-mocha')
-  expect(themed?.height).toBe(44 + 20)
-  expect(themed?.source).toContain('<rect width="900" height="64" rx="10" fill="#1e1e2e"/><g transform="translate(10,10)">')
+  expect(themed?.height).toBe(44)
+  expect(themed?.source).toContain('.p{fill:#1e1e2e}')
   expect(themed?.source).toContain('<g fill="#b4befe">')
-  expect(bandSvg(undefined, NONE, LIST, 900)?.source).not.toContain('rx="10" fill=')
+  expect(themed?.source).not.toContain('rx="10" fill=')
+  expect(themed?.source).not.toContain('translate(10,10)')
 })
 
 test('fill colours step up at the warning thresholds', () => {
   expect(new Set([fillColor(10, '#123456'), fillColor(75, '#123456'), fillColor(95, '#123456')]).size).toBe(3)
   expect(fillColor(10, '#123456')).toBe('#123456')
+})
+
+test('bars draw as dither, pixel blocks or a solid fill', () => {
+  const draw = (style: 'dither' | 'blocks' | 'solid') =>
+    bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 800, false, 'auto', style)?.source ?? ''
+  expect(draw('dither')).toMatch(/class="d[0-3]"/)
+  const blocks = draw('blocks')
+  expect(blocks).not.toMatch(/class="d[0-3]"/)
+  expect(blocks.match(/rx="1\.5"/g)?.length).toBeGreaterThan(20)
+  const solid = draw('solid')
+  expect(solid).not.toMatch(/class="d[0-3]"/)
+  expect(solid).toContain('<rect fill="#D97757"')
 })
