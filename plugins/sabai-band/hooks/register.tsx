@@ -2,9 +2,9 @@ import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
-import { clock, elapsed, finished, groups, modelName, spawned, stepped, withTasks } from './agents'
+import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, taskLine, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview } from './svg'
+import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -17,6 +17,10 @@ const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai-band', key: 'bar' } as const, 'dither' as BarStyle)
+const finishedOpen = atom({ plugin: 'sabai-band', key: 'finishedOpen' } as const, false)
+const openResults = atom({ plugin: 'sabai-band', key: 'openResults' } as const, [] as string[])
+// The pane draws the newest finished runs; the rest are counted.
+const FINISHED_SHOWN = 6
 
 const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
 const BAR_NOTES: Record<BarStyle, string> = { dither: 'Twinkling dots', blocks: 'Square cells', solid: 'One smooth fill' }
@@ -143,6 +147,7 @@ export const register: Register = on => {
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await update($, tasks, () => [])
     await update($, agents, () => [])
+    await update($, openResults, () => [])
     return next(e)
   })
 
@@ -194,37 +199,94 @@ export const register: Register = on => {
     text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
   }))
 
+  // The agents pane: a summary, running agents, then finished ones (folded at first) with Clear
+  // and a Result under each. The desktop draws each card as an image with its Button beneath;
+  // the terminal draws the same as text rows.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { running, finished: done } = groups(await read($, agents))
+    const list = await read($, agents)
     const at = await read($, now)
     const skinName = await read($, skin)
+    const style = await read($, bar)
+    const isOpen = await read($, finishedOpen)
+    const opened = await read($, openResults)
+    const { running, finished: done } = groups(list)
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
-    if (e.surface !== 'terminal' && 'Svg' in ui) {
-      const { Svg } = ui
-      // temporary until Task 5: first card only
-      const first = [...running, ...done][0]
-      const pane = first ? agentCardSvg(first, Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))), at, skinName) : emptyAgentsSvg(240, skinName)
-      return <Svg source={pane.source} alt={pane.alt} />
-    }
+    const { Box, Button, Text } = ui
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const look = lookOf(skinName)
-    const row = (a: AgentRun) => (
-      <Box key={a.id} flexDirection="column" marginBottom={1}>
-        <Text wrap="truncate-end" dimColor={a.status !== 'running'}>
-          <Text color={look.clawd}>{a.status === 'running' ? '● ' : a.status === 'done' ? '✓ ' : '✗ '}</Text>
-          <Text bold>{a.description || a.type}</Text>
-          <Text dimColor>{`  ${clock(elapsed(a, at))}`}</Text>
-        </Text>
-        <Text dimColor wrap="truncate-end">{`  ${a.type} · ${modelName(a.model)} · ${a.steps} steps · ${tokens(a.contextTokens)} ctx`}</Text>
-      </Box>
-    )
+
+    if (list.length === 0) {
+      const empty = emptyAgentsSvg(W, skinName)
+      return Svg ? (
+        <Svg source={empty.source} alt={empty.alt} />
+      ) : (
+        <Box flexDirection="column">
+          <Text bold>No subagents yet</Text>
+          <Text dimColor>They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.</Text>
+        </Box>
+      )
+    }
+
+    const card = (a: AgentRun) => {
+      if (Svg) {
+        const d = agentCardSvg(a, W, at, skinName, style)
+        return <Svg key={`card-${a.id}`} source={d.source} alt={d.alt} />
+      }
+      const line = taskLine(a.tasks)
+      const effort = effortLabel(a.effort)
+      return (
+        <Box key={`card-${a.id}`} flexDirection="column">
+          <Text wrap="truncate-end" dimColor={a.status !== 'running'}>
+            <Text color={look.clawd}>{a.status === 'running' ? '● ' : a.status === 'done' ? '✓ ' : '✗ '}</Text>
+            <Text bold>{a.description || a.type}</Text>
+            <Text dimColor>{`  ${clock(elapsed(a, at))}`}</Text>
+          </Text>
+          <Text dimColor wrap="truncate-end">{`  ${effort ? `${effort} · ` : ''}${a.type} · ${modelName(a.model)}`}</Text>
+          <Text dimColor wrap="truncate-end">{`  ${line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`} · ${tokens(a.contextTokens)} ctx`}</Text>
+        </Box>
+      )
+    }
+    const sum = Svg && summarySvg(list, W, at, skinName)
+    const shown = done.slice(0, FINISHED_SHOWN)
+    const toggleResult = (id: string) => update($, openResults, ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))
+
     return (
-      <Box flexDirection="column">
-        {running.length + done.length === 0 && <Text dimColor>No subagents yet. They show here while they work.</Text>}
-        {running.length > 0 && <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>}
-        {running.map(row)}
-        {done.length > 0 && <Text dimColor bold>{`DONE · ${done.length}`}</Text>}
-        {done.map(row)}
+      <Box flexDirection="column" rowGap={1}>
+        {Svg && sum && <Svg source={sum.source} alt={sum.alt} />}
+        {running.length > 0 && (
+          <Box flexDirection="column" rowGap={Svg ? 0 : 1}>
+            <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>
+            {running.map(card)}
+          </Box>
+        )}
+        {done.length > 0 && (
+          <Box flexDirection="column" rowGap={Svg ? 0 : 1}>
+            <Box flexDirection="row" alignItems="center" columnGap={1}>
+              <Box flexGrow={1}>
+                <Text dimColor bold>{`FINISHED · ${done.length}`}</Text>
+              </Box>
+              <Button
+                key="clear-finished"
+                label="Clear"
+                onPress={async () => {
+                  await update($, agents, clearFinished)
+                  await update($, openResults, () => [])
+                }}
+              />
+              <Button key="toggle-finished" label={isOpen ? '▾ Hide' : '▸ Show'} onPress={() => update($, finishedOpen, v => !v)} />
+            </Box>
+            {isOpen &&
+              shown.map(a => (
+                <Box key={`row-${a.id}`} flexDirection="column">
+                  {card(a)}
+                  <Button key={`result-${a.id}`} label={opened.includes(a.id) ? '▾ Result' : 'Result ›'} onPress={() => toggleResult(a.id)} />
+                  {opened.includes(a.id) && <Text wrap="wrap">{resultText(a)}</Text>}
+                </Box>
+              ))}
+            {isOpen && done.length > shown.length && <Text dimColor>{`+ ${done.length - shown.length} more`}</Text>}
+          </Box>
+        )}
       </Box>
     )
   })

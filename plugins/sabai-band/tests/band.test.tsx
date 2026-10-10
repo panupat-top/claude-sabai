@@ -314,16 +314,9 @@ test('a subagent shows running with its clock, then done when its turn ends', as
   }
   await $.turn.complete({ turnId: 'sub', agentId: 'agent-api routes', answer: '', durationMs: 64_000, isAborted: false, reason: 'answer' })
   const ui = await mountPane($, 'desktop')
-  const svg = (await ui.find({ type: 'Svg' })) as { props: { alt: string; source: string } } | undefined
-  expect(svg?.props.alt).toBe('api routes: Explore, sonnet 5.5, done, 1m 4s')
-})
-
-test('an empty panel says there is nothing yet', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  const ui = await mountPane($, 'terminal')
-  expect(await ui.find({ type: 'Text', text: /No subagents yet/ })).toBeDefined()
+  await ui.press({ key: 'toggle-finished' })
+  const alts = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect(alts).toContain('api routes: Explore, sonnet 5.5, done, 1m 4s')
 })
 
 test('/sabai-skin alone opens the skins panel and closes it again', async ($, on) => {
@@ -453,4 +446,84 @@ test('a subagent’s own task list goes to its card, never the band; the band ke
   const ui = await mountPane($, 'desktop')
   const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
   expect(cards.some(c => c.props.source.includes('1/2 · Summing up'))).toBe(true)
+})
+
+test('an empty panel invites a first agent on both surfaces', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const words = [...(await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)), ...(await ui.findAll({ type: 'Text' })).map(t => t.text)].join(' | ')
+    await ui.unmount()
+    expect(words).toMatch(/No subagents yet/)
+  }
+})
+
+test('finished agents start folded; Show, Hide and Clear work and running ones stay', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'live')
+  await spawn($, 'old')
+  await $.turn.complete({ turnId: 't', agentId: 'agent-old', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'desktop')
+  const alts = async () => (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect((await alts()).some(a => a.startsWith('old:'))).toBe(false)
+  expect((await ui.find({ key: 'toggle-finished' }))?.props.label).toBe('▸ Show')
+  await ui.press({ key: 'toggle-finished' })
+  expect((await alts()).some(a => a.startsWith('old:'))).toBe(true)
+  expect((await ui.find({ key: 'toggle-finished' }))?.props.label).toBe('▾ Hide')
+  await ui.press({ key: 'clear-finished' })
+  expect((await alts()).some(a => a.startsWith('old:'))).toBe(false)
+  expect((await alts()).some(a => a.startsWith('live:'))).toBe(true)
+  expect(await ui.find({ key: 'clear-finished' })).toBeUndefined()
+})
+
+test('the terminal lists the same groups as text with buttons', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'live')
+  await spawn($, 'old')
+  await $.turn.complete({ turnId: 't', agentId: 'agent-old', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'terminal')
+  await ui.press({ key: 'toggle-finished' })
+  const text = (await ui.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
+  expect(text).toMatch(/RUNNING · 1/)
+  expect(text).toMatch(/FINISHED · 1/)
+  expect(text).toMatch(/live/)
+  expect(text).toMatch(/Explore · sonnet 5\.5/)
+  expect(await ui.findAll({ type: 'Svg' })).toHaveLength(0)
+})
+
+test('forty agents with results open stay under the engine’s tree limit', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (let i = 0; i < 40; i++) {
+    await spawn($, `job ${i}`)
+    if (i >= 2) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
+  }
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
+  expect(await ui.find({ type: 'Text', text: '+ 32 more' })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+})
+
+test('a subagent’s answer and failure reason are kept for its Result', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'ok')
+  await spawn($, 'bad')
+  await $.turn.complete({ turnId: 't1', agentId: 'agent-ok', answer: 'Found 3 launches.', durationMs: 10, isAborted: false, reason: 'answer' })
+  await $.turn.complete({ turnId: 't2', agentId: 'agent-bad', answer: '', durationMs: 10, isAborted: true, reason: 'aborted' })
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  await ui.press({ key: 'result-agent-ok' })
+  await ui.press({ key: 'result-agent-bad' })
+  expect(await ui.find({ type: 'Text', text: 'Found 3 launches.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
 })

@@ -43,6 +43,8 @@ declare module 'claude-code' {
       env: Env
       skin: string
       bar: BarStyle
+      finishedOpen: boolean
+      openResults: string[]
       agents: AgentRun[]
     }
   }
