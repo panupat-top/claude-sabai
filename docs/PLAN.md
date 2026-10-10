@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 เสร็จ + review ทั้ง mod: แก้บั๊กขนาด/emoji/agent remote, Settings panel, แจ้งเตือน, guard, tool step (`sabai-band` 0.10.0)
+> สถานะ (2026-10-10): Phase 3 เสร็จ + review ทั้ง mod: แก้บั๊กขนาด/emoji/agent remote, Settings panel, แจ้งเตือน, guard, tool step · ตัด `/sabai-skin` (`sabai-band` 0.11.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -18,7 +18,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | Toolbar | `/review` `/compact` `/rewind` `/resume` (เฉพาะที่ surface มี) · `✻` Agents · `⚙` Settings | `$.command.list`, `$.command.run` |
 
 - **Agents panel:** แถบสรุป · การ์ดต่อ agent: ชื่องานพร้อม emoji ประจำชนิด + ปุ่ม **Report** · Clawd ใส่หมวกและถือของตามชนิด (8 ชนิด + agent จาก plugin `x:y`) · effort `low…max` / `budget 32k` · `workflow` · ความคืบหน้า (tool `step` ของ mod ก่อน แล้วจึง task list) · ไอคอนสถานะมี animation · กลุ่ม Finished พับได้, Clear, รายงาน Markdown ทีละฉบับ · จำนวนการ์ดคุมด้วยขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k · agent remote ที่ไม่มี loop ไม่สร้างการ์ด
-- **Settings panel** (`/sabai-settings`, `/sabai-skin`, `⚙`): Band (ซ่อน/แสดง 5 แถว) · Progress bar (3 ปุ่ม + ตัวอย่าง) · Alerts (แจ้งเตือน turn ≥ 1 นาที/agent ล้มเหลวผ่าน `$.ui.notify`, toast เมื่อ 5H/7D ≥ 90% ครั้งเดียวต่อรอบ) · Agents and safety (Step reports = tool `mcp__sabai-band__step`, Guard ปิดไว้ก่อน = `tool.call` Bash/Read → `{ deny }`) · Color theme 10 แบบ · ทุกค่าเก็บใน `$.store` (`prefs`, `skin`, `bar`)
+- **Settings panel** (`/sabai-settings`, `⚙`): Band (ซ่อน/แสดง 5 แถว) · Progress bar (3 ปุ่ม + ตัวอย่าง) · Alerts (แจ้งเตือน turn ≥ 1 นาที/agent ล้มเหลวผ่าน `$.ui.notify`, toast เมื่อ 5H/7D ≥ 90% ครั้งเดียวต่อรอบ) · Agents and safety (Step reports = tool `mcp__sabai-band__step`, Guard ปิดไว้ก่อน = `tool.call` Bash/Read → `{ deny }`) · Color theme 10 แบบ · ทุกค่าเก็บใน `$.store` (`prefs`, `skin`, `bar`)
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 
 ## 2. การตัดสินใจ

@@ -47,7 +47,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
         : [],
     },
   }))
-  on('command.register', () => ({ value: { command: 'sabai-skin' } }))
+  on('command.register', () => ({ value: { command: 'sabai-settings' } }))
   const commands: string[] = []
   on('command.list', () => ({
     value: ['clear', 'compact', 'resume', 'help'].map(name => ({ name, description: '', source: 'builtin' as const })),
@@ -216,19 +216,8 @@ test('TodoWrite drives the progress row too', async ($, on) => {
   expect((await shown($, 'desktop')).words).toContain('Doing b: 1/2 tasks, 50%')
 })
 
-const skinCommand = ($: Engine, args: string) =>
-  $.command.run({ command: 'sabai-skin', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
-
-test('/sabai-skin switches by any spelling, and remembers the choice', async ($, on) => {
-  const { store } = engine(on)
-  await start($)
-  expect((await skinCommand($, 'solarized')).text).toMatch(/^No skin called "solarized"\. Available: auto, catppuccin-latte \(Catppuccin Latte\),/)
-  expect((await skinCommand($, 'TokyoNight')).text).toBe('Skin set to Tokyo Night.')
-  const ui = await mountBand($, 'desktop')
-  const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
-  expect(svg?.props.source).toContain('.p{fill:#1a1b26}')
-  expect(store.skin).toBe('tokyo-night')
-})
+const settingsCommand = ($: Engine) =>
+  $.command.run({ command: 'sabai-settings', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
 test('Clawd takes the skin colour and walks only while the turn works', async ($, on) => {
   engine(on, { store: { skin: 'dracula' } })
@@ -329,14 +318,14 @@ test('a subagent shows running with its clock, then done when its turn ends', as
   expect(alts).toContain('api routes: Explore, sonnet 5.5, done, 1m 4s')
 })
 
-test('/sabai-skin alone opens the skins panel and closes it again', async ($, on) => {
+test('/sabai-settings opens the settings panel and closes it again', async ($, on) => {
   engine(on)
   const open = panes(on)
   await start($)
-  expect((await skinCommand($, '')).text).toBe('Settings panel opened.')
+  expect((await settingsCommand($)).text).toBe('Settings panel opened.')
   expect([...open]).toEqual(['sabai-skins'])
   expect(opened.at(-1)).toMatchObject({ id: 'sabai-skins', focus: true, closeOnEscape: true })
-  expect((await skinCommand($, '')).text).toBe('Settings panel closed.')
+  expect((await settingsCommand($)).text).toBe('Settings panel closed.')
   expect([...open]).toEqual([])
 })
 

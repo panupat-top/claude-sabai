@@ -6,7 +6,7 @@ import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { SKINS, THEMES, contrast, pickSkin } from './themes'
+import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
 const inkOn = (bg: string) => (contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111')
@@ -183,7 +183,6 @@ export const register: Register = on => {
     if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
     const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
     await update($, prefs, () => savedPrefs)
-    await $.command.register({ name: 'sabai-skin', description: 'Open the sabai-band settings, or switch skin', argumentHint: '[name]' })
     await $.command.register({ name: 'sabai-settings', description: 'Open the sabai-band settings' })
     // Agents can report their own steps: a subagent rarely has a task list of its own.
     if (savedPrefs.steps)
@@ -495,17 +494,6 @@ export const register: Register = on => {
   on('command.run', { command: 'sabai-settings' }, async $ => ({
     text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.',
   }))
-
-  on('command.run', { command: 'sabai-skin' }, async ($, e) => {
-    if (!e.args.trim()) return { text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.' }
-    const picked = pickSkin(e.args)
-    if (!picked) {
-      const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
-      return { text: `No skin called "${e.args.trim()}". Available: ${names}.` }
-    }
-    await setSkin($, picked)
-    return { text: `Skin set to ${THEMES[picked]?.name ?? 'auto'}.` }
-  })
 
   // The settings: the band's rows, the bar style, alerts, agents and safety, then the colour
   // themes (the longest list last). Each choice is a name and a note on the left with its

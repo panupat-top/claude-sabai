@@ -40,7 +40,7 @@ A summary of how many subagents run and finished, their context and the wall tim
 
 The newest running agents get a card (up to six, fewer when their drawings would outgrow the panel) and the rest are counted. An agent can report its own steps through the mod's small `step` tool, which fills its card's `3/5` pill; Claude's subagents rarely keep a task list of their own. Finished agents fold away. Show them, then press **Report** to read an agent's whole report as Markdown in its colour, one at a time; a failed one says why it stopped. **Clear** them when you are done.
 
-**Settings** (`/sabai-settings`, `/sabai-skin`, or `⚙` under the band)
+**Settings** (`/sabai-settings`, or `⚙` under the band)
 
 Everything applies at once and is kept for new sessions:
 
@@ -80,8 +80,7 @@ claude plugin install sabai-band@claude-sabai
 
 | Command | What it does |
 |---|---|
-| `/sabai-settings` or `/sabai-skin` | Opens the settings panel, or hides it if it is open. |
-| `/sabai-skin <name>` | Switches skin. Names are forgiving: `mocha`, `Catppuccin Mocha`, `TokyoNight` and `Frappé` all work. Your choice is remembered across sessions. |
+| `/sabai-settings` | Opens the settings panel, or hides it if it is open. Rows, bar style, alerts, the guard and the colour theme are all chosen there and remembered across sessions. |
 | `/sabai-agents` | Shows the agents panel, or hides it if it is open. |
 
 The band needs no command: it fills itself in as you work, and its toolbar opens both panels.

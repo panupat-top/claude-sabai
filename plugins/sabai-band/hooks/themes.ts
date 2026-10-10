@@ -74,15 +74,6 @@ export const THEMES: Record<string, Palette> = {
 
 export const SKINS = ['auto', ...Object.keys(THEMES)]
 
-// A skin by any spelling of its name: `TokyoNight`, `Catppuccin Mocha`, `frappe` (the flavour
-// alone names its Catppuccin) all find theirs.
-export function pickSkin(input: string): string | undefined {
-  const squash = (v: string) => v.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\s_-]+/g, '')
-  const want = squash(input)
-  if (!want) return undefined
-  return SKINS.find(k => squash(k) === want || squash(k) === `catppuccin${want}` || squash(THEMES[k]?.name ?? '') === want)
-}
-
 const rgb = (hex: string) => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16))
 const hex = (c: number[]) => `#${c.map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
 
