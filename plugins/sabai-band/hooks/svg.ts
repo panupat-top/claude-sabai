@@ -342,7 +342,11 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const textCls = accent ? `c-${accent}` : 'm'
   const right = W - PAD
   const clawd = spriteSize('tasks')
-  const textX = PAD + clawd.width + 12
+  // A hat in Clawd's own colour would vanish into him, so that one takes the deeper pill clay.
+  const hatColor = accent === 'tasks' ? look.pill : accent ? color : undefined
+  // Clawd and his hat drawn half again as large, so the hat reads at a glance.
+  const scale = 1.5
+  const textX = PAD + clawd.width * scale + 12
   const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : a.endedAt !== undefined && now - a.endedAt < HOP_MS ? 'hop' : 'idle'
   const line = taskLine(a.tasks)
   const effort = effortLabel(a.effort)
@@ -381,7 +385,9 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
       : cardBar(1)
   const body =
     `<rect class="p" width="${W}" height="${AGENT_H}" rx="8"/>` +
-    sprite('tasks', PAD, 14 + HAT_H, mode, look.clawd, { kind: hat, color: accent ? color : undefined }) +
+    `<g transform="translate(${PAD},${(AGENT_H - (clawd.height + HAT_H) * scale) / 2}) scale(${scale})">` +
+    sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor }) +
+    '</g>' +
     `<text class="t" x="${textX}" y="18" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, Math.max(40, right - textX - 60)))}</text>` +
     `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${clock(elapsed(a, now))}</text>` +
     mark +
@@ -404,10 +410,13 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'aut
     ['CONTEXT', tokens(s.context)],
     ['TIME', clock(s.ms)],
   ] as const
-  const cw = (W - GAP * 2) / 3
+  // The agents count is the longest value, so its cell takes half the width.
+  const unit = (W - GAP * 2) / 4
+  const widths = [unit * 2, unit, unit]
   const body = cells
     .map(([label, value], i) => {
-      const x = i * (cw + GAP)
+      const cw = widths[i]!
+      const x = widths.slice(0, i).reduce((n, w) => n + w + GAP, 0)
       return (
         `<rect class="p" x="${x}" y="0" width="${cw}" height="44" rx="8"/>` +
         `<text class="m" x="${x + PAD}" y="16" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
