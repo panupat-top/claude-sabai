@@ -65,3 +65,30 @@ export function readLine(out: unknown): Line | undefined {
   if (startLine <= 1 && numLines >= totalLines) return { mark: 'eye', parts: [{ text: `all ${totalLines} lines`, tone: 'text' }] }
   return { mark: 'eye', parts: [{ text: `lines ${startLine}–${startLine + numLines - 1}`, tone: 'text' }, { text: ` of ${totalLines}`, tone: 'muted' }] }
 }
+
+// Words that only run the real command, and the logo each real command wears.
+const RUNNERS = new Set(['sudo', 'time', 'npx', 'bunx', 'exec', 'nice', 'env'])
+const LOGO_OF: Record<string, LogoKind> = {
+  git: 'git', bun: 'bun', npm: 'npm', pnpm: 'pnpm', node: 'nodejs', deno: 'deno',
+  python: 'python', python3: 'python', pip: 'python', pip3: 'python', pytest: 'python', uv: 'python',
+  cargo: 'rust', rustc: 'rust', go: 'golang', docker: 'docker', tsc: 'typescript',
+  playwright: 'playwright', mocha: 'mocha', jest: 'jest',
+}
+
+// The command a Bash call runs, past `cd … &&`, env assignments and runners like sudo or npx.
+export function commandOf(command: string): string {
+  const first = command.split(/&&|\|\||;/).map(s => s.trim()).find(s => s && !/^cd\s/.test(s)) ?? ''
+  const words = first.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? []
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i]!
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(w) || RUNNERS.has(w)) continue
+    if (w === 'pnpm' && (words[i + 1] === 'dlx' || words[i + 1] === 'exec')) {
+      i++
+      continue
+    }
+    return w.split('/').pop()!
+  }
+  return ''
+}
+
+export const logoOf = (command: string): LogoKind => LOGO_OF[commandOf(command)] ?? 'bash'

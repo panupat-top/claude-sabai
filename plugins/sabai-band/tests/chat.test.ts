@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bashLine, editLine, readLine, seconds, writeLine } from '../hooks/chat'
+import { bashLine, commandOf, editLine, logoOf, readLine, seconds, writeLine } from '../hooks/chat'
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
@@ -56,4 +56,21 @@ test('a Read line gives the range read, or the whole file; images and notebooks 
   expect(readLine(text(1, 131, 131))?.parts).toEqual([{ text: 'all 131 lines', tone: 'text' }])
   expect(readLine({ type: 'image', file: {} })).toBeUndefined()
   expect(readLine(undefined)).toBeUndefined()
+})
+
+test('the command is read past cd, env assignments, sudo, time and package runners', () => {
+  expect(commandOf('cd plugins/x && bun test')).toBe('bun')
+  expect(commandOf('FOO=1 BAR="a b" npm run build')).toBe('npm')
+  expect(commandOf('sudo docker ps')).toBe('docker')
+  expect(commandOf('npx playwright test')).toBe('playwright')
+  expect(commandOf('bunx tsc -p .')).toBe('tsc')
+  expect(commandOf('pnpm dlx jest')).toBe('jest')
+  expect(commandOf('time /usr/bin/git status')).toBe('git')
+  expect(commandOf('  ')).toBe('')
+})
+
+test('known commands get their logo; anything else is bash', () => {
+  expect(['git push', 'bun test', 'pnpm i', 'python3 -m pytest', 'uv run x', 'cargo test', 'go test ./...', 'tsc', 'jest', 'ls -la'].map(logoOf)).toEqual([
+    'git', 'bun', 'pnpm', 'python', 'python', 'rust', 'golang', 'typescript', 'jest', 'bash',
+  ])
 })

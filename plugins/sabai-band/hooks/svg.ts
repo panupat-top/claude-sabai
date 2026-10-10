@@ -5,6 +5,7 @@ import { countdown, level, tokens, value } from './model'
 import type { Line, Mark, Tone } from './chat'
 import { icon } from './icons'
 import type { IconKind } from './icons'
+import { LOGOS } from './logos'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
@@ -621,8 +622,15 @@ const LINE_W = 560
 const LINE_H = 20
 const MONO_W = 7.2 // a 12px monospace cell
 
-// A line's mark: an Octicon.
-const markSvg = (mark: Mark, x: number, y: number, size: number) => icon(mark as IconKind, x, y, size)
+// A line's mark: a command's logo, nested at mark size with its dark variant where svgl has one,
+// or an Octicon.
+const LOGO_CSS = `.lg-d{display:none}@media (prefers-color-scheme: dark){.lg-d{display:inline}.lg-l{display:none}}`
+const markSvg = (mark: Mark, x: number, y: number, size: number) => {
+  const logo = (LOGOS as Partial<Record<Mark, { viewBox: string; body: string; dark?: string }>>)[mark]
+  if (!logo) return icon(mark as IconKind, x, y, size)
+  const nest = (body: string, cls?: string) => `<svg x="${x}" y="${y}" width="${size}" height="${size}" viewBox="${logo.viewBox}"${cls ? ` class="${cls}"` : ''}>${body}</svg>`
+  return logo.dark ? nest(logo.body, 'lg-l') + nest(logo.dark, 'lg-d') : nest(logo.body)
+}
 
 // One summary line under a tool row: its mark, its words in their tones, then the bar's cells.
 export function lineSvg(line: Line): Drawing {
@@ -636,7 +644,7 @@ export function lineSvg(line: Line): Drawing {
     .join('')
   const bar = (line.bar ?? []).map((tone, i) => `<rect class="k-${tone}" x="${x + 10 + i * 9}" y="5" width="7" height="10" rx="1.5"/>`).join('')
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${LINE_W}" height="${LINE_H}" viewBox="0 0 ${LINE_W} ${LINE_H}"><style>${MUTED_MARK}${CHAT_CSS}</style>${markSvg(line.mark, 0, 2, 16)}${words}${bar}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${LINE_W}" height="${LINE_H}" viewBox="0 0 ${LINE_W} ${LINE_H}"><style>${MUTED_MARK}${CHAT_CSS}${LOGO_CSS}</style>${markSvg(line.mark, 0, 2, 16)}${words}${bar}</svg>`,
     width: LINE_W,
     height: LINE_H,
     alt: line.parts.map(p => p.text).join(''),

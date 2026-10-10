@@ -208,3 +208,11 @@ test('a summary line is one 560×20 drawing whose text follows the OS', () => {
   expect(d.source).toContain('class="k-ok"')
   expect((d.source.match(/class="k-bad"/g) ?? []).length).toBe(1)
 })
+
+test('a line drawn with a logo nests it at mark size, with its dark variant switched by the OS', () => {
+  const d = lineSvg({ mark: 'rust', parts: [{ text: '✓', tone: 'ok' }] })
+  expect(d.source).toMatch(/<svg x="0" y="2" width="16" height="16" viewBox="[^"]+"/)
+  expect(d.source).toContain('class="lg-d"')
+  expect(d.source).toContain('.lg-d{display:none}')
+  expect(d.source.length).toBeLessThan(20_000)
+})

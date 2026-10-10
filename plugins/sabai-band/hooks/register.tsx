@@ -6,7 +6,7 @@ import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { bashLine, editLine, readLine, writeLine } from './chat'
+import { bashLine, editLine, logoOf, readLine, writeLine } from './chat'
 import type { Line, Tone } from './chat'
 import type { IconKind } from './icons'
 import { SKINS, THEMES, contrast } from './themes'
@@ -657,7 +657,12 @@ export const register: Register = on => {
     const p = e.props
     if (p.isRunning || !chat.tools) return next(e)
     let shown: Line | undefined
-    if (p.tool === 'Bash') shown = bashLine({ isErrored: p.isErrored, isInterrupted: p.isInterrupted, durationMs: (await read($, durations))[p.tool_use_id] })
+    if (p.tool === 'Bash') shown = bashLine({
+        isErrored: p.isErrored,
+        isInterrupted: p.isInterrupted,
+        durationMs: (await read($, durations))[p.tool_use_id],
+        mark: logoOf(String((p.input as { command?: unknown }).command ?? '')),
+      })
     const out = p.output as { structuredPatch?: { lines: string[] }[]; type?: string; content?: string } | undefined
     if (p.tool === 'Edit' && out?.structuredPatch) shown = editLine(out.structuredPatch)
     if (p.tool === 'Write' && out?.structuredPatch && (out.type === 'create' || out.type === 'update'))
