@@ -24,7 +24,7 @@ git config core.hooksPath .githooks                       # once per clone: pre-
 
 ## sabai-band architecture
 
-A band above the prompt (info row, task progress with an animated Pixel Clawd, usage cards) and an agents pane, with ten skins.
+A band above the prompt (info row, task progress with an animated Pixel Clawd, usage cards, and a toolbar of Buttons under it) and two panes, agents and skins, with ten skins.
 
 - `hooks/register.tsx` is the only module that touches `$`. It hooks engine events (`session.start`, `session.measure`, `tool.call` on `TaskCreate`/`TaskUpdate`/`TodoWrite`, `agent.spawn`, `turn.step`, `turn.complete`, `classic.SessionStart`), writes state, registers `/sabai-skin` and `/sabai-agents`, and renders `AbovePrompt` (the band) and `Pane` (agents).
 - **State** lives in `$.state` atoms declared in the contract `types/index.d.ts` (`interface PluginState['sabai-band']`); a draw `read`s them and redraws when an `update` writes. Module variables (e.g. `cwd`) are only for things `session.start` re-sets, since a reload starts the module over. The chosen skin is also persisted with `$.store`.

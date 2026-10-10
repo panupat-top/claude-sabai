@@ -72,6 +72,11 @@ async function togglePane($: EngineInterface, id: string, title: string, focus =
   return true
 }
 
+async function toggleAgents($: EngineInterface): Promise<boolean> {
+  await tick($)
+  return togglePane($, PANE, 'Agents')
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -153,10 +158,9 @@ export const register: Register = on => {
     return completed
   })
 
-  on('command.run', { command: 'sabai-agents' }, async $ => {
-    await tick($)
-    return { text: (await togglePane($, PANE, 'Agents')) ? 'Agents panel opened.' : 'Agents panel closed.' }
-  })
+  on('command.run', { command: 'sabai-agents' }, async $ => ({
+    text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
+  }))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { running, finished: done } = groups(await read($, agents))
@@ -284,10 +288,28 @@ export const register: Register = on => {
     if (!p && info.left.length + info.right.length === 0 && list.length === 0) return next(e)
 
     const skinName = await read($, skin)
+    const look = lookOf(skinName)
+    const running = groups(await read($, agents)).running.length
     const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
+    const { Box, Button, Text } = ui
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
+
+    // The mod's features, one press away; the desktop draws its own buttons, so the skin tints
+    // only their marks. Hotkeys work while the band holds the focus (a click, ctrl+x tab).
+    const toolbar = (
+      <Box flexDirection="row" justifyContent="flex-end" columnGap={1}>
+        <Button key="agents" label="Agents" hotkey="a" onPress={() => toggleAgents($)}>
+          <Text color={look.clawd}>● </Text>
+          Agents
+          {running > 0 ? <Text bold>{` ${running}`}</Text> : null}
+        </Button>
+        <Button key="skins" label="Skins" hotkey="s" onPress={() => togglePane($, SKIN_PANE, 'Skins', true)}>
+          <Text color={look.bar('session', 0)}>◐ </Text>
+          Skins
+        </Button>
+      </Box>
+    )
 
     // The terminal's table names Svg too but cannot draw one, so the surface decides.
     if (e.surface !== 'terminal' && 'Svg' in ui) {
@@ -299,13 +321,13 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
+          {toolbar}
           {theirs}
         </Box>
       )
     }
 
     const cols = e.props.bodyColumns
-    const look = lookOf(skinName)
     return (
       <Box flexDirection="column" rowGap={1}>
         {info.left.length + info.right.length > 0 && (
@@ -344,6 +366,7 @@ export const register: Register = on => {
             ))}
           </Box>
         )}
+        {toolbar}
         {theirs}
       </Box>
     )

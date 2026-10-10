@@ -11,6 +11,7 @@ A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its o
 | Info | Current directory, git user and branch on the left — the branch with commits ahead `↑` / behind `↓` its upstream and uncommitted files `±` — and the Node.js version on the right. |
 | Tasks | Clawd, a pixel Claude mascot, beside a progress bar of Claude's own task list: the task in progress, `done/total` and percent. Clawd walks while Claude works and blinks while it waits. The row leaves once every task is done. |
 | Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
+| Toolbar | **Agents** (with the number of running subagents) and **Skins** buttons under the band. Each opens or hides its panel; `a` and `s` press them while the band has the focus. |
 
 **The agents panel** (`/sabai-agents`)
 
@@ -51,7 +52,7 @@ claude plugin install sabai-band@claude-sabai
 | `/sabai-skin <name>` | Switches skin. Names are forgiving: `mocha`, `Catppuccin Mocha`, `TokyoNight` and `Frappé` all work. Your choice is remembered across sessions. |
 | `/sabai-agents` | Shows the agents panel, or hides it if it is open. |
 
-The band needs no command: it fills itself in as you work.
+The band needs no command: it fills itself in as you work, and its toolbar opens both panels.
 
 - **Task progress** appears when Claude keeps a task list, for example when you ask it to plan a multi-step change and work through it step by step.
 - **Agents** appear when Claude hands work to subagents, for example when you ask it to explore parts of a codebase in parallel.

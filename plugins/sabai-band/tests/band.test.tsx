@@ -132,7 +132,7 @@ test('with nothing to show the band is left to the engine', async ($, on) => {
   for (const surface of SURFACES) expect((await shown($, surface)).words).toBe('stock row')
 })
 
-test('a fresh load shows every meter with its countdown, and no buttons', async ($, on) => {
+test('a fresh load shows every meter with its countdown, and the toolbar', async ($, on) => {
   engine(on)
   await start($)
   const desktop = await shown($, 'desktop')
@@ -141,13 +141,13 @@ test('a fresh load shows every meter with its countdown, and no buttons', async 
     'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
-  expect(desktop.buttons).toBe(0)
+  expect(desktop.buttons).toBe(2)
   const terminal = await shown($, 'terminal')
   expect(terminal.svgs).toBe(0)
   expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
   expect(terminal.words).toContain('7D ALL')
   expect(terminal.words).toContain('24.5k / 200k (12%)')
-  expect(terminal.buttons).toBe(0)
+  expect(terminal.buttons).toBe(2)
 })
 
 test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
@@ -354,4 +354,24 @@ test('the skins panel previews every skin and a press switches to it', async ($,
   const dracula = previews.find(p => p.props.alt === 'Dracula skin colours')
   expect(dracula?.props.source).toContain('fill="#282a36"')
   expect(dracula?.props.source).toContain('class="run"')
+})
+
+test('the toolbar opens the agents and skins panels and counts running agents', async ($, on) => {
+  engine(on)
+  const open = panes(on)
+  await start($)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await mountBand($, surface)
+    expect((await ui.findAll({ type: 'Button' })).map(b => b.text)).toEqual(['● Agents', '◐ Skins'])
+    await ui.unmount()
+  }
+  const ui = await mountBand($, 'desktop')
+  await ui.press({ key: 'agents' })
+  await ui.press({ key: 'skins' })
+  expect([...open]).toEqual(['sabai-agents', 'sabai-skins'])
+  await ui.press({ key: 'agents' })
+  expect([...open]).toEqual(['sabai-skins'])
+  await spawn($, 'scan')
+  await spawn($, 'read')
+  expect((await ui.find({ key: 'agents' }))?.text).toBe('● Agents 2')
 })
