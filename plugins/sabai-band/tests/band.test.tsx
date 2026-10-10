@@ -236,3 +236,83 @@ test('a saved skin comes back with the next session', async ($, on) => {
   const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
   expect(svg?.props.source).toContain('fill="#282a36"')
 })
+
+// The agents pane, opened and closed through the engine's own ui noun.
+function panes(on: On) {
+  const open = new Set<string>()
+  on('ui.panes', () => ({ value: [...open].map(id => ({ id, title: 'Agents', isShown: true, isFocused: false, isPlaced: true })) }))
+  on('ui.open', ($, e) => {
+    open.add(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', ($, e) => {
+    open.delete(e.id)
+    return { value: undefined }
+  })
+  on('agent.spawn', ($, e) => ({ model: 'claude-sonnet-5-5', agentId: `agent-${e.description}` }))
+  return open
+}
+
+const agentsCommand = ($: Engine) =>
+  $.command.run({ command: 'sabai-agents', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+
+const spawn = ($: Engine, description: string) =>
+  $.agent.spawn({
+    tool_use_id: `tu-${description}`,
+    prompt: 'go',
+    description,
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    background: false,
+    fork: false,
+  })
+
+const mountPane = ($: Engine, surface: Surface) =>
+  $.ui.mount({
+    plugin: 'sabai-band',
+    surface,
+    component: 'Pane',
+    requestId: 'sabai-agents',
+    viewport: { columns: 120, rows: 30 },
+    props: { title: 'Agents', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+  })
+
+test('/sabai-agents opens the panel and closes it again', async ($, on) => {
+  engine(on)
+  const open = panes(on)
+  await start($)
+  expect((await agentsCommand($)).text).toBe('Agents panel opened.')
+  expect([...open]).toEqual(['sabai-agents'])
+  expect((await agentsCommand($)).text).toBe('Agents panel closed.')
+  expect([...open]).toEqual([])
+})
+
+test('a subagent shows running with its clock, then done when its turn ends', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'api routes')
+  await clock.advance(64_000)
+  for (const surface of SURFACES) {
+    const ui = await mountPane($, surface)
+    const words = [...(await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)), ...(await ui.findAll({ type: 'Text' })).map(t => t.text)].join(' | ')
+    await ui.unmount()
+    expect(words).toMatch(/api routes/)
+    expect(words).toMatch(/1m 4s/)
+    expect(words).toMatch(/sonnet 5\.5/)
+  }
+  await $.turn.complete({ turnId: 'sub', agentId: 'agent-api routes', answer: '', durationMs: 64_000, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'desktop')
+  const svg = (await ui.find({ type: 'Svg' })) as { props: { alt: string; source: string } } | undefined
+  expect(svg?.props.alt).toBe('api routes: Explore, sonnet 5.5, done, 1m 4s')
+  expect(svg?.props.source).toContain('>DONE · 1<')
+})
+
+test('an empty panel says there is nothing yet', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const ui = await mountPane($, 'terminal')
+  expect(await ui.find({ type: 'Text', text: /No subagents yet/ })).toBeDefined()
+})

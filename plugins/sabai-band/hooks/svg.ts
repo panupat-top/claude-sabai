@@ -1,5 +1,7 @@
+import type { AgentRun } from '../types'
+import { clock, elapsed, modelName } from './agents'
 import type { Chip, Meter, Progress } from './model'
-import { countdown, level, value } from './model'
+import { countdown, level, tokens, value } from './model'
 import { icon } from './icons'
 import { ICON_COLORS, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
@@ -33,6 +35,7 @@ const MOTION =
   '.d0,.d1,.d2,.d3{animation:tw 2.2s ease-in-out infinite}.d1{animation-duration:2.8s;animation-delay:-.7s}' +
   '.d2{animation-duration:1.9s;animation-delay:-1.3s}.d3{animation-duration:3.3s;animation-delay:-.4s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.3}}' +
+  '.live{animation:tw 1.6s ease-in-out infinite}' +
   SPRITE_CSS +
   '@media (prefers-reduced-motion: reduce){*{animation:none!important}}'
 
@@ -202,6 +205,11 @@ const CHIP_H = 20
 const CHIP_PAD = 8
 const ICON = 13
 const monoWidth = (s: string, size: number) => s.length * size * 0.6
+// A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
+const fitMono = (s: string, size: number, maxW: number) => {
+  const room = Math.floor(maxW / (size * 0.64))
+  return s.length <= room ? s : `${s.slice(0, Math.max(1, room - 1))}…`
+}
 
 // The info row: one chip per fact, its mark then its value. The left group runs from the
 // left edge, the right group ends at the right edge; left chips that would meet it are left out.
@@ -255,10 +263,68 @@ export function bandSvg(
   if (p) add(progressPart(look, p, inner, isWorking, y))
   if (list.length > 0) add(cardsPart(look, list, inner, y))
   if (parts.length === 0) return undefined
-  const height = y - GAP + pad * 2
-  const body = parts.map(part => part.body).join('')
-  const framed = look.base
-    ? `<rect width="${W}" height="${height}" rx="10" fill="${look.base}"/><g transform="translate(${pad},${pad})">${body}</g>`
-    : body
-  return { source: svg(look, W, height, framed), width: W, height, alt: parts.map(part => part.alt).join('; ') }
+  return framed(look, W, y - GAP, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
+}
+
+// A drawing of `inner` height: a skin with a background draws it behind, inset by BG_PAD.
+function framed(look: Look, W: number, inner: number, body: string, alt: string): Drawing {
+  const pad = look.base ? BG_PAD : 0
+  const height = inner + pad * 2
+  const source = look.base
+    ? svg(look, W, height, `<rect width="${W}" height="${height}" rx="10" fill="${look.base}"/><g transform="translate(${pad},${pad})">${body}</g>`)
+    : svg(look, W, height, body)
+  return { source, width: W, height, alt }
+}
+
+const HEAD_H = 16
+
+// One subagent: Clawd, the task and its elapsed time, then the agent type, model, model requests
+// and context, and a mark for its state. A finished run is drawn faded and its Clawd waits.
+function agentCard(look: Look, a: AgentRun, x: number, y: number, w: number, now: number): string {
+  const right = x + w - PAD
+  const clawd = spriteSize('tasks')
+  const textX = x + PAD + clawd.width + 10
+  const type = a.type.toUpperCase()
+  const typeW = monoWidth(type, 10) + type.length * 0.8
+  const detail = `${modelName(a.model)} · ${a.steps} ${a.steps === 1 ? 'step' : 'steps'} · ${tokens(a.contextTokens)} ctx`
+  const mark =
+    a.status === 'running'
+      ? `<circle class="live" cx="${right - 4}" cy="${y + 31}" r="3.5" fill="${look.clawd}"/>`
+      : `<text class="${a.status === 'failed' ? 'c-alert' : 'm'}" x="${right}" y="${y + 35}" text-anchor="end" font-family="${MONO}" font-size="12" font-weight="700">${a.status === 'failed' ? '✗' : '✓'}</text>`
+  const card =
+    `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H}" rx="8"/>` +
+    sprite('tasks', x + PAD, y + (CARD_H - clawd.height) / 2, a.status === 'running' ? 'run' : 'idle', look.clawd) +
+    `<text class="t" x="${textX}" y="${y + 18}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, Math.max(40, right - textX - 70)))}</text>` +
+    `<text class="m" x="${right}" y="${y + 18}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${clock(elapsed(a, now))}</text>` +
+    `<text class="m" x="${textX}" y="${y + 34}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(type)}</text>` +
+    `<text class="m" x="${textX + typeW + 8}" y="${y + 34}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(40, right - textX - typeW - 8 - 18)))}</text>` +
+    mark
+  return a.status === 'running' ? card : `<g opacity=".6">${card}</g>`
+}
+
+// The agents pane: running runs, then finished ones, each under a small heading.
+export function agentsSvg(running: readonly AgentRun[], done: readonly AgentRun[], W: number, now: number, skin = 'auto'): Drawing {
+  const look = lookOf(skin)
+  const w = W - (look.base ? BG_PAD * 2 : 0)
+  let y = 0
+  let body = ''
+  const section = (label: string, list: readonly AgentRun[]) => {
+    if (list.length === 0) return
+    body += `<text class="m" x="0" y="${y + 11}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label} · ${list.length}</text>`
+    y += HEAD_H
+    for (const a of list) {
+      body += agentCard(look, a, 0, y, w, now)
+      y += CARD_H + GAP
+    }
+  }
+  section('RUNNING', running)
+  section('DONE', done)
+  if (!body) {
+    body = `<text class="m" x="0" y="13" font-family="${SANS}" font-size="12.5">No subagents yet. They show here while they work.</text>`
+    y = 20 + GAP
+  }
+  const alt = [...running, ...done]
+    .map(a => `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`)
+    .join('; ')
+  return framed(look, W, y - GAP, body, alt || 'No subagents yet')
 }

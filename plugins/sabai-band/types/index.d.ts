@@ -12,6 +12,20 @@ export type Task = {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+// One subagent as the agents pane shows it.
+export type AgentRun = {
+  id: string
+  agentId?: string
+  type: string
+  description: string
+  model: string
+  status: 'running' | 'done' | 'failed'
+  startedAt: number
+  endedAt?: number
+  contextTokens: number
+  steps: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'sabai-band': {
@@ -20,6 +34,7 @@ declare module 'claude-code' {
       now: number
       env: Env
       skin: string
+      agents: AgentRun[]
     }
   }
 }

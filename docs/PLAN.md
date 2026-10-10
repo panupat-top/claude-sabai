@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 2 เสร็จ — มี mod เดียวคือ `sabai-band` · ถัดไป Phase 3
+> สถานะ (2026-10-10): Phase 3 — C2 agents panel เสร็จ (`sabai-band` 0.3.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -15,6 +15,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | Task | Clawd (เดินเมื่อ turn ทำงาน, กะพริบตาเมื่อรอ) · dithered progress bar · pill `n/total` · % | `TaskCreate` / `TaskUpdate` / `TodoWrite` · ล้างเมื่อ `/clear`, resume, fork |
 | Usage | การ์ด Context `434.5k / 1M (43%)` · 5H Limit · 7D All พร้อม `↻` countdown · เตือน 70% / แดง 90% | engine อย่างเดียว (`session.usage`, `session.measure`) · ยังไม่มีค่า = ซ่อน |
 
+- **Agents panel (C2):** `/sabai-agents` เปิด/ปิด pane · การ์ดต่อ subagent: Clawd (เดินเมื่อทำงาน), ชื่องาน, ชนิด agent, model, จำนวนรอบเรียก model, context, เวลา · กลุ่ม RUNNING / DONE (จางลง, ✗ เมื่อล้มเหลว) · เก็บ 40 รายการล่าสุด · ข้อมูลจาก `agent.spawn`, `turn.step`, `turn.complete` · นาฬิกานับทุกวินาทีเฉพาะตอนมี agent ทำงาน · ใช้ skin เดียวกับ band
 - **Skin:** `/sabai-skin [name]` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนพื้นหลัง band, การ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`)
 - **รอบการอ่าน:** countdown และ branch ทุก 30 วิ · `git status` + ahead/behind เฉพาะตอนเริ่ม session, จบ turn และเมื่อ branch เปลี่ยน
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
@@ -44,7 +45,6 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 | ID | Feature | ขนาด | หมายเหตุ |
 |---|---|---|---|
-| C2 | Agents panel: Clawd ต่อ subagent + model + ความคืบหน้า | M | ต่อยอด Clawd ได้ตรงที่สุด |
 | D2 | แจ้งเตือนเมื่อ turn ยาวจบ (toast + เสียง) | S | |
 | D1 | Guard คำสั่งอันตราย (`rm -rf /`, `git push --force` ไป main, อ่าน `.env`) | S | `tool.call` → `{ deny }` |
 | C1 | File tree pane | L | filetree ทำไว้แล้ว |

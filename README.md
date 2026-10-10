@@ -10,6 +10,7 @@ A pixel-art band above the prompt, in savvy-progress's style.
 - **Tasks:** Clawd walks while Claude works and blinks while it waits, beside a dithered progress bar fed by Claude's own task list (`TaskCreate`, `TaskUpdate`, `TodoWrite`).
 - **Usage cards:** Context as `434.5k / 1M (43%)`, 5H Limit and 7D All with reset countdowns; amber from 70%, red from 90%. Plan limits show once Claude Code has a reading for them.
 - **Skins:** `/sabai-skin [name]` — `auto` (follows the OS), Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine. Remembered across sessions.
+- **Agents panel:** `/sabai-agents` shows or hides a panel with a Clawd per subagent — running ones first, then finished — with its task, type, model, model requests, context and elapsed time. Failed runs are marked ✗.
 - In a terminal the same rows are drawn as text.
 
 Everything comes from Claude Code itself and the project's own `git`; the mod reads no other files and no credentials.
