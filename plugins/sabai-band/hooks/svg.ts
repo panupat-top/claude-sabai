@@ -2,7 +2,7 @@ import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
-import type { Line, Mark, Tone } from './chat'
+import type { CalloutKind, Line, Mark, Tone } from './chat'
 import { icon } from './icons'
 import type { IconKind } from './icons'
 import { LOGOS } from './logos'
@@ -648,5 +648,29 @@ export function lineSvg(line: Line): Drawing {
     width: LINE_W,
     height: LINE_H,
     alt: line.parts.map(p => p.text).join(''),
+  }
+}
+
+// Each callout kind: its Octicon, the theme key its box and terminal title take, a terminal
+// glyph, and its SVG ink as [light, dark].
+export const CALLOUT_KINDS = {
+  note: { title: 'Note', icon: 'info', key: 'suggestion', glyph: 'ℹ', ink: ['#0969da', '#4493f8'] },
+  tip: { title: 'Tip', icon: 'light-bulb', key: 'success', glyph: '💡', ink: CHAT_INK.ok },
+  important: { title: 'Important', icon: 'report', key: 'claude', glyph: '✦', ink: ['#8250df', '#ab7df8'] },
+  warning: { title: 'Warning', icon: 'alert', key: 'warning', glyph: '⚠', ink: CHAT_INK.warn },
+  caution: { title: 'Caution', icon: 'stop', key: 'error', glyph: '⛔', ink: CHAT_INK.bad },
+} as const satisfies Record<CalloutKind, { title: string; icon: IconKind; key: string; glyph: string; ink: readonly [string, string] }>
+
+// A callout's title: its icon and name in its kind's colour.
+export function calloutTitleSvg(kind: CalloutKind): Drawing {
+  const k = CALLOUT_KINDS[kind]
+  const w = 22 + k.title.length * 8
+  const css = `.co{fill:${k.ink[0]}}@media (prefers-color-scheme: dark){.co{fill:${k.ink[1]}}}`
+  const mark = icon(k.icon, 0, 1, 16).replace('class="m"', 'class="co"')
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="18" viewBox="0 0 ${w} 18"><style>${css}</style>${mark}<text class="co" x="22" y="13.5" font-family="${SANS}" font-size="13" font-weight="600">${k.title}</text></svg>`,
+    width: w,
+    height: 18,
+    alt: k.title,
   }
 }

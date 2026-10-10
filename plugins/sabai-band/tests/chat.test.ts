@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bashLine, commandOf, editLine, logoOf, readLine, seconds, testLine, testResult, writeLine } from '../hooks/chat'
+import { bashLine, commandOf, editLine, logoOf, readLine, seconds, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
@@ -103,4 +103,27 @@ test('a test line cheers an all-green run and counts the failures of a red one',
   expect(red.parts).toEqual([{ text: '✗ 2 of 98 failed', tone: 'bad' }, { text: ' · 1 skipped', tone: 'muted' }])
   expect(red.bar?.filter(t => t === 'bad')).toHaveLength(1)
   expect(testLine({ runner: 'vitest', passed: 1, failed: 0, skipped: 0 }).mark).toBe('terminal')
+})
+
+test('callouts are cut out of a message in order, with the text around them kept', () => {
+  expect(splitCallouts('Intro.\n\n> [!WARNING]\n> Deletes the cache.\n> Rerun the build.\n\nAfter.')).toEqual([
+    { kind: 'md', text: 'Intro.\n' },
+    { kind: 'callout', type: 'warning', body: 'Deletes the cache.\nRerun the build.' },
+    { kind: 'md', text: 'After.' },
+  ])
+})
+
+test('every kind, any case, a title on the marker line, and back-to-back callouts', () => {
+  expect(splitCallouts('> [!tip] Use bun\n> [!Caution]\n> Careful')).toEqual([
+    { kind: 'callout', type: 'tip', body: 'Use bun' },
+    { kind: 'callout', type: 'caution', body: 'Careful' },
+  ])
+  for (const k of ['NOTE', 'TIP', 'IMPORTANT', 'WARNING', 'CAUTION']) expect(splitCallouts(`> [!${k}]\n> x`)[0]).toMatchObject({ kind: 'callout' })
+})
+
+test('a marker inside a code fence, a plain quote and an unknown kind stay text', () => {
+  const fenced = '```md\n> [!NOTE]\n> example\n```'
+  expect(splitCallouts(fenced)).toEqual([{ kind: 'md', text: fenced }])
+  expect(splitCallouts('> just a quote')).toEqual([{ kind: 'md', text: '> just a quote' }])
+  expect(splitCallouts('> [!FOO]\n> x')).toEqual([{ kind: 'md', text: '> [!FOO]\n> x' }])
 })

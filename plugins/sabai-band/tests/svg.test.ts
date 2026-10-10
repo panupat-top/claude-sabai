@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CARD, CHAT_INK, TEXT, bandSvg, fillColor, lineSvg, lookOf, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, TEXT, bandSvg, calloutTitleSvg, fillColor, lineSvg, lookOf, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -215,4 +215,13 @@ test('a line drawn with a logo nests it at mark size, with its dark variant swit
   expect(d.source).toContain('class="lg-d"')
   expect(d.source).toContain('.lg-d{display:none}')
   expect(d.source.length).toBeLessThan(20_000)
+})
+
+test('callout inks read on light and dark, and a title is one small drawing in its kind’s colour', () => {
+  for (const [kind, k] of Object.entries(CALLOUT_KINDS)) expect([kind, contrast(k.ink[0], '#ffffff') >= 4.5, contrast(k.ink[1], '#1a1a1a') >= 4.5]).toEqual([kind, true, true])
+  const d = calloutTitleSvg('warning')
+  expect(d.alt).toBe('Warning')
+  expect(d.source).toContain('>Warning<')
+  expect(d.source).toContain(`fill:${CALLOUT_KINDS.warning.ink[0]}`)
+  expect(d.source).toContain('class="co"')
 })

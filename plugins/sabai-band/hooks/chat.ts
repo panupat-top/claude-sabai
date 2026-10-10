@@ -151,3 +151,41 @@ export function testLine(r: { runner: TestRunner } & Counts, durationMs?: number
   const skipped: Part[] = r.skipped ? [{ text: ` · ${r.skipped} skipped`, tone: 'muted' }] : []
   return { mark, parts: [{ text: `✗ ${r.failed} of ${r.passed + r.failed} failed`, tone: 'bad' }, ...skipped, ...time], bar: split(r.passed, r.failed, 'ok', 'bad') }
 }
+
+export type CalloutKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
+export type Segment = { kind: 'md'; text: string } | { kind: 'callout'; type: CalloutKind; body: string }
+
+const MARKER = /^>\s*\[!(note|tip|important|warning|caution)\]\s*(.*)$/i
+
+// A reply cut into its Markdown and its GitHub alerts, in order; a fenced block is never cut.
+export function splitCallouts(md: string): Segment[] {
+  const out: Segment[] = []
+  let text: string[] = []
+  let fence: string | undefined
+  const flush = () => {
+    if (text.length) out.push({ kind: 'md', text: text.join('\n') })
+    text = []
+  }
+  const lines = md.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    const f = line.match(/^\s*(```+|~~~+)/)?.[1]
+    if (f) fence = fence === undefined ? f[0] : f[0] === fence ? undefined : fence
+    const m = fence === undefined && !f ? line.match(MARKER) : null
+    if (!m) {
+      text.push(line)
+      continue
+    }
+    flush()
+    const body = m[2] ? [m[2]] : []
+    while (i + 1 < lines.length && /^>/.test(lines[i + 1]!) && !MARKER.test(lines[i + 1]!)) body.push(lines[++i]!.replace(/^>\s?/, ''))
+    out.push({ kind: 'callout', type: m[1]!.toLowerCase() as CalloutKind, body: body.join('\n') })
+    // The blank line that closes a callout belongs to it, not to the text after.
+    if (lines[i + 1] === '') i++
+  }
+  flush()
+  return out
+}
+
+export const CALLOUT_HINT =
+  'When an aside deserves a box (a caveat, a tip, a warning), write it as a GitHub alert: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]` or `> [!CAUTION]`. Use them sparingly.'

@@ -926,3 +926,38 @@ test('with only Test results on, a test run still shows and a plain command does
   const plain = await mountTool($, 'desktop', { tool_use_id: 'p', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: { stdout: '', stderr: '' } })
   expect(await plain.findAll({ type: 'Svg' })).toEqual([])
 })
+
+const FACTS = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as never
+let replies = 0
+const mountReply = ($: Engine, surface: Surface, text: string, extra: Record<string, unknown> = {}) =>
+  $.ui.mount({ plugin: 'sabai-band', surface, component: 'AssistantMessage', requestId: `m${++replies}`, viewport: { columns: 120, rows: 30 }, props: { text, isFirstOfReply: true, ...extra } as never })
+const isStock = async (ui: Awaited<ReturnType<typeof mountReply>>) => (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')
+
+test('a reply with a callout draws it as a bordered box between its Markdown; others pass through', async ($, on) => {
+  engine(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await mountReply($, surface, 'Before.\n\n> [!TIP]\n> Use bun.\n\nAfter.')
+    const md = (await ui.findAll({ type: 'Markdown' })).map(m => String(m.props.text).trim())
+    expect([surface, md]).toEqual([surface, ['Before.', 'Use bun.', 'After.']])
+    const box = (await ui.findAll({ type: 'Box' })).find(b => b.props.borderStyle === 'round')
+    expect([surface, box?.props.borderColor]).toEqual([surface, 'success'])
+  }
+  expect(await isStock(await mountReply($, 'desktop', 'No callout here.'))).toBe(true)
+  expect(await isStock(await mountReply($, 'desktop', '> [!NOTE]\n> x', { isSummary: true }))).toBe(true)
+})
+
+test('Claude is told about callouts only while Callouts is on', async ($, on) => {
+  engine(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
+  await start($)
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai-band-callouts'])
+})
+
+test('with Callouts off, replies and the prompt are left alone', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: true, callouts: false, label: true } } } })
+  on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
+  await start($)
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core'])
+  expect(await isStock(await mountReply($, 'desktop', '> [!TIP]\n> x'))).toBe(true)
+})

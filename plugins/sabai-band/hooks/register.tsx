@@ -4,9 +4,9 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, agentCardSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { bashLine, editLine, logoOf, readLine, testLine, testResult, writeLine } from './chat'
+import { CALLOUT_HINT, bashLine, editLine, logoOf, readLine, splitCallouts, testLine, testResult, writeLine } from './chat'
 import type { Line, Tone } from './chat'
 import type { IconKind } from './icons'
 import { SKINS, THEMES, contrast } from './themes'
@@ -679,6 +679,43 @@ export const register: Register = on => {
         {chatLine($, e, shown)}
       </Box>
     )
+  })
+
+  // Callouts: a reply holding a GitHub alert is drawn as its Markdown parts and a box per alert.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (e.props.isSummary || !(await read($, prefs)).chat.callouts) return next(e)
+    const parts = splitCallouts(e.props.text)
+    if (!parts.some(s => s.kind === 'callout')) return next(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Markdown, Text } = ui
+    const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        {parts.map((s, i) => {
+          if (s.kind === 'md') return s.text.trim() ? <Markdown key={`md${i}`} text={s.text} /> : null
+          const k = CALLOUT_KINDS[s.type]
+          const title = Svg ? calloutTitleSvg(s.type) : undefined
+          return (
+            <Box key={`co${i}`} borderStyle="round" borderColor={k.key} paddingX={1} flexDirection="column">
+              {Svg && title ? (
+                <Svg source={title.source} alt={title.alt} />
+              ) : (
+                <Text color={k.key} bold>
+                  {`${k.glyph} ${k.title}`}
+                </Text>
+              )}
+              <Markdown text={s.body} />
+            </Box>
+          )
+        })}
+      </Box>
+    )
+  })
+
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!(await read($, prefs)).chat.callouts) return composed
+    return { sections: [...composed.sections, { id: 'sabai-band-callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
