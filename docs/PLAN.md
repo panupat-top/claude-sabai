@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): `sabai-band` **1.0.0** เวอร์ชันแรกที่ใช้งานได้จริง: band (Info, Tasks, Crew, Usage, Toolbar), Agents panel, Settings panel, แจ้งเตือน, guard, tool step, 10 skin
+> สถานะ (2026-10-11): `sabai-band` **1.1.0**: เพิ่มส่วน Chat (บรรทัดสรุปใต้ tool, ผล test, callout, spinner ภาษาไทย, ป้าย guard) ต่อจาก 1.0.0
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -19,6 +19,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 - **Agents panel:** แถบสรุป · การ์ดต่อ agent: ชื่องานพร้อม emoji ประจำชนิด + ปุ่ม **Report** · Clawd ใส่หมวกและถือของตามชนิด (8 ชนิด + agent จาก plugin `x:y`) · effort `low…max` / `budget 32k` · `workflow` · ความคืบหน้า (tool `step` ของ mod ก่อน แล้วจึง task list) · ไอคอนสถานะมี animation · กลุ่ม Finished พับได้, Clear, รายงาน Markdown ทีละฉบับ · จำนวนการ์ดคุมด้วยขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k · agent remote ที่ไม่มี loop ไม่สร้างการ์ด
 - **Settings panel** (`/sabai-settings`, `⚙`): Band (ซ่อน/แสดง 5 แถว) · Progress bar (3 ปุ่ม + ตัวอย่าง) · Alerts (แจ้งเตือน turn ≥ 1 นาที/agent ล้มเหลวผ่าน `$.ui.notify`, toast เมื่อ 5H/7D ≥ 90% ครั้งเดียวต่อรอบ) · Agents and safety (Step reports = tool `mcp__sabai-band__step`, Guard ปิดไว้ก่อน = `tool.call` Bash/Read → `{ deny }`) · Color theme 10 แบบ · ทุกค่าเก็บใน `$.store` (`prefs`, `skin`, `bar`)
+- **Chat** (กลุ่มใน Settings, เปิดปิดทีละข้อ): บรรทัดสรุปใต้แถว Edit/Write/Read/Bash (ห่อแถวเดิม, logo จาก svgl) · ผล test ของ bun/jest/vitest/pytest/cargo/go · callout `> [!NOTE]` เป็นกล่อง + บอก Claude 1 บรรทัดใน system prompt · spinner ภาษาไทย · `🛡 guard` ใต้ช่องพิมพ์ · สีในหน้า chat ใช้ theme key ของผู้ใช้
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 
 ## 2. การตัดสินใจ

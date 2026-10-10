@@ -586,6 +586,8 @@ export const register: Register = on => {
     const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
       toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
+      toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
     return (
       <Box flexDirection="column" rowGap={2}>
@@ -611,6 +613,14 @@ export const register: Register = on => {
           {heading('Alerts', 'Outside the band')}
           {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
           {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
+        </Box>
+        <Box flexDirection="column" rowGap={1}>
+          {heading('Chat', 'In the conversation')}
+          {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
+          {chatToggle('tools', 'Tool summaries', 'A line under edits, reads and commands')}
+          {chatToggle('tests', 'Test results', 'Passed and failed counts as a bar')}
+          {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
+          {chatToggle('label', 'Guard label', 'Shows 🛡 guard under the prompt while the guard is on')}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Agents and safety', '')}

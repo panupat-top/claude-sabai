@@ -1,6 +1,6 @@
 # claude-sabai
 
-A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its one mod, **sabai-band**, adds a pixel-art status band above the prompt and a panel of subagents, built for the desktop app's Code tab and drawn as text in a terminal.
+A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its one mod, **sabai-band**, adds a pixel-art status band above the prompt, a panel of subagents and a few touches to the conversation itself, built for the desktop app's Code tab and drawn as text in a terminal.
 
 ## What sabai-band shows
 
@@ -40,6 +40,20 @@ A summary of how many subagents run and finished, their context and the wall tim
 
 The newest running agents get a card (up to six, fewer when their drawings would outgrow the panel) and the rest are counted. An agent can report its own steps through the mod's small `step` tool, which fills its card's `3/5` pill; Claude's subagents rarely keep a task list of their own. Finished agents fold away. Show them, then press **Report** to read an agent's whole report as Markdown in its colour, one at a time; a failed one says why it stopped. **Clear** them when you are done.
 
+**In the conversation**
+
+- **Tool summaries:** a line under each finished tool row, keeping the row itself:
+  - Edit: `+12 −3 · 2 hunks` and a bar of the two;
+  - Write: `new file · 48 lines`;
+  - Read: `lines 1–20 of 131`;
+  - Bash: `✓ 4.2s`, `✗ failed` or `interrupted`, marked with the command's logo (Git, Bun, npm, Python and others). A command that succeeds in under a second gets no line.
+- **Test results:** a run of bun, jest, vitest, pytest, cargo or go shows as `✓ all 96 passed 🎉` or `✗ 2 of 98 failed` with a bar.
+- **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
+- **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
+- **Guard label:** `🛡 guard` under the prompt while the guard is on.
+
+Colours in the conversation follow your light or dark theme, not the skin.
+
 **Settings** (`/sabai-settings`, or `⚙` under the band)
 
 Everything applies at once and is kept for new sessions:
@@ -49,6 +63,7 @@ Everything applies at once and is kept for new sessions:
 | Band | Show or hide each row: Info, Tasks, Crew, Usage, Toolbar. |
 | Progress bar | How bars are drawn: **Dither** (the default), **Pixel blocks** or **Solid**, with a preview. |
 | Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
+| Chat | **Spinner words**, **Tool summaries**, **Test results**, **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request) and **Guard label**. All on by default. |
 | Agents | **Step reports**: agents can send their progress (`2/4 · reading the docs`) to their card in the agents panel. Each model request then carries one small extra tool. On by default; a change takes effect from the next session. Some agent types (such as claude-code-guide) are not given the tool, and their cards show a step count instead. |
 | Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. Off by default. |
 | Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |
@@ -122,7 +137,7 @@ Development notes — how the mod is built, tested and type-checked — are in [
 
 Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins), [JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree), all MIT.
 
-Info-row marks: folder and branch from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
+Command and test-runner logos from [svgl](https://github.com/pheralb/svgl) (MIT), trademarks of their owners. Info-row and chat marks: folder, branch and the chat icons from [Octicons](https://github.com/primer/octicons) (MIT); the Git and Node.js logos from [Simple Icons](https://simpleicons.org) (CC0), trademarks of their owners. Skin colours follow each theme's published palette.
 
 ## License
 

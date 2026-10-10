@@ -992,3 +992,16 @@ test('the guard label joins the footer modes while the guard is on', async ($, o
   await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'SessionMode', requestId: 'sm', viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
   expect(seen.at(-1)).toEqual(['focus', '🛡 guard'])
 })
+
+test('settings: each chat feature has its own toggle, kept for new sessions', async ($, on) => {
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const k of ['spinner', 'tools', 'tests', 'callouts', 'label']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  await pane.press({ key: 'pref-chat-tools' })
+  expect((await pane.find({ key: 'pref-chat-tools' }))?.props.label).toBe('○ Off')
+  expect((store.prefs as { chat: { tools: boolean } }).chat.tools).toBe(false)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'z', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
+  expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+})
