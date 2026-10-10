@@ -429,3 +429,28 @@ test('a skin leaves the band on the surface’s own background, as auto does', a
   const tree = (await ui.drawn()) as { props: { backgroundColor?: string; borderStyle?: string } }
   expect([tree.props.backgroundColor, tree.props.borderStyle]).toEqual([undefined, undefined])
 })
+
+test('a subagent’s own task list goes to its card, never the band; the band keeps the main list', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'scan')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'main work', description: '' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: String('main work'.length), status: 'in_progress' })
+  // agentId rides along on a hook's event; the typed call input only admits it from a variable
+  const sub = {
+    tool: 'TodoWrite' as const,
+    agentId: 'agent-scan',
+    todos: [
+      { content: 'read', status: 'completed' as const, activeForm: 'Reading' },
+      { content: 'sum up', status: 'in_progress' as const, activeForm: 'Summing up' },
+    ],
+  }
+  await $.tool.call(sub)
+  const band = await shown($, 'desktop')
+  expect(band.words).toContain('main work')
+  expect(band.words).not.toContain('Summing up')
+  const ui = await mountPane($, 'desktop')
+  const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
+  expect(cards.some(c => c.props.source.includes('1/2 · Summing up'))).toBe(true)
+})

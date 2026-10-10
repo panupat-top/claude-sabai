@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
-import { clock, elapsed, finished, groups, modelName, spawned, stepped } from './agents'
+import { clock, elapsed, finished, groups, modelName, spawned, stepped, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
@@ -63,6 +63,12 @@ async function readRepo($: EngineInterface) {
   const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : []
   lastBranch = branch
   await update($, env, e => ({ ...e, branch, ahead, behind, changes: status ? status.split('\n').length : 0 }))
+}
+
+// A subagent's task calls build its own list on its card; the main conversation's drive the band.
+async function updateTasks($: EngineInterface, agentId: string | undefined, fn: (list: Task[]) => Task[]) {
+  if (agentId === undefined) await update($, tasks, fn)
+  else await update($, agents, list => withTasks(list, agentId, fn))
 }
 
 // The tick's cheap check: only a switched branch costs a full read.
@@ -154,6 +160,7 @@ export const register: Register = on => {
       startedAt: at,
       contextTokens: 0,
       steps: 0,
+      tasks: [],
     }
     await update($, agents, list => spawned(list, run))
     await update($, now, () => at)
@@ -165,7 +172,7 @@ export const register: Register = on => {
     const result = yield* next(e)
     const { agentId } = e
     const { usage: used } = result
-    if (agentId && used) await update($, agents, list => stepped(list, agentId, used.model || e.model, used))
+    if (agentId && used) await update($, agents, list => stepped(list, agentId, used.model || e.model, used, e.effort))
     return result
   })
 
@@ -231,19 +238,19 @@ export const register: Register = on => {
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
     const called = await next(e)
     const id = (called.result as BuiltinToolResults['TaskCreate'] | undefined)?.task.id
-    if (id !== undefined) await update($, tasks, list => created(list, id, e.subject, e.activeForm))
+    if (id !== undefined) await updateTasks($, e.agentId, list => created(list, id, e.subject, e.activeForm))
     return called
   })
 
   on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
     const called = await next(e)
-    if ((called.result as BuiltinToolResults['TaskUpdate'] | undefined)?.success) await update($, tasks, list => updated(list, e))
+    if ((called.result as BuiltinToolResults['TaskUpdate'] | undefined)?.success) await updateTasks($, e.agentId, list => updated(list, e))
     return called
   })
 
   on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
     const called = await next(e)
-    if (!called.isError && !called.deny) await update($, tasks, () => fromTodos(e.todos))
+    if (!called.isError && !called.deny) await updateTasks($, e.agentId, () => fromTodos(e.todos))
     return called
   })
 
