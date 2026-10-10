@@ -620,7 +620,7 @@ export const register: Register = on => {
           {chatToggle('tools', 'Tool summaries', 'A line under edits, reads and commands')}
           {chatToggle('tests', 'Test results', 'Passed and failed counts as a bar')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-          {chatToggle('label', 'Guard label', 'Shows 🛡 guard under the prompt while the guard is on')}
+          {chatToggle('label', 'Guard label', 'A shield and guard under the prompt while the guard is on')}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Agents and safety', '')}
