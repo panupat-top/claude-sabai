@@ -57,23 +57,50 @@ export const spriteSize = (kind: SpriteKind) => {
   return { width: (rows[0]?.length ?? 0) * px, height: rows.length * px }
 }
 
-// Pixels of one class share a <g> so one animation moves them together; `mode` (`run` or
-// `idle`) picks which of the sprite's motions play, and `tint` repaints Clawd's body.
-export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string): string {
+export type HatKind = 'explorer' | 'hardhat' | 'cap' | 'grad' | 'beanie'
+export const HAT_H = 4
+
+// Hats for the agents pane, 24 wide like Clawd and HAT_H rows tall, drawn just above him.
+const HATS: Record<HatKind, string[]> = {
+  explorer: ['........................', '......hhhhhhhhhhhh......', '......hhhhhhhhhhhh......', '..hhhhhhhhhhhhhhhhhhhh..'],
+  hardhat: ['........................', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......', '....hhhhhhhhhhhhhhhh....'],
+  cap: ['........................', '......hhhhhhhhhh........', '......hhhhhhhhhh........', '......hhhhhhhhhhhhhhhh..'],
+  grad: ['..hhhhhhhhhhhhhhhhhhhh..', '.......hhhhhhhhhh..h....', '.......hhhhhhhhhh..h....', '........................'],
+  beanie: ['...........hh...........', '.........hhhhhh.........', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......'],
+}
+
+// Rows of colour keys as rects, a run of one key in a row merged into one rect, grouped by class
+// so one animation moves a part together. `paint` gives a key's fill, or a class when it has none.
+function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { fill?: string; cls?: string; group?: string } | undefined) {
+  const groups = new Map<string, string[]>()
+  rows.forEach((row, r) => {
+    for (let c = 0; c < row.length; ) {
+      const ch = row[c]!
+      let end = c + 1
+      while (end < row.length && row[end] === ch) end++
+      const p = paint(ch)
+      if (p) {
+        const look = p.fill ? `fill="${p.fill}"` : `class="${p.cls}"`
+        const rect = `<rect x="${c * px}" y="${(y0 + r) * px}" width="${(end - c) * px}" height="${px}" ${look}/>`
+        groups.set(p.group ?? '', [...(groups.get(p.group ?? '') ?? []), rect])
+      }
+      c = end
+    }
+  })
+  return [...groups].map(([g, rects]) => (g ? `<g class="${g}">${rects.join('')}</g>` : rects.join(''))).join('')
+}
+
+// `mode`: `run` walks, `idle` blinks, `hop` jumps twice (a finished agent), `dizzy` shuts the
+// eyes (a failed one). `tint` repaints Clawd's body; `hat` sits on top and moves with the body.
+export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string }): string {
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
-  const groups = new Map<string, string[]>()
-  rows.forEach((row, r) =>
-    [...row].forEach((ch, col) => {
-      const color = colors[ch]
-      if (!color) return
-      const cls = classes[ch] ?? ''
-      const rect = `<rect x="${col * px}" y="${r * px}" width="${px}" height="${px}" fill="${color}"/>`
-      groups.set(cls, [...(groups.get(cls) ?? []), rect])
-    }),
-  )
-  const body = [...groups].map(([cls, rects]) => (cls ? `<g class="${cls}">${rects.join('')}</g>` : rects.join(''))).join('')
-  return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${body}</g>`
+  // Shut eyes: the lower of the two eye rows is painted as body.
+  const body = mode === 'dizzy' && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
+  const art =
+    (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
+    draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))
+  return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${art}</g>`
 }
 
 export const SPRITE_CSS =
@@ -83,4 +110,5 @@ export const SPRITE_CSS =
   // A blink repaints the eyes in the body's colour (the look's `wink` keyframes), so no hole shows.
   '.idle g.eye rect{animation:wink 3.2s steps(1) infinite}' +
   'g.led1{animation:blink 1.2s steps(1) infinite}g.led2{animation:blink 1.2s steps(1) infinite -.6s}' +
-  '@keyframes blink{50%{opacity:.15}}'
+  '@keyframes blink{50%{opacity:.15}}' +
+  '.hop g{animation:hop .45s ease-out 2}@keyframes hop{50%{transform:translateY(-3px)}}'
