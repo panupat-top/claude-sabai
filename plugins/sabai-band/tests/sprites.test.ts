@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { HAT_H, sprite } from '../hooks/sprites'
+import { HAT_H, PROP_W, SPRITE_CSS, sprite } from '../hooks/sprites'
 
 // Every drawn pixel of a sprite, keyed "x,y", valued by its fill.
 const pixels = (svg: string) => {
@@ -23,7 +23,7 @@ test('Clawd draws the same 256 pixels from merged runs, far smaller than one rec
 })
 
 test('each hat sits above Clawd in its colour, or muted without one', () => {
-  for (const kind of ['explorer', 'hardhat', 'cap', 'grad', 'beanie'] as const) {
+  for (const kind of ['explorer', 'hardhat', 'cap', 'grad', 'beret', 'bandana', 'headset', 'tophat', 'beanie'] as const) {
     const hat = [...pixels(sprite('tasks', 0, 0, 'run', undefined, { kind, color: '#00ff00' }))].filter(([k]) => Number(k.split(',')[1]) < 0)
     expect(hat.length).toBeGreaterThan(8)
     expect(hat.every(([k, v]) => v === '#00ff00' && Number(k.split(',')[1]) >= -HAT_H)).toBe(true)
@@ -34,4 +34,23 @@ test('each hat sits above Clawd in its colour, or muted without one', () => {
 test('a failed Clawd shuts its eyes: the lower eye row takes the body colour', () => {
   const px = pixels(sprite('tasks', 0, 0, 'dizzy', '#ff0000'))
   expect([px.get('6,2'), px.get('6,3')]).toEqual(['#1F1E1D', '#ff0000'])
+})
+
+test('with a prop, each type holds its own tool to Clawd’s right, animated only while it runs', () => {
+  for (const kind of ['explorer', 'hardhat', 'cap', 'grad', 'beret', 'bandana', 'headset', 'tophat', 'beanie'] as const) {
+    const svg = sprite('tasks', 0, 0, 'run', undefined, { kind, color: '#00ff00', prop: true })
+    const held = [...pixels(svg)].filter(([k]) => Number(k.split(',')[0]) >= 24)
+    expect([kind, held.length > 4]).toEqual([kind, true])
+    expect(Number(Math.max(...held.map(([k]) => Number(k.split(',')[0]))))).toBeLessThan(24 + PROP_W)
+    expect(svg).toMatch(/<g class="pr-\w+">/)
+  }
+  expect([...pixels(sprite('tasks', 0, 0, 'run', undefined, { kind: 'cap' }))].some(([k]) => Number(k.split(',')[0]) >= 24)).toBe(false)
+  for (const motion of ['scan', 'scrib', 'twist', 'flip', 'steam']) expect(SPRITE_CSS).toContain(`.run g.pr-${motion}`)
+})
+
+test('a finished Clawd waves his report; a failed one wears a bandage', () => {
+  const svg = sprite('tasks', 0, 0, 'idle', undefined, { kind: 'cap', prop: 'scroll' })
+  expect(svg).toContain('<g class="pr-wave">')
+  expect(SPRITE_CSS).toContain('g.pr-wave{')
+  expect(pixels(sprite('tasks', 0, 0, 'dizzy', '#ff0000')).get('11,5')).toBe('#f8f6f1')
 })

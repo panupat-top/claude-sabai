@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
+import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { CARD, TEXT, bandSvg, fillColor, textClass } from '../hooks/svg'
 
@@ -130,4 +131,29 @@ test('bars draw as dither, pixel blocks or a solid fill', () => {
   const solid = draw('solid')
   expect(solid).not.toMatch(/class="d[0-3]"/)
   expect(solid).toContain('<rect fill="#D97757"')
+})
+
+const crewRun = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
+  id, agentId: id, type: 'Explore', description: `job ${id}`, model: 'claude-opus-5-5', status: 'running', startedAt: 0, contextTokens: 0, steps: 4, ...extra,
+})
+
+test('the crew row walks one Clawd per running agent, names the latest, and counts the rest', () => {
+  const runs = [crewRun('a', { status: 'done', endedAt: 5000 }), crewRun('b', { tasks: [{ id: '1', subject: 'Read', activeForm: 'Reading', status: 'in_progress' }, { id: '2', subject: 'x', status: 'pending' }] })]
+  const d = bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs, now: 37_000 })
+  expect(d?.source).toContain('>job b<')
+  expect(d?.source).toContain('0/2 · Reading')
+  expect(d?.source.match(/class="run"/g)?.length).toBe(1)
+  expect(d?.alt).toBe('Agents: 1 running, 1 done; job b')
+  const many = bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs: Array.from({ length: 7 }, (_, i) => crewRun(String(i))), now: 1000 })
+  expect(many?.source.match(/class="run"/g)?.length).toBe(5)
+  expect(many?.source).toContain('>+2<')
+  expect(many?.source.length).toBeLessThan(131_072)
+  const idle = bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'done', endedAt: 2 })], now: 9000 })
+  expect(idle?.source).toContain('>All 2 done<')
+  expect(idle?.source).not.toContain('class="run"')
+  const mixed = bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'failed', endedAt: 2 })], now: 9000 })
+  expect(mixed?.source).toContain('>1 done · 1 failed<')
+  expect(mixed?.alt).toBe('Agents: 1 done, 1 failed; 1 done · 1 failed')
+  expect(mixed?.source.match(/>1<\/text>/g)?.length).toBe(2)
+  expect(bandSvg(undefined, NONE, [], 800, false, 'auto', 'dither', { runs: [], now: 0 })).toBeUndefined()
 })

@@ -57,7 +57,7 @@ export const spriteSize = (kind: SpriteKind) => {
   return { width: (rows[0]?.length ?? 0) * px, height: rows.length * px }
 }
 
-export type HatKind = 'explorer' | 'hardhat' | 'cap' | 'grad' | 'beanie'
+export type HatKind = 'explorer' | 'hardhat' | 'cap' | 'grad' | 'beret' | 'bandana' | 'headset' | 'tophat' | 'beanie'
 export const HAT_H = 4
 
 // Hats for the agents pane, 24 wide like Clawd and HAT_H rows tall, drawn just above him.
@@ -66,12 +66,76 @@ const HATS: Record<HatKind, string[]> = {
   hardhat: ['........................', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......', '....hhhhhhhhhhhhhhhh....'],
   cap: ['........................', '......hhhhhhhhhh........', '......hhhhhhhhhh........', '......hhhhhhhhhhhhhhhh..'],
   grad: ['..hhhhhhhhhhhhhhhhhhhh..', '.......hhhhhhhhhh..h....', '.......hhhhhhhhhh..h....', '........................'],
+  beret: ['...........h............', '.......hhhhhhhh.........', '.....hhhhhhhhhhhh.......', '......hhhhhhhhhhh.......'],
+  bandana: ['........................', '........................', '.....hhhhhhhhhhhhhh.hh..', '....hhhhhhhhhhhhhhhh.h..'],
+  headset: ['........hhhhhhhh........', '.......h........h.......', '......h..........h......', '.....hh..........hh.....'],
+  tophat: ['.......hhhhhhhhhh.......', '.......hhhhhhhhhh.......', '.......hhhhhhhhhh.......', '....hhhhhhhhhhhhhhhh....'],
   beanie: ['...........hh...........', '.........hhhhhh.........', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......'],
 }
 
+// What each type holds to Clawd's right, PROP_W wide, from his arm row down: a magnifier, a
+// pencil, a wrench, a book, a steaming cup. A key's class is the motion `.run` gives it.
+export const PROP_W = 7
+const PROPS: Record<HatKind, { rows: string[]; colors: Record<string, string>; classes: Record<string, string> }> = {
+  explorer: {
+    rows: ['.ggg...', 'g...g..', 'g...g..', 'g...g..', '.ggg...', '....h..', '.....h.', '......h'],
+    colors: { g: '#8e929a', h: '#a0703f' },
+    classes: { g: 'pr-scan', h: 'pr-scan' },
+  },
+  hardhat: {
+    rows: ['.....yy', '....yy.', '...yy..', '..yy...', '.yy....', 'k......'],
+    colors: { y: '#f5c542', k: '#3a3a3c' },
+    classes: { y: 'pr-scrib', k: 'pr-scrib' },
+  },
+  cap: {
+    rows: ['s.s....', 'sss....', '.s.....', '.s.....', '.s.....', '.s.....'],
+    colors: { s: '#8e929a' },
+    classes: { s: 'pr-twist' },
+  },
+  grad: {
+    rows: ['bbbbbb.', 'bwwwwb.', 'bwbbwb.', 'bwwwwb.', 'bwbbwb.', 'bbbbbb.'],
+    colors: { b: '#7a4a26', w: '#f8f6f1' },
+    classes: { b: 'pr-flip', w: 'pr-flip' },
+  },
+  beret: {
+    rows: ['....pp.', '...pp..', '..ww...', '.ww....', 'ww.....', 'w......'],
+    colors: { p: '#e5484d', w: '#a0703f' },
+    classes: { p: 'pr-scrib', w: 'pr-scrib' },
+  },
+  bandana: {
+    rows: ['s.s.s..', 's.s.s..', 'sssss..', '.sss...', '..s....', '..s....', '..s....'],
+    colors: { s: '#c9ccd2' },
+    classes: { s: 'pr-twist' },
+  },
+  headset: {
+    rows: ['.ccc...', 'bbbbb..', 'bwwwb..', 'bwkwb..', 'bwwwb..', 'bwkwb..', 'bbbbb..'],
+    colors: { c: '#8e929a', b: '#a0703f', w: '#f8f6f1', k: '#9aa0c0' },
+    classes: { c: 'pr-scan', b: 'pr-scan', w: 'pr-scan', k: 'pr-scan' },
+  },
+  tophat: {
+    rows: ['...y...', '..yyy..', '...y...', '..k....', '.k.....', 'k......'],
+    colors: { y: '#f5c542', k: '#3a3a3c' },
+    classes: { y: 'pr-steam', k: 'pr-twist' },
+  },
+  beanie: {
+    rows: ['.v.v...', 'v.v....', 'cccc...', 'ccccmm.', 'cccc.m.', 'cccc...', '.cc....'],
+    colors: { v: '#9aa0c0', c: '#f8f6f1', m: '#f8f6f1' },
+    classes: { v: 'pr-steam', c: 'pr-cup', m: 'pr-cup' },
+  },
+}
+
+// A finished agent holds up its report instead of its tool, waving it.
+const SCROLL = {
+  rows: ['dddddd.', 'pppppp.', 'pkkkkp.', 'pppppp.', 'pkkkkp.', 'pppppp.', 'dddddd.'],
+  colors: { d: '#d6c7a1', p: '#f8f6f1', k: '#9aa0c0' } as Record<string, string>,
+  classes: { d: 'pr-wave', p: 'pr-wave', k: 'pr-wave' } as Record<string, string>,
+}
+// A failed one wears a sticking plaster across the cheek.
+const BANDAGE = ['.ww...', 'wwwwww', '.ww...']
+
 // Rows of colour keys as rects, a run of one key in a row merged into one rect, grouped by class
 // so one animation moves a part together. `paint` gives a key's fill, or a class when it has none.
-function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { fill?: string; cls?: string; group?: string } | undefined) {
+function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { fill?: string; cls?: string; group?: string } | undefined, x0 = 0) {
   const groups = new Map<string, string[]>()
   rows.forEach((row, r) => {
     for (let c = 0; c < row.length; ) {
@@ -81,7 +145,7 @@ function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { f
       const p = paint(ch)
       if (p) {
         const look = p.fill ? `fill="${p.fill}"` : `class="${p.cls}"`
-        const rect = `<rect x="${c * px}" y="${(y0 + r) * px}" width="${(end - c) * px}" height="${px}" ${look}/>`
+        const rect = `<rect x="${(x0 + c) * px}" y="${(y0 + r) * px}" width="${(end - c) * px}" height="${px}" ${look}/>`
         groups.set(p.group ?? '', [...(groups.get(p.group ?? '') ?? []), rect])
       }
       c = end
@@ -91,15 +155,19 @@ function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { f
 }
 
 // `mode`: `run` walks, `idle` blinks, `hop` jumps twice (a finished agent), `dizzy` shuts the
-// eyes (a failed one). `tint` repaints Clawd's body; `hat` sits on top and moves with the body.
-export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string }): string {
+// eyes (a failed one). `tint` repaints Clawd's body; `hat` sits on top and moves with the body,
+// and with `prop` its type's tool is held to his right.
+export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }): string {
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   // Shut eyes: the lower of the two eye rows is painted as body.
   const body = mode === 'dizzy' && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
+  const held = hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : undefined
   const art =
     (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
-    draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))
+    draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined)) +
+    (held ? draw(held.rows, px, 3, ch => (held.colors[ch] ? { fill: held.colors[ch], group: held.classes[ch] } : undefined), 24) : '') +
+    (mode === 'dizzy' && kind === 'tasks' ? draw(BANDAGE, px, 4, ch => (ch === 'w' ? { fill: '#f8f6f1', group: 'bd' } : undefined), 10) : '')
   return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${art}</g>`
 }
 
@@ -111,4 +179,12 @@ export const SPRITE_CSS =
   '.idle g.eye rect{animation:wink 3.2s steps(1) infinite}' +
   'g.led1{animation:blink 1.2s steps(1) infinite}g.led2{animation:blink 1.2s steps(1) infinite -.6s}' +
   '@keyframes blink{50%{opacity:.15}}' +
-  '.hop g{animation:hop .45s ease-out 2}@keyframes hop{50%{transform:translateY(-3px)}}'
+  '.hop g{animation:hop .45s ease-out 2}@keyframes hop{50%{transform:translateY(-3px)}}' +
+  // Props move only while the agent works; every loop fits the pane's one-second redraw.
+  '.run g[class^=pr-]{transform-box:fill-box}' +
+  '.run g.pr-scan{animation:scan 1s steps(4) infinite}@keyframes scan{25%{transform:translate(-1px,1px)}50%{transform:translate(-2px,0)}75%{transform:translate(-1px,-1px)}}' +
+  '.run g.pr-scrib{animation:scrib .5s steps(2) infinite}@keyframes scrib{50%{transform:translate(1px,1px)}}' +
+  '.run g.pr-twist{transform-origin:50% 100%;animation:twist .5s ease-in-out infinite}@keyframes twist{50%{transform:rotate(-35deg)}}' +
+  '.run g.pr-flip{transform-origin:50% 50%;animation:flip 1s steps(2) infinite}@keyframes flip{50%{transform:scaleX(-1)}}' +
+  '.run g.pr-steam{animation:blink .5s steps(1) infinite}' +
+  'g.pr-wave{transform-box:fill-box;transform-origin:0 100%;animation:wave 1s ease-in-out infinite}@keyframes wave{50%{transform:rotate(-12deg)}}'

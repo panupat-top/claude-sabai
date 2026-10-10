@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Task, Usage } from '../types'
-import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, taskLine, withTasks } from './agents'
+import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, taskLine, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { SKINS, THEMES, contrast, pickSkin } from './themes'
@@ -21,6 +21,8 @@ const finishedOpen = atom({ plugin: 'sabai-band', key: 'finishedOpen' } as const
 const openResults = atom({ plugin: 'sabai-band', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
 const FINISHED_SHOWN = 8
+// Likewise the newest running agents: a wide workflow fan-out would otherwise outgrow the pane.
+const RUNNING_SHOWN = 6
 
 const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
 const BAR_NOTES: Record<BarStyle, string> = { dither: 'Twinkling dots', blocks: 'Square cells', solid: 'One smooth fill' }
@@ -166,6 +168,7 @@ export const register: Register = on => {
       contextTokens: 0,
       steps: 0,
       tasks: [],
+      ...(e.workflow ? { workflow: true } : {}),
     }
     await update($, agents, list => spawned(list, run))
     await update($, now, () => at)
@@ -190,6 +193,9 @@ export const register: Register = on => {
     } else {
       const at = await $.clock.now()
       await update($, agents, list => finished(list, agentId, e.reason, at, e.answer))
+      // The hop and confetti last a few seconds; with nothing left running, nothing else would
+      // tick the clock to end them.
+      $.clock.after(3100, () => void tick($))
       await update($, now, () => at)
     }
     return completed
@@ -211,7 +217,7 @@ export const register: Register = on => {
     const opened = await read($, openResults)
     const { running, finished: done } = groups(list)
     const ui = $.ui.resolve(e)
-    const { Box, Button, Text } = ui
+    const { Box, Button, Markdown, Text } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const look = lookOf(skinName)
@@ -228,40 +234,76 @@ export const register: Register = on => {
       )
     }
 
+    // A card is one Box: the title row (the task, marked by its type, and for a finished agent a
+    // Report button at the right), the drawing (text rows on the terminal) and, once opened, the
+    // report. The Box takes no colour: the title and the report are the surface's own text, whose
+    // ink follows the OS theme, which a fixed skin colour behind them could not.
     const card = (a: AgentRun) => {
-      if (Svg) {
-        const d = agentCardSvg(a, W, at, skinName, style)
-        return <Svg key={`card-${a.id}`} source={d.source} alt={d.alt} />
-      }
+      const title = a.description || a.type
+      const isOpen = opened.includes(a.id)
       const line = taskLine(a.tasks)
       const effort = effortLabel(a.effort)
-      return (
-        <Box key={`card-${a.id}`} flexDirection="column">
+      const head = (
+        <Box flexDirection="row" alignItems="center" columnGap={1}>
+          <Box flexGrow={1}>
+            <Text bold wrap="truncate-end">{`${typeEmoji(a.type)} ${title}`}</Text>
+          </Box>
+          {a.status !== 'running' && (
+            <Button key={`result-${a.id}`} label={isOpen ? '▾ Report' : 'Report'} onPress={() => toggleResult(a.id)} />
+          )}
+        </Box>
+      )
+      const drawn = Svg && agentCardSvg(a, W, at, skinName, style)
+      const body = Svg && drawn ? (
+        <Svg source={drawn.source} alt={drawn.alt} />
+      ) : (
+        <Box flexDirection="column" paddingLeft={2}>
           <Text wrap="truncate-end" dimColor={a.status !== 'running'}>
             <Text color={look.clawd}>{a.status === 'running' ? '● ' : a.status === 'done' ? '✓ ' : '✗ '}</Text>
-            <Text bold>{a.description || a.type}</Text>
+            {`${effort ? `${effort} · ` : ''}${a.type} · ${modelName(a.model)}${a.workflow ? ' · workflow' : ''}`}
             <Text dimColor>{`  ${clock(elapsed(a, at))}`}</Text>
           </Text>
-          <Text dimColor wrap="truncate-end">{`  ${effort ? `${effort} · ` : ''}${a.type} · ${modelName(a.model)}`}</Text>
-          <Text dimColor wrap="truncate-end">{`  ${line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`} · ${tokens(a.contextTokens)} ctx`}</Text>
+          <Text dimColor wrap="truncate-end">{`${line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`} · ${tokens(a.contextTokens)} ctx`}</Text>
+        </Box>
+      )
+      return (
+        <Box key={`card-${a.id}`} flexDirection="column">
+          {head}
+          {body}
+          {isOpen && a.status !== 'running' && (
+            // Agents write their reports in markdown, so they are drawn as such, framed in the
+            // agent's colour (red when it failed).
+            <Box paddingX={1}>
+              <Box flexGrow={1} borderStyle="round" borderColor={reportColor(a)} paddingX={1}>
+                <Markdown text={resultText(a)} />
+              </Box>
+            </Box>
+          )}
         </Box>
       )
     }
+
     const sum = Svg && summarySvg(list, W, at, skinName)
     const shown = done.slice(0, FINISHED_SHOWN)
-    const toggleResult = (id: string) => update($, openResults, ids => (ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]))
+    const reportColor = (a: AgentRun) => {
+      const { accent } = typeStyle(a.type)
+      return a.status === 'failed' ? look.bar('tasks', 100) : look.bar(accent ?? 'session', 0)
+    }
+    // One report open at a time: opening another closes the first, keeping the pane short.
+    const toggleResult = (id: string) => update($, openResults, ids => (ids.includes(id) ? [] : [id]))
 
     return (
       <Box flexDirection="column" rowGap={1}>
         {Svg && sum && <Svg source={sum.source} alt={sum.alt} />}
         {running.length > 0 && (
-          <Box flexDirection="column" rowGap={Svg ? 0 : 1}>
+          <Box flexDirection="column" rowGap={1}>
             <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>
-            {running.map(card)}
+            {running.slice(0, RUNNING_SHOWN).map(card)}
+            {running.length > RUNNING_SHOWN && <Text dimColor>{`+ ${running.length - RUNNING_SHOWN} more running`}</Text>}
           </Box>
         )}
         {done.length > 0 && (
-          <Box flexDirection="column" rowGap={Svg ? 0 : 1}>
+          <Box flexDirection="column" rowGap={1}>
             <Box flexDirection="row" alignItems="center" columnGap={1}>
               <Box flexGrow={1}>
                 <Text dimColor bold>{`FINISHED · ${done.length}`}</Text>
@@ -276,14 +318,7 @@ export const register: Register = on => {
               />
               <Button key="toggle-finished" label={isOpen ? '▾ Hide' : '▸ Show'} onPress={() => update($, finishedOpen, v => !v)} />
             </Box>
-            {isOpen &&
-              shown.map(a => (
-                <Box key={`row-${a.id}`} flexDirection="column">
-                  {card(a)}
-                  <Button key={`result-${a.id}`} label={opened.includes(a.id) ? '▾ Result' : 'Result ›'} onPress={() => toggleResult(a.id)} />
-                  {opened.includes(a.id) && <Text wrap="wrap">{resultText(a)}</Text>}
-                </Box>
-              ))}
+            {isOpen && shown.map(card)}
             {isOpen && done.length > shown.length && <Text dimColor>{`+ ${done.length - shown.length} more`}</Text>}
           </Box>
         )}
@@ -412,14 +447,22 @@ export const register: Register = on => {
 
     const p = progress(await read($, tasks))
     const measured = await read($, usage)
-    const list = meters(measured, await read($, now))
+    const at = await read($, now)
+    const list = meters(measured, at)
     const info = chips(await read($, env))
-    if (!p && info.left.length + info.right.length === 0 && list.length === 0) return next(e)
+    const runs = await read($, agents)
+    if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
 
     const skinName = await read($, skin)
     const style = await read($, bar)
     const look = lookOf(skinName)
-    const running = groups(await read($, agents)).running.length
+    const { running: active, finished: ended } = groups(runs)
+    const running = active.length
+    const lead = active[0]
+    const leadLine = lead && taskLine(lead.tasks)
+    const leadDetail = lead ? (leadLine ? `${leadLine.done}/${leadLine.total} · ${leadLine.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
+    const failedCount = ended.filter(a => a.status === 'failed').length
+    const endedText = failedCount ? `${ended.length - failedCount} done · ${failedCount} failed` : `${ended.length} done`
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
     // Another mod's drawing in the band keeps its place under ours.
@@ -465,7 +508,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName, style)
+      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName, style, { runs, now: at })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -502,6 +545,15 @@ export const register: Register = on => {
             <Text bold>{`${p.done}/${p.total}`}</Text>
             <Text dimColor>{`${Math.round((p.done / p.total) * 100)}%`}</Text>
           </Box>
+        )}
+        {runs.length > 0 && (
+          <Text wrap="truncate-end">
+            <Text color={look.clawd}>{'✻ '}</Text>
+            {running > 0 ? <Text bold>{`${running} running`}</Text> : <Text bold>{failedCount ? endedText : `All ${endedText}`}</Text>}
+            {running > 0 && ended.length > 0 ? <Text dimColor>{` · ${endedText}`}</Text> : null}
+            {lead ? <Text>{`  ${lead.description || lead.type}`}</Text> : null}
+            {lead ? <Text dimColor>{`  ${leadDetail}`}</Text> : null}
+          </Text>
         )}
         {list.length > 0 && (
           <Box flexDirection="row" flexWrap="wrap" columnGap={4} paddingRight={5}>

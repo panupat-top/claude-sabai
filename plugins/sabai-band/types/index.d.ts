@@ -32,6 +32,8 @@ export type AgentRun = {
   tasks?: Task[]
   result?: string
   reason?: 'answer' | 'aborted' | 'refusal' | 'error'
+  // Launched by a Workflow script's agent().
+  workflow?: boolean
 }
 
 declare module 'claude-code' {

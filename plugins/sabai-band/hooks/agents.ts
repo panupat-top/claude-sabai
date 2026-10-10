@@ -1,5 +1,6 @@
 import type { AgentRun, Task } from '../types'
 import type { Progress } from './model'
+import { tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -29,7 +30,7 @@ export const stepped = (list: AgentRun[], agentId: string, model: string, u: Usa
         },
   )
 
-export const RESULT_MAX = 600
+export const RESULT_MAX = 1500
 
 export const finished = (list: AgentRun[], agentId: string, reason: NonNullable<AgentRun['reason']>, at: number, answer?: string): AgentRun[] =>
   list.map(a =>
@@ -56,17 +57,37 @@ export function taskLine(tasks: Task[] | undefined): Progress | undefined {
   return { done, total: tasks.length, title: running ? (running.activeForm ?? running.subject) : (next?.subject ?? 'Done') }
 }
 
-const EFFORT: Record<string, string> = { low: 'quick', medium: 'steady', high: 'careful', xhigh: 'deep', max: 'deep' }
-export const effortLabel = (effort?: string): string | undefined => (effort && Object.hasOwn(EFFORT, effort) ? EFFORT[effort] : undefined)
+// Claude's effort levels as the engine names them; a number is a thinking budget in tokens.
+const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+export const effortLabel = (effort?: string): string | undefined =>
+  effort === undefined ? undefined : EFFORT_LEVELS.includes(effort) ? effort : /^\d+$/.test(effort) ? `budget ${tokens(Number(effort))}` : undefined
 
 const TYPES: Record<string, { hat: HatKind; accent: 'tasks' | 'context' | 'session' | 'week' }> = {
   Explore: { hat: 'explorer', accent: 'context' },
   Plan: { hat: 'hardhat', accent: 'session' },
   'general-purpose': { hat: 'cap', accent: 'tasks' },
   'claude-code-guide': { hat: 'grad', accent: 'week' },
+  'statusline-setup': { hat: 'beret', accent: 'week' },
+  // A fork of the conversation, and a teammate with no type of its own.
+  fork: { hat: 'bandana', accent: 'tasks' },
+  teammate: { hat: 'headset', accent: 'context' },
 }
+const PLUGIN_AGENT = { hat: 'tophat', accent: 'session' } as const
+// A mark for each type's title, matching its hat and tool.
+const EMOJI: Record<string, string> = {
+  Explore: '🔍',
+  Plan: '📐',
+  'general-purpose': '🔧',
+  'claude-code-guide': '🎓',
+  'statusline-setup': '🎨',
+  fork: '🍴',
+  teammate: '🎧',
+}
+export const typeEmoji = (type: string): string => (Object.hasOwn(EMOJI, type) ? EMOJI[type]! : type.includes(':') ? '🎩' : '☕')
+
+// A plugin's agents are named `plugin:name`; anything else unknown gets the beanie.
 export const typeStyle = (type: string): { hat: HatKind; accent?: 'tasks' | 'context' | 'session' | 'week' } =>
-  Object.hasOwn(TYPES, type) ? TYPES[type]! : { hat: 'beanie' }
+  Object.hasOwn(TYPES, type) ? TYPES[type]! : type.includes(':') ? PLUGIN_AGENT : { hat: 'beanie' }
 
 export function summary(list: AgentRun[], now: number): { running: number; done: number; context: number; ms: number } {
   if (list.length === 0) return { running: 0, done: 0, context: 0, ms: 0 }

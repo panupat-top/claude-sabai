@@ -445,7 +445,7 @@ test('a subagent’s own task list goes to its card, never the band; the band ke
   expect(band.words).not.toContain('Summing up')
   const ui = await mountPane($, 'desktop')
   const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
-  expect(cards.some(c => c.props.source.includes('1/2 · Summing up'))).toBe(true)
+  expect(cards.some(c => c.props.source.includes('>Summing up<') && c.props.source.includes('>1/2<'))).toBe(true)
 })
 
 test('an empty panel invites a first agent on both surfaces', async ($, on) => {
@@ -523,9 +523,10 @@ test('a subagent’s answer and failure reason are kept for its Result', async (
   const ui = await mountPane($, 'desktop')
   await ui.press({ key: 'toggle-finished' })
   await ui.press({ key: 'result-agent-ok' })
+  expect(await ui.find({ type: 'Markdown', text: 'Found 3 launches.' })).toBeDefined()
+  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('▾ Report')
   await ui.press({ key: 'result-agent-bad' })
-  expect(await ui.find({ type: 'Text', text: 'Found 3 launches.' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
+  expect(await ui.find({ type: 'Markdown', text: 'Stopped before it finished.' })).toBeDefined()
 })
 
 test('a wide pane in pixel blocks with eight finished agents open stays under the tree limit', async ($, on) => {
@@ -547,4 +548,165 @@ test('a wide pane in pixel blocks with eight finished agents open stays under th
   await ui.press({ key: 'toggle-finished' })
   for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+})
+
+test('the band shows the crew while agents work, on both surfaces, and drops it once cleared', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'scan the hooks')
+  const desktop = await shown($, 'desktop')
+  expect(desktop.words).toContain('Agents: 1 running; scan the hooks')
+  const terminal = await shown($, 'terminal')
+  expect(terminal.words).toMatch(/1 running/)
+  expect(terminal.words).toMatch(/scan the hooks/)
+  await $.turn.complete({ turnId: 't', agentId: 'agent-scan the hooks', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop')).words).toContain('Agents: 1 done; All 1 done')
+  const pane = await mountPane($, 'desktop')
+  await pane.press({ key: 'clear-finished' })
+  expect((await shown($, 'desktop')).words).not.toContain('Agents:')
+})
+
+test('a finished agent’s Report button opens its report as Markdown; the card sets no colour its text cannot follow', async ($, on) => {
+  engine(on, { store: { skin: 'dracula' } })
+  panes(on)
+  await start($)
+  await spawn($, 'ok')
+  await $.turn.complete({ turnId: 't', agentId: 'agent-ok', answer: '## Found\n- three launches', durationMs: 10, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('Report')
+  expect(await ui.find({ type: 'Text', text: '🔍 ok' })).toBeDefined()
+  // Native titles and Markdown take the OS theme's ink, so no Box behind them may force a colour.
+  expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
+  await ui.press({ key: 'result-agent-ok' })
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('## Found\n- three launches')
+})
+
+test('one report is open at a time', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (const name of ['a', 'b']) {
+    await spawn($, name)
+    await $.turn.complete({ turnId: name, agentId: `agent-${name}`, answer: `report ${name}`, durationMs: 10, isAborted: false, reason: 'answer' })
+  }
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  await ui.press({ key: 'result-agent-a' })
+  await ui.press({ key: 'result-agent-b' })
+  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toEqual(['report b'])
+})
+
+test('a running agent has its title and no Report button; once it ends, Report appears', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'scan')
+  const ui = await mountPane($, 'desktop')
+  expect(await ui.find({ key: 'result-agent-scan' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '🔍 scan' })).toBeDefined()
+  await $.turn.complete({ turnId: 't', agentId: 'agent-scan', answer: 'done.', durationMs: 10, isAborted: false, reason: 'answer' })
+  await ui.press({ key: 'toggle-finished' })
+  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('Report')
+})
+
+test('a wide fan-out of running agents shows the newest few and counts the rest, under the tree limit', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (let i = 0; i < 20; i++) {
+    await spawn($, `job ${i}`)
+    await $.tool.call({ tool: 'TodoWrite', agentId: `agent-job ${i}`, todos: [
+      { content: 'a', status: 'completed', activeForm: 'A' }, { content: 'b', status: 'in_progress', activeForm: 'B' }, { content: 'c', status: 'pending', activeForm: 'C' },
+    ] } as Parameters<typeof $.tool.call>[0])
+  }
+  const ui = await mountPane($, 'desktop')
+  expect(await ui.find({ type: 'Text', text: '+ 14 more running' })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+})
+
+test('the terminal crew says 1 step, and counts failed agents apart from done ones', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'a')
+  await spawn($, 'b')
+  await $.turn.complete({ turnId: 'a', agentId: 'agent-a', answer: '', durationMs: 10, isAborted: true, reason: 'aborted' })
+  await $.turn.complete({ turnId: 'b', agentId: 'agent-b', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'terminal')).words).toMatch(/1 done · 1 failed/)
+})
+
+// One model request of a subagent, answered by a stub beneath the plugin as the model would.
+function steps(on: On) {
+  on('turn.step', async function* ($, e) {
+    return {
+      turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn' as const,
+      usage: { model: 'claude-haiku-5-5', input_tokens: 1200, output_tokens: 300, cache_read_input_tokens: 30_000, cache_creation_input_tokens: 500 },
+    }
+  })
+}
+const step = async ($: Engine, agentId: string, effort?: 'low' | 'high' | 'xhigh' | number) => {
+  const stream = $.turn.step({ turnId: `t-${agentId}`, index: 0, model: 'claude-opus-5-5', messageCount: 1, agentId, ...(effort === undefined ? {} : { effort }) })
+  for await (const _ of stream) void _
+  return stream.result
+}
+
+test('an agent’s whole life through the hooks: spawn, steps with effort, own tasks, answer', async ($, on) => {
+  engine(on)
+  panes(on)
+  steps(on)
+  await start($)
+  await spawn($, 'survey')
+  const cardOf = async () => {
+    const ui = await mountPane($, 'desktop')
+    await ui.press({ key: 'toggle-finished' }).catch(() => undefined)
+    const svgs = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
+    const card = svgs.find(s => s.props.alt.startsWith('survey:'))
+    await ui.unmount()
+    return card?.props.source ?? ''
+  }
+  // Two model requests: the step count, the latest context, the model and the effort follow.
+  await step($, 'agent-survey', 'xhigh')
+  await step($, 'agent-survey', 'xhigh')
+  let card = await cardOf()
+  expect(card).toContain('>2 steps<')
+  expect(card).toContain('32k ctx')
+  expect(card).toContain('Explore · haiku 5.5')
+  expect(card).toContain('>xhigh<')
+  // A numeric effort is a thinking budget.
+  await step($, 'agent-survey', 32_000)
+  expect(await cardOf()).toContain('>budget 32k<')
+  // The agent's own task list drives its bar and pill; the band's row stays empty.
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Read', description: '', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Write up', description: '', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
+  await $.tool.call({ tool: 'TaskUpdate', taskId: String('Read'.length), status: 'completed', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
+  card = await cardOf()
+  expect(card).toContain('>1/2<')
+  expect((await shown($, 'desktop')).words).not.toMatch(/tasks, \d+%/)
+  // A step of the main conversation (no agentId) touches no card.
+  const before = await cardOf()
+  await step($, '')
+  expect(await cardOf()).toBe(before)
+  // The answer ends the run: a check, the report behind its title.
+  await $.turn.complete({ turnId: 't-agent-survey', agentId: 'agent-survey', answer: '## Found\n- 154 lines', durationMs: 10, isAborted: false, reason: 'answer' })
+  const ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'toggle-finished' })
+  await ui.press({ key: 'result-agent-survey' })
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('## Found\n- 154 lines')
+})
+
+test('a workflow agent is marked as one on its card', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await $.agent.spawn({
+    tool_use_id: 'tu-wf', prompt: 'go', description: 'fan out', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5', background: false, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
+  })
+  const ui = await mountPane($, 'desktop')
+  const svgs = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
+  const source = svgs.find(s => s.props.alt.startsWith('fan out:'))?.props.source
+  expect(source).toContain('>general-purpose · sonnet 5.5<')
+  expect(source).toContain('>workflow · 0 steps<')
 })

@@ -3,7 +3,7 @@ import { clock, effortLabel, elapsed, modelName, summary, taskLine, typeStyle } 
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import { icon } from './icons'
-import { ICON_COLORS, HAT_H, SPRITE_CSS, sprite, spriteSize } from './sprites'
+import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
 
@@ -36,6 +36,12 @@ const MOTION =
   '.d2{animation-duration:1.9s;animation-delay:-1.3s}.d3{animation-duration:3.3s;animation-delay:-.4s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.3}}' +
   '.live{animation:tw 1.6s ease-in-out infinite}' +
+  '.ripple{transform-box:fill-box;transform-origin:center;animation:rp 1s ease-out infinite}@keyframes rp{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.2);opacity:0}}' +
+  // A pop that starts and ends at full size: an image's animation can sit frozen on its first
+  // frame (a hidden window), so no motion here may begin by hiding what it moves.
+  '.pop{transform-box:fill-box;transform-origin:center;animation:pop .45s ease-out 2}@keyframes pop{50%{transform:scale(1.45)}}' +
+  '.cf{animation:cf 1s ease-out infinite}@keyframes cf{50%{transform:translateY(-3px)}}' +
+  '.shake{animation:sh .4s ease-in-out 2}@keyframes sh{25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
   SPRITE_CSS +
   '@media (prefers-reduced-motion: reduce){*{animation:none!important}}'
 
@@ -144,8 +150,9 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
   )
 }
 
-const svg = (look: Look, w: number, h: number, body: string) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${MOTION}</style>${body}</svg>`
+// `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
+const svg = (look: Look, w: number, h: number, body: string, still = false) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${still ? '' : MOTION}</style>${body}</svg>`
 
 const ROW_H = 20
 const GAP = 8
@@ -249,6 +256,65 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
   return { body: leftBody + rightBody, height: CHIP_H, alt }
 }
 
+const CREW_H = 22
+const CREW_MAX = 5
+const CREW_SCALE = 0.8
+
+// The agents at work: a small Clawd per running agent (the newest CREW_MAX) in its hat with its
+// tool, the newest one's task and progress, then the running and finished counts and the time.
+// When none runs, the latest finished ones stand by and the text sums them up.
+function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number, top: number): Part {
+  const newest = [...runs].reverse()
+  const running = newest.filter(a => a.status === 'running')
+  const ended = newest.filter(a => a.status !== 'running')
+  const failed = ended.filter(a => a.status === 'failed').length
+  const shown = (running.length ? running : ended).slice(0, CREW_MAX)
+  const step = (spriteSize('tasks').width + PROP_W) * CREW_SCALE + 3
+  const avatars = shown
+    .map((a, i) => {
+      const { hat, hatColor } = hatOf(look, a.type)
+      const mode = a.status === 'running' ? 'run' : 'idle'
+      return (
+        `<g transform="translate(${i * step},${top + 2}) scale(${CREW_SCALE})"${a.status === 'running' ? '' : ' opacity=".6"'}>` +
+        sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor, prop: true }) +
+        '</g>'
+      )
+    })
+    .join('')
+  const more = running.length - shown.length
+  let x = shown.length * step + 4
+  const moreText = more > 0 ? `<text class="m" x="${x}" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="600">+${more}</text>` : ''
+  if (more > 0) x += monoWidth(`+${more}`, 11) + 8
+  const lead = running[0]
+  const line = lead && taskLine(lead.tasks)
+  const title = lead ? lead.description || lead.type : failed ? `${ended.length - failed} done · ${failed} failed` : `All ${ended.length} done`
+  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
+  // The right side, laid out from the edge: time, then failed, done and running counts.
+  const s = summary([...runs], now)
+  const time = clock(s.ms)
+  let rx = W - monoWidth(time, 11)
+  const right: string[] = [`<text class="m" x="${W}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="11">${time}</text>`]
+  const count = (n: number, status: AgentRun['status']) => {
+    rx -= monoWidth(String(n), 11.5) + 18
+    right.push(statusMark(look, status, rx + 4, top + 11, look.clawd, false))
+    right.push(`<text class="t" x="${rx + 12}" y="${top + 15}" font-family="${MONO}" font-size="11.5" font-weight="700">${n}</text>`)
+  }
+  if (failed) count(failed, 'failed')
+  if (ended.length - failed) count(ended.length - failed, 'done')
+  if (running.length) count(running.length, 'running')
+  const textW = Math.max(40, rx - x - 12)
+  const titleText = fit(title, 12.5, textW * 0.6)
+  const titleW = textWidth(titleText, 12.5)
+  const body =
+    avatars +
+    moreText +
+    `<text class="t" x="${x}" y="${top + 15}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(titleText)}</text>` +
+    (detail ? `<text class="m" x="${x + titleW + 10}" y="${top + 15}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(20, textW - titleW - 10)))}</text>` : '') +
+    right.join('')
+  const counts = [running.length ? `${running.length} running` : '', ended.length ? `${ended.length - failed} done` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(', ')
+  return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
+}
+
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
 // surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
 export function bandSvg(
@@ -259,6 +325,7 @@ export function bandSvg(
   isWorking = false,
   skin = 'auto',
   style: BarStyle = 'dither',
+  crew?: { runs: readonly AgentRun[]; now: number },
 ): Drawing | undefined {
   const look = lookOf(skin)
   const parts: Part[] = []
@@ -269,6 +336,7 @@ export function bandSvg(
   }
   if (info.left.length + info.right.length > 0) add(chipsPart(info, W, y))
   if (p) add(progressPart(look, p, W, isWorking, y, style))
+  if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style))
   if (parts.length === 0) return undefined
   return drawing(look, W, y - GAP, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
@@ -325,81 +393,157 @@ function swatch(look: Look, w: number, body: string, alt: string): Drawing {
   return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`), width: w, height: h, alt }
 }
 
-const drawing = (look: Look, W: number, height: number, body: string, alt: string): Drawing => ({ source: svg(look, W, height, body), width: W, height, alt })
+const drawing = (look: Look, W: number, height: number, body: string, alt: string, still = false): Drawing => ({
+  source: svg(look, W, height, body, still),
+  width: W,
+  height,
+  alt,
+})
 
-const AGENT_H = 64
+// An agent type's hat and colour; a hat in Clawd's own colour would vanish into him, so that one
+// takes the deeper pill clay.
+function hatOf(look: Look, type: string) {
+  const { hat, accent } = typeStyle(type)
+  const color = accent ? look.bar(accent, 0) : look.bar('session', 0)
+  return { hat, accent, color, hatColor: accent === 'tasks' ? look.pill : accent ? color : undefined }
+}
+
+// Running: a dot whose ring ripples out. Done: a check that pops in while fresh. Failed: a
+// cross that shakes once while fresh. `fresh` is the few seconds after an agent ends.
+function statusMark(look: Look, status: AgentRun['status'], x: number, y: number, color: string, fresh: boolean): string {
+  if (status === 'running')
+    return `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}"/><circle class="ripple" cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${color}" stroke-width="1.2"/>`
+  if (status === 'done')
+    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context', 0)}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 100)}" stroke-width="1.8" stroke-linecap="round"/></g>`
+}
+
+const AGENT_H = 52
 // A card's pixel-block bar has a fixed cell count, so a wide pane does not multiply its size.
 const CARD_CELLS = 24
+const CARD_BAR_H = 8
 const HOP_MS = 3000
 
-// One subagent, a drawing of its own so a Result button can sit under it: Clawd in his type's
-// hat, the task and clock, effort · type · model, own progress or steps with the context, and a
-// bar in the type's colour (an indeterminate sweep while running with no list).
+// The band's bar, sized for a card: dither as twinkling dots faded in from the left (one pattern
+// and a mask rather than a rect per dot, so a pane of cards stays small), blocks or solid as the
+// band draws them, a tick per step, and the n/total pill riding the head of the fill.
+function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio: number, color: string, style: BarStyle, steps = 0, pill = ''): string {
+  const h = CARD_BAR_H
+  const fillW = Math.round(w * Math.max(0, Math.min(1, ratio)))
+  const ticks = Array.from({ length: Math.max(0, Math.min(steps, 12) - 1) }, (_, i) => Math.round((w * (i + 1)) / Math.min(steps, 12)))
+    .filter(tx => tx > fillW + 4)
+    .map(tx => `<rect class="m" x="${x + tx}" y="${y + h / 2 - 2.5}" width="1.5" height="5" rx=".75"/>`)
+    .join('')
+  let bar: string
+  if (style === 'blocks') {
+    // The cells as two patterns, track and fill, so their count costs nothing.
+    const cell = (w + 2) / CARD_CELLS
+    const filled = Math.round(CARD_CELLS * Math.max(0, Math.min(1, ratio))) * cell
+    const pattern = (id: string, paint: string) =>
+      `<pattern id="${id}" width="${cell.toFixed(2)}" height="${h}" patternUnits="userSpaceOnUse" x="${x}" y="${y}"><rect ${paint} width="${(cell - 2).toFixed(2)}" height="${h}" rx="1.5"/></pattern>`
+    bar =
+      `<defs>${pattern(`sabai-band-cells-${uid}`, 'class="k"')}${pattern(`sabai-band-on-${uid}`, `fill="${color}"`)}</defs>` +
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#sabai-band-cells-${uid})"/>` +
+      `<rect x="${x}" y="${y}" width="${Math.min(w, filled).toFixed(1)}" height="${h}" fill="url(#sabai-band-on-${uid})"/>`
+  } else {
+    const fill =
+      style === 'solid'
+        ? `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="${color}"/>`
+        : `<defs><pattern id="sabai-band-dots-${uid}" width="6" height="6" patternUnits="userSpaceOnUse" x="${x}" y="${y}">` +
+          [0, 1, 2, 3].map(i => `<rect class="d${i}" x="${(i % 2) * 3 + 0.5}" y="${Math.floor(i / 2) * 3 + 0.5}" width="2" height="2" fill="${color}"/>`).join('') +
+          `</pattern><linearGradient id="sabai-band-fade-${uid}"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
+          `<mask id="sabai-band-mask-${uid}"><rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-fade-${uid})"/></mask></defs>` +
+          `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-dots-${uid})" mask="url(#sabai-band-mask-${uid})"/>`
+    bar =
+      `<defs><clipPath id="sabai-band-clip-${uid}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
+      `<rect class="k" x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>` +
+      `<g clip-path="url(#sabai-band-clip-${uid})">${fill}</g>`
+  }
+  if (!pill) return bar + ticks
+  const pillW = Math.round(10 + pill.length * 4.8)
+  const pillX = x + Math.max(0, Math.min(w - pillW, fillW - pillW))
+  return (
+    bar +
+    ticks +
+    `<rect x="${pillX}" y="${y}" width="${pillW}" height="${h}" rx="${h / 2}" fill="${look.pill}"/>` +
+    `<text x="${pillX + pillW / 2}" y="${y + h / 2 + 2.6}" text-anchor="middle" font-family="${MONO}" font-size="7.5" font-weight="700" fill="#ffffff">${pill}</text>`
+  )
+}
+
+// A few pixels of confetti over a just-finished agent; they twinkle and drift, starting in place.
+const CONFETTI = [
+  [44, 10, 'context'],
+  [50, 16, 'session'],
+  [40, 20, 'week'],
+  [54, 8, 'tasks'],
+] as const
+
+// One subagent, below the title row the pane draws itself (a Button, so a finished agent's title
+// opens its report): Clawd in his type's hat with his tool (his report once finished, a plaster
+// if he failed), effort · type · model with the clock and status, own progress or steps with
+// the context, and the band's bar.
 export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto', style: BarStyle = 'dither'): Drawing {
   const look = lookOf(skin)
-  const { hat, accent } = typeStyle(a.type)
-  const color = accent ? look.bar(accent, 0) : look.bar('session', 0)
+  const { hat, accent, color, hatColor } = hatOf(look, a.type)
   const textCls = accent ? `c-${accent}` : 'm'
   const right = W - PAD
   const clawd = spriteSize('tasks')
-  // A hat in Clawd's own colour would vanish into him, so that one takes the deeper pill clay.
-  const hatColor = accent === 'tasks' ? look.pill : accent ? color : undefined
   // Clawd and his hat drawn half again as large, so the hat reads at a glance.
   const scale = 1.5
-  const textX = PAD + clawd.width * scale + 12
-  const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : a.endedAt !== undefined && now - a.endedAt < HOP_MS ? 'hop' : 'idle'
+  const textX = PAD + (clawd.width + PROP_W) * scale + 8
+  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
+  const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : fresh ? 'hop' : 'idle'
+  const prop = a.status === 'running' ? true : a.status === 'done' ? 'scroll' : false
   const line = taskLine(a.tasks)
   const effort = effortLabel(a.effort)
   const effortW = effort ? monoWidth(effort, 10) + 12 : 0
   const meta = `${a.type} · ${modelName(a.model)}`
-  const mark =
-    a.status === 'running'
-      ? `<circle class="live" cx="${right - 4}" cy="14" r="3.5" fill="${color}"/>`
-      : `<text class="${a.status === 'failed' ? 'c-alert' : 'c-context'}" x="${right}" y="18" text-anchor="end" font-family="${MONO}" font-size="12" font-weight="700">${a.status === 'failed' ? '✗' : '✓'}</text>`
+  const time = clock(elapsed(a, now))
+  const H = AGENT_H
+  const mark = statusMark(look, a.status, right - 5, 14, color, fresh)
   const markW = 16
-  const progressText = line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`
+  // A workflow's agent says so on the second line, where a narrow pane leaves it room.
+  const progressText =
+    (a.workflow ? 'workflow · ' : '') + (line ? (line.done === line.total ? 'Done' : line.title) : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`)
   const ctx = `${tokens(a.contextTokens)} ctx`
-  const barY = 52
+  const barY = 38
   const barW = right - textX
   const uid = a.id.replace(/\W/g, '_')
-  // Dither as one patterned fill: a pane holds many cards and its whole tree must stay small.
-  const cardBar = (ratio: number) =>
-    style === 'dither'
-      ? `<defs><pattern id="sabai-band-dots-${uid}" width="3" height="3" patternUnits="userSpaceOnUse"><rect x=".5" y=".5" width="2" height="2" fill="${color}"/></pattern></defs>` +
-        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
-        `<rect x="${textX}" y="${barY}" width="${Math.round(barW * ratio)}" height="5" rx="2.5" fill="url(#sabai-band-dots-${uid})"/>`
-      : style === 'blocks'
-        ? Array.from({ length: CARD_CELLS }, (_, i) => {
-            const seg = (barW - 2 * (CARD_CELLS - 1)) / CARD_CELLS
-            const paint = i < Math.round(CARD_CELLS * ratio) ? `fill="${color}"` : 'class="k"'
-            return `<rect ${paint} x="${(textX + i * (seg + 2)).toFixed(1)}" y="${barY}" width="${seg.toFixed(1)}" height="5" rx="1"/>`
-          }).join('')
-        : pixelBar(`sabai-band-agent-${uid}`, textX, barY, barW, 5, ratio, color, 0, style)
+  const failedColor = look.bar('tasks', 100)
+  // A failed run's bar takes the alert colour, so a full bar never reads as success.
+  const barColor = a.status === 'failed' ? failedColor : color
   const bar = line
-    ? cardBar(line.done / line.total)
+    ? cardBar(look, uid, textX, barY, barW, line.done / line.total, barColor, style, line.total, `${line.done}/${line.total}`)
     : a.status === 'running'
-      ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/></clipPath></defs>` +
-        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="5" rx="2.5"/>` +
-        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="5" fill="${color}"/></g>` +
+      ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/></clipPath></defs>` +
+        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/>` +
+        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX - barW * 0.3}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
         // One sweep per second: the pane redraws each second while an agent runs, restarting it.
         `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 1.3)}px)}}</style>`
-      : cardBar(1)
+      : cardBar(look, uid, textX, barY, barW, 1, barColor, style)
+  const confetti =
+    a.status === 'done' && fresh
+      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      : ''
   const body =
-    `<rect class="p" width="${W}" height="${AGENT_H}" rx="8"/>` +
+    `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
     `<g transform="translate(${PAD},${(AGENT_H - (clawd.height + HAT_H) * scale) / 2}) scale(${scale})">` +
-    sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor }) +
+    sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor, prop }) +
     '</g>' +
-    `<text class="t" x="${textX}" y="18" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, Math.max(40, right - textX - 60)))}</text>` +
-    `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${clock(elapsed(a, now))}</text>` +
-    mark +
+    confetti +
     (effort
-      ? `<rect x="${textX}" y="24" width="${effortW}" height="14" rx="4" fill="${color}" fill-opacity=".16"/><text class="${textCls}" x="${textX + 6}" y="34" font-family="${MONO}" font-size="10" font-weight="600">${effort}</text>`
+      ? `<rect x="${textX}" y="8" width="${effortW}" height="14" rx="4" fill="${color}" fill-opacity=".16"/><text class="${textCls}" x="${textX + 6}" y="18" font-family="${MONO}" font-size="10" font-weight="600">${xml(effort)}</text>`
       : '') +
-    `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="34" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, Math.max(40, right - textX - effortW - 6)))}</text>` +
-    `<text class="m" x="${textX}" y="47" font-family="${MONO}" font-size="11">${xml(fitMono(progressText, 11, Math.max(40, barW - monoWidth(ctx, 11) - 10)))}</text>` +
-    `<text class="m" x="${right}" y="47" text-anchor="end" font-family="${MONO}" font-size="11">${ctx}</text>` +
+    `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="18" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, Math.max(40, right - markW - 4 - monoWidth(time, 11.5) - 10 - textX - effortW - (effort ? 6 : 0))))}</text>` +
+    `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>` +
+    mark +
+    `<text class="m" x="${textX}" y="33" font-family="${MONO}" font-size="11">${xml(fitMono(progressText, 11, Math.max(40, barW - monoWidth(ctx, 11) - 10)))}</text>` +
+    `<text class="m" x="${right}" y="33" text-anchor="end" font-family="${MONO}" font-size="11">${ctx}</text>` +
     bar
-  return drawing(look, W, AGENT_H, body, `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`)
+  // A run that ended a while ago has settled: drawn still, it skips the motion stylesheet (a third
+  // of a card), which keeps a pane of finished cards inside the engine's size limit.
+  const alt = `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`
+  return drawing(look, W, H, body, alt, a.status !== 'running' && !fresh)
 }
 
 // Three cards: how many agents run and finished, their context together, and the wall time.
