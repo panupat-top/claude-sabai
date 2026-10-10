@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 เสร็จ + review ทั้ง mod: แก้บั๊กขนาด/emoji/agent remote, Settings panel, แจ้งเตือน, guard, tool step · ตัด `/sabai-skin` (`sabai-band` 0.11.0)
+> สถานะ (2026-10-10): `sabai-band` **1.0.0** เวอร์ชันแรกที่ใช้งานได้จริง: band (Info, Tasks, Crew, Usage, Toolbar), Agents panel, Settings panel, แจ้งเตือน, guard, tool step, 10 skin
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
