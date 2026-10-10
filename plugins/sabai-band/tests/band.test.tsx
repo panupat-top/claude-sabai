@@ -961,3 +961,34 @@ test('with Callouts off, replies and the prompt are left alone', async ($, on) =
   expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core'])
   expect(await isStock(await mountReply($, 'desktop', '> [!TIP]\n> x'))).toBe(true)
 })
+
+test('the spinner speaks Thai on the terminal, and on the desktop only in place of Working', async ($, on) => {
+  const seen: string[] = []
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    seen.push((e.props as { word: string }).word)
+    return STOCK
+  })
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  engine(on)
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 'turn-1' })
+  const spin = (surface: Surface, word: string, n: number) =>
+    $.ui.mount({ plugin: 'sabai-band', surface, component: 'Spinner', requestId: `s${n}`, viewport: { columns: 120, rows: 30 }, props: { word, message: null, suffix: '…', mode: 'thinking' } })
+  await spin('terminal', 'Sauteing', 1)
+  await spin('desktop', 'Creating notes.md', 2)
+  await spin('desktop', 'Working', 3)
+  expect(seen[0]).toMatch(/[฀-๿]/)
+  expect(seen.slice(1)).toEqual(['Creating notes.md', seen[0]])
+})
+
+test('the guard label joins the footer modes while the guard is on', async ($, on) => {
+  const seen: string[][] = []
+  on('ui.render', { component: 'SessionMode' }, ($, e) => {
+    seen.push([...(e.props as { modes: string[] }).modes])
+    return STOCK
+  })
+  engine(on, { store: { prefs: { guard: true } } })
+  await start($)
+  await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'SessionMode', requestId: 'sm', viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
+  expect(seen.at(-1)).toEqual(['focus', '🛡 guard'])
+})

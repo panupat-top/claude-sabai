@@ -6,7 +6,7 @@ import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, lineSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
-import { CALLOUT_HINT, bashLine, editLine, logoOf, readLine, splitCallouts, testLine, testResult, writeLine } from './chat'
+import { CALLOUT_HINT, bashLine, editLine, isGenericWord, logoOf, readLine, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from './chat'
 import type { Line, Tone } from './chat'
 import type { IconKind } from './icons'
 import { SKINS, THEMES, contrast } from './themes'
@@ -88,6 +88,8 @@ const GLYPHS: Record<IconKind, string> = {
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
+// The spinner's word is picked once per turn, so it does not change on every redraw.
+let turnSeed = 0
 let lastBranch: string | undefined
 let reading: Promise<void> | undefined
 let quick: string[] = []
@@ -710,6 +712,24 @@ export const register: Register = on => {
         })}
       </Box>
     )
+  })
+
+  on('turn.start', async ($, e, next) => {
+    turnSeed = seedOf(e.turnId)
+    return next(e)
+  })
+
+  // Thai words in the spinner; the desktop keeps a word that names the step.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (!(await read($, prefs)).chat.spinner) return next(e)
+    if (e.surface !== 'terminal' && !isGenericWord(e.props.word)) return next(e)
+    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, turnSeed) } })
+  })
+
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const p = await read($, prefs)
+    if (!p.chat.label || !p.guard) return next(e)
+    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '🛡 guard'] } })
   })
 
   on('prompt.compose', async ($, e, next) => {

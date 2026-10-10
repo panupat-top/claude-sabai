@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { bashLine, commandOf, editLine, logoOf, readLine, seconds, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
+import { SPINNER_WORDS, bashLine, commandOf, editLine, isGenericWord, logoOf, readLine, seconds, seedOf, spinnerWord, splitCallouts, testLine, testResult, writeLine } from '../hooks/chat'
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
   expect([seconds(420), seconds(4210), seconds(12_400), seconds(64_000)]).toEqual(['0.4s', '4.2s', '12s', '1m 4s'])
@@ -126,4 +126,18 @@ test('a marker inside a code fence, a plain quote and an unknown kind stay text'
   expect(splitCallouts(fenced)).toEqual([{ kind: 'md', text: fenced }])
   expect(splitCallouts('> just a quote')).toEqual([{ kind: 'md', text: '> just a quote' }])
   expect(splitCallouts('> [!FOO]\n> x')).toEqual([{ kind: 'md', text: '> [!FOO]\n> x' }])
+})
+
+test('every spinner mode has Thai words, picked steadily for a seed', () => {
+  for (const [mode, words] of Object.entries(SPINNER_WORDS)) {
+    expect([mode, words.length > 0, words.every(w => /[\u0E00-\u0E7F]/.test(w) && !w.endsWith('…'))]).toEqual([mode, true, true])
+  }
+  const seed = seedOf('turn-42')
+  expect(spinnerWord('thinking', seed)).toBe(spinnerWord('thinking', seed))
+  expect(SPINNER_WORDS.thinking).toContain(spinnerWord('thinking', seed))
+  expect(spinnerWord('tool-input', 7)).toBe('กำลังเตรียมคำสั่ง')
+})
+
+test('only the desktop’s generic word is replaced there', () => {
+  expect([isGenericWord('Working'), isGenericWord('Creating notes.md'), isGenericWord('')]).toEqual([true, false, true])
 })

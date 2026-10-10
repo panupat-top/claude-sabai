@@ -189,3 +189,28 @@ export function splitCallouts(md: string): Segment[] {
 
 export const CALLOUT_HINT =
   'When an aside deserves a box (a caveat, a tip, a warning), write it as a GitHub alert: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]` or `> [!CAUTION]`. Use them sparingly.'
+
+export type SpinnerMode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
+
+// Plain Thai, read at a glance; the engine adds its own ellipsis after the word.
+export const SPINNER_WORDS: Record<SpinnerMode, readonly string[]> = {
+  thinking: ['กำลังคิด', 'ขอคิดแป๊บนึงนะ', 'กำลังเรียบเรียงความคิด', 'กำลังหาทางที่ดีที่สุด'],
+  requesting: ['กำลังส่งคำขอ', 'รอคำตอบสักครู่'],
+  'tool-input': ['กำลังเตรียมคำสั่ง'],
+  'tool-use': ['กำลังลงมือทำ', 'กำลังจัดการให้', 'กำลังตรวจดูให้'],
+  responding: ['กำลังเขียนคำตอบ', 'กำลังสรุปให้', 'ใกล้เสร็จแล้ว'],
+}
+
+export function seedOf(id: string): number {
+  let h = 0
+  for (const c of id) h = (h * 31 + c.codePointAt(0)!) >>> 0
+  return h
+}
+
+export function spinnerWord(mode: SpinnerMode, seed: number): string {
+  const words = SPINNER_WORDS[mode]
+  return words[seed % words.length]!
+}
+
+// The desktop says `Working` while its row names no step; a word naming a step is kept.
+export const isGenericWord = (word: string) => word.trim() === '' || word.trim() === 'Working'
