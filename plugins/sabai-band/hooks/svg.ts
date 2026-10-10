@@ -631,47 +631,70 @@ const CHAT_MOTION =
   '.an-shake{animation:an-shake .4s ease-in-out}@keyframes an-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
   '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake{animation:none}}'
 const CHAT_ICON = 18
-const STEP_W = 600
-const STEP_H = 46
+const STEP_W = 640
+const STEP_H = 30
 const TITLE_H = 24
 
-// Placed by the outer group, painted and moved by the inner one: a CSS animation's transform
-// would otherwise replace the placement.
 const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: number) =>
   `<g transform="translate(${x},${y}) scale(${size / 24})"><g class="${cls}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STROKES[icon]}</g></g>`
 
 const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
-// Text in a proportional face, cut near enough to stay clear of the right column.
+// A semibold proportional face's width, by kind of character: near enough to set the next
+// word after it without overlap, and to cut a title short of the right column.
+const sansWidth = (s: string, size: number) =>
+  [...s].reduce((w, c) => w + size * (/[il.,:;'|!]/.test(c) ? 0.3 : /[fjrt() -]/.test(c) ? 0.4 : /[mwMW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.7 : 0.6), 0)
 const fitSans = (s: string, size: number, maxW: number) => {
-  const room = Math.floor(maxW / (size * 0.56))
+  if (sansWidth(s, size) <= maxW) return s
   const chars = [...s]
-  return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
+  while (chars.length > 1 && sansWidth(`${chars.join('')}…`, size) > maxW) chars.pop()
+  return `${chars.join('')}…`
 }
 
-// One tool call as a step, like a line of a timeline: its icon in a soft circle, a title saying
-// what it was about and a detail saying what it did, then its result and time at the right.
-// Drawn at a fixed size, which the row is told, so it never stretches.
+// One tool call as a step on one line, like a row of a timeline: its icon in a soft circle, a
+// title saying what it was about, then what it did, dim; at the right a meter, the result in a
+// tinted pill and the time. Drawn at a fixed size, which the row is told, so it never stretches.
 export function stepSvg(step: Step): Drawing {
-  const resultW = step.result.reduce((n, p) => n + monoWidth(p.text, 12.5), 0)
-  const timeW = step.time ? monoWidth(step.time, 11.5) : 0
-  let x = STEP_W - 2 - resultW
-  const result = step.result
-    .map(p => {
-      const t = `<text class="k-${p.tone}" x="${x.toFixed(1)}" y="20" font-family="${MONO}" font-size="12.5" xml:space="preserve">${xml(p.text)}</text>`
-      x += monoWidth(p.text, 12.5)
-      return t
-    })
-    .join('')
-  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="38" text-anchor="end" font-family="${MONO}" font-size="11.5">${xml(step.time)}</text>` : ''
-  const title = fitSans(step.title, 14, STEP_W - 50 - resultW - 16)
-  const detail = fitMono(step.detail, 11.5, STEP_W - 50 - timeW - 16)
+  const resultText = step.result.map(p => p.text).join('')
+  const pillTone = step.result[0]?.tone ?? 'muted'
+  const timeW = step.time ? monoWidth(step.time, 11.5) + 10 : 0
+  const pillW = resultText ? monoWidth(resultText, 12) + 16 : 0
+  const meterW = step.meter ? 5 * 6 + 8 : 0
+  const right = STEP_W - 2 - timeW
+  let x = right - pillW
+  let pill = ''
+  if (resultText) {
+    pill = `<rect class="k-${pillTone}" opacity=".14" x="${x.toFixed(1)}" y="6" width="${pillW.toFixed(1)}" height="18" rx="9"/>`
+    let tx = x + 8
+    for (const p of step.result) {
+      pill += `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="19" font-family="${MONO}" font-size="12" xml:space="preserve">${xml(p.text)}</text>`
+      tx += monoWidth(p.text, 12)
+    }
+  }
+  let meter = ''
+  if (step.meter) {
+    const { good, bad } = step.meter
+    const n = good + bad
+    let goodCells = n ? Math.round((5 * good) / n) : 0
+    if (good > 0 && goodCells === 0) goodCells = 1
+    if (bad > 0 && goodCells === 5) goodCells = 4
+    const start = x - meterW
+    meter = Array.from({ length: 5 }, (_, i) => `<rect class="k-${i < goodCells ? 'ok' : 'bad'}" x="${start + i * 6}" y="10" width="4" height="10" rx="1.5"/>`).join('')
+    x = start
+  }
+  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="19" text-anchor="end" font-family="${MONO}" font-size="11.5">${xml(step.time)}</text>` : ''
+  const room = x - 34 - 12
+  const title = fitSans(step.title, 13.5, Math.min(room, room * 0.7 + 60))
+  const titleW = sansWidth(title, 13.5)
+  const detailRoom = room - titleW - 12
+  const detail = detailRoom > 40 ? fitMono(step.detail, 11.5, detailRoom) : ''
   const motion = step.tone === 'ok' ? ' an-pop' : step.tone === 'bad' ? ' an-shake' : ''
   const body =
-    `<circle class="trk" cx="19" cy="23" r="17"/>` +
-    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 10, 14, CHAT_ICON) +
-    `<text class="k-text" x="48" y="20" font-family="${SANS}" font-size="14" font-weight="600">${xml(title)}</text>` +
-    `<text class="k-muted" x="48" y="38" font-family="${MONO}" font-size="11.5" xml:space="preserve">${xml(detail)}</text>` +
-    result +
+    `<circle class="trk" cx="14" cy="15" r="12"/>` +
+    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 6, 7, 16) +
+    `<text class="k-text" x="34" y="19.5" font-family="${SANS}" font-size="13.5" font-weight="600">${xml(title)}</text>` +
+    (detail ? `<text class="k-muted" x="${(34 + titleW + 12).toFixed(1)}" y="19" font-family="${MONO}" font-size="11.5" xml:space="preserve">${xml(detail)}</text>` : '') +
+    meter +
+    pill +
     time
   return {
     source: `<svg xmlns="http://www.w3.org/2000/svg" width="${STEP_W}" height="${STEP_H}" viewBox="0 0 ${STEP_W} ${STEP_H}"><style>${CHAT_CSS}${CHAT_MOTION}</style>${body}</svg>`,

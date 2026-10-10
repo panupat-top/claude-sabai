@@ -42,11 +42,14 @@ The newest running agents get a card (up to six, fewer when their drawings would
 
 **In the conversation**
 
-- **Tool summaries:** each Edit, Write, Read and Bash call is drawn as a step, in place of its folded row:
+- **Tool summaries:** each Edit, Write, Read and Bash call is drawn as a one-line step, in place of its folded row:
   - an icon in a soft circle;
   - a title saying what it was about (`Run the mod's test suite`, `Edited svg.ts`);
-  - a detail saying what it did (the command, or the file's path);
-  - the result and time at the right (`✓ done · 2.3s`, `✗ failed`, `+12 −3`, `lines 1–20 of 131`).
+  - what it did, dimmed (the command, or the file's path);
+  - at the right:
+    - a small meter (added against removed lines, passed against failed tests);
+    - the result in a tinted pill (`✓ done`, `✗ exit 1`, `+12 −3`, `lines 1–20`);
+    - the time, with ⚡ under a second and 🐢 past thirty.
 - **Tool output:** what a call holds, under its step, without opening anything:
   - a command's last six lines, with a count of the rest;
   - an edit's diff (up to twelve lines);

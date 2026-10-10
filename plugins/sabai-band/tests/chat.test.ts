@@ -66,7 +66,7 @@ test('output is cleaned of terminal colour codes and carriage-return redraws', (
 
 test('Bash output shows its last lines, counting the rest; an empty run shows nothing', () => {
   const out = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`).join('\n') + '\n\n'
-  expect(outputOf('Bash', { stdout: out, stderr: '' })).toEqual({ source: 'line 5\nline 6\nline 7\nline 8\nline 9\nline 10', more: 4 })
+  expect(outputOf('Bash', { stdout: out, stderr: '' })).toEqual({ source: 'line 6\nline 7\nline 8\nline 9\nline 10', more: 5 })
   expect(outputOf('Bash', 'Exit code 1\nboom')).toEqual({ source: 'Exit code 1\nboom', more: 0 })
   expect(outputOf('Bash', { stdout: '', stderr: '  \n' })).toBeUndefined()
 })
@@ -80,7 +80,7 @@ test('an edit shows its diff as unified hunks, cut whole and re-counted when lon
 })
 
 test('a new file shows its first lines, highlighted by its path', () => {
-  expect(outputOf('Write', { type: 'create', filePath: 'x.py', content: 'a\nb\nc\nd\ne\nf\ng\nh\n', structuredPatch: [] })).toEqual({ source: 'a\nb\nc\nd\ne\nf', path: 'x.py', more: 2 })
+  expect(outputOf('Write', { type: 'create', filePath: 'x.py', content: 'a\nb\nc\nd\ne\nf\ng\nh\n', structuredPatch: [] })).toEqual({ source: 'a\nb\nc\nd\ne', path: 'x.py', more: 3 })
   expect(outputOf('Read', { type: 'text', file: {} })).toBeUndefined()
 })
 
@@ -90,11 +90,13 @@ const call = (tool: string, input: Record<string, unknown>, output: unknown, mor
 test('a command is a step titled by what it was for, with the command as its detail', () => {
   const s = call('Bash', { command: 'npm run build\nnpm test', description: 'build the app' }, { stdout: '', stderr: '' }, { durationMs: 4210 })
   expect(s).toEqual({ icon: 'terminal', tone: 'ok', title: 'Build the app', detail: '$ npm run build', time: '4.2s', result: [{ text: '✓ done', tone: 'ok' }] })
+  expect(call('Bash', { command: 'x' }, {}, { durationMs: 300 })?.time).toBe('⚡ 0.3s')
+  expect(call('Bash', { command: 'x' }, {}, { durationMs: 45_000 })?.time).toBe('🐢 45s')
   expect(call('Bash', { command: 'ls -la' }, {})?.title).toBe('Ls -la')
 })
 
 test('a command ends failed, interrupted, in the background, or still running', () => {
-  expect(stepText(call('Bash', { command: 'false', description: 'fail' }, 'Exit code 1', { isErrored: true, durationMs: 400 })!)).toBe('Fail · ✗ failed · 0.4s')
+  expect(stepText(call('Bash', { command: 'false', description: 'fail' }, 'Exit code 1', { isErrored: true, durationMs: 400 })!)).toBe('Fail · ✗ exit 1 · ⚡ 0.4s')
   expect(call('Bash', { command: 'x' }, {}, { isInterrupted: true })).toMatchObject({ icon: 'stop', result: [{ text: 'interrupted' }] })
   expect(call('Bash', { command: 'dev' }, { backgroundTaskId: 'b1' })).toMatchObject({ result: [{ text: 'in the background' }], quiet: true })
   const running = call('Bash', { command: 'sleep 9' }, undefined, { isRunning: true, durationMs: 100 })
@@ -109,18 +111,24 @@ test('a test run is a flask step with its counts; passing, its output is not rep
   expect(fail).toMatchObject({ icon: 'flask', tone: 'bad', result: [{ text: '✗ 1 of 9 failed', tone: 'bad' }] })
   expect(fail?.quiet).toBeUndefined()
   const later = call('Bash', { command: 'bun test && tsc' }, 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS1', { isErrored: true })
-  expect(later?.result).toEqual([{ text: '✗ failed', tone: 'bad' }])
+  expect(later?.result).toEqual([{ text: '✗ exit 2', tone: 'bad' }])
   expect(call('Bash', { command: 'bun test' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' }, { tests: false })?.icon).toBe('terminal')
 })
 
 test('edits, writes and reads are steps named by their file, with the path as the detail', () => {
   const patch = [{ lines: [' a', '-b', '+c', '+d'] }, { lines: ['+e'] }]
   expect(call('Edit', { file_path: '/repo/plugins/x/hooks/svg.ts' }, { structuredPatch: patch })).toEqual({
-    icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/x/hooks/svg.ts', result: [{ text: '+3', tone: 'ok' }, { text: ' −1', tone: 'bad' }],
+    icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/x/hooks/svg.ts', result: [{ text: '+3', tone: 'ok' }, { text: ' −1', tone: 'bad' }], meter: { good: 3, bad: 1 },
   })
   expect(call('Edit', { file_path: 'a.ts' }, { structuredPatch: [{ lines: [' same'] }] })?.result).toEqual([{ text: 'no change', tone: 'muted' }])
   expect(call('Write', { file_path: 'docs/new.md' }, { type: 'create', content: 'a\nb\n' })).toMatchObject({ icon: 'file', title: 'Created new.md', result: [{ text: 'new · 2 lines' }] })
   expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 20, totalLines: 131 } })).toMatchObject({ title: 'Read README.md', result: [{ text: 'lines 1–20 of 131' }], quiet: true })
   expect(call('Read', { file_path: 'README.md' }, { type: 'text', file: { startLine: 1, numLines: 131, totalLines: 131 } })?.result).toEqual([{ text: '131 lines', tone: 'muted' }])
   expect(call('Grep', { pattern: 'x' }, {})).toBeUndefined()
+})
+
+test('a test run carries a pass/fail meter; an edit read from its input counts its lines', () => {
+  expect(call('Bash', { command: 'bun test' }, 'Exit code 1\n 8 pass\n 2 fail\nRan 10 tests across 1 files.', { isErrored: true })?.meter).toEqual({ good: 8, bad: 2 })
+  expect(call('Edit', { file_path: 'a.ts', old_string: 'a\nb', new_string: 'c' }, undefined)).toMatchObject({ result: [{ text: '+1' }, { text: ' −2' }], meter: { good: 1, bad: 2 } })
+  expect(outputOf('Edit', undefined, { old_string: '', new_string: 'x' })).toEqual({ source: '+x', language: 'diff', more: 0 })
 })

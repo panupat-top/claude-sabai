@@ -673,15 +673,15 @@ export const register: Register = on => {
     const durationMs = p.tool === 'Bash' ? (await read($, durations))[p.tool_use_id] : undefined
     const step = stepOf({ ...p, ...(durationMs === undefined ? {} : { durationMs }), tests: chat.tests })
     if (!step) return next(e)
-    const held = chat.output && !step.quiet && !p.isRunning ? outputOf(p.tool, p.output) : undefined
+    const held = chat.output && !step.quiet && !p.isRunning ? outputOf(p.tool, p.output, p.input) : undefined
     const { Box, Code, Text } = $.ui.resolve(e)
     const shown = chat.tools ? stepView($, e, step) : await next(e)
     if (!held) return chat.tools ? shown : next(e)
     return (
       <Box flexDirection="column" rowGap={0}>
         {shown}
-        <Box paddingLeft={chat.tools ? 6 : 0} flexDirection="column">
-          <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.path ? { path: held.path } : {})} />
+        <Box paddingLeft={chat.tools ? 4 : 0} flexDirection="column">
+          <Code source={held.source} {...(held.format ? { format: held.format } : {})} {...(held.language ? { language: held.language } : {})} {...(held.path ? { path: held.path } : {})} />
           {held.more ? <Text dimColor>{`… ${held.more} more line${held.more === 1 ? '' : 's'}`}</Text> : null}
         </Box>
       </Box>

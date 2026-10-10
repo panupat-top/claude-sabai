@@ -12,6 +12,8 @@ export type Step = {
   title: string
   detail: string
   result: Part[]
+  // A five-cell meter beside the result: added against removed lines, passed against failed tests.
+  meter?: { good: number; bad: number }
   time?: string
   // Its output would only repeat the result (a passing test run) or does not exist yet.
   quiet?: boolean
@@ -138,8 +140,8 @@ export const isGenericWord = (word: string) => word.trim() === '' || word.trim()
 
 // What a tool row holds, drawn under it so it need not be opened: a command's last lines, an
 // edit's diff, a new file's first lines.
-export type Output = { source: string; format?: 'diff'; path?: string; more: number }
-const OUTPUT_LINES = 6
+export type Output = { source: string; format?: 'diff'; language?: string; path?: string; more: number }
+const OUTPUT_LINES = 5
 const DIFF_LINES = 12
 
 // Text a Code element can draw: no colour codes, no carriage-return redraws, no control characters.
@@ -180,7 +182,23 @@ function diff(patch: Hunk[], path?: string): Output | undefined {
   return { source: out.join('\n'), format: 'diff', ...(path ? { path } : {}), more: total - used }
 }
 
-export function outputOf(tool: string, output: unknown): Output | undefined {
+// What an edit or a write said it would do, when the row carries no result of its own (the
+// desktop keeps a standalone row's result apart).
+function fromInput(tool: string, input: unknown): Output | undefined {
+  const i = (input ?? {}) as { old_string?: string; new_string?: string; content?: string; file_path?: string }
+  if (tool === 'Edit' && i.new_string !== undefined) {
+    const all = [...(i.old_string ? lines(i.old_string).map(l => `-${l}`) : []), ...lines(i.new_string).map(l => `+${l}`)]
+    return { source: all.slice(0, DIFF_LINES).join('\n'), language: 'diff', more: Math.max(0, all.length - DIFF_LINES) }
+  }
+  if (tool === 'Write' && i.content !== undefined) {
+    const all = lines(i.content)
+    return { source: all.slice(0, OUTPUT_LINES).join('\n'), ...(i.file_path ? { path: i.file_path } : {}), more: Math.max(0, all.length - OUTPUT_LINES) }
+  }
+  return undefined
+}
+
+export function outputOf(tool: string, output: unknown, input?: unknown): Output | undefined {
+  if ((tool === 'Edit' || tool === 'Write') && (output === undefined || output === null || typeof output === 'string')) return fromInput(tool, input)
   if (tool === 'Bash') {
     if (typeof output === 'string') return tail(output)
     const o = output as { stdout?: string; stderr?: string } | undefined
@@ -220,9 +238,10 @@ function changes(patch: Hunk2[]): Part[] {
 
 // The step a tool row shows, or nothing for a tool it does not know.
 export function stepOf(c: Call): Step | undefined {
-  const input = (c.input ?? {}) as { command?: string; description?: string; file_path?: string }
+  const input = (c.input ?? {}) as { command?: string; description?: string; file_path?: string; old_string?: string; new_string?: string; content?: string; offset?: number; limit?: number }
   const out = c.output as { stdout?: string; stderr?: string; backgroundTaskId?: string; type?: string; content?: string; structuredPatch?: Hunk2[]; file?: { startLine?: number; numLines?: number; totalLines?: number } } | undefined
-  const time = c.isRunning || c.durationMs === undefined ? undefined : seconds(c.durationMs)
+  // A quick run earns a spark, a slow one a tortoise.
+  const time = c.isRunning || c.durationMs === undefined ? undefined : `${c.durationMs < 1000 ? '⚡ ' : c.durationMs >= 30_000 ? '🐢 ' : ''}${seconds(c.durationMs)}`
   if (c.tool === 'Bash') {
     const command = firstLine(input.command ?? '')
     const title = sentence(input.description?.trim() || command)
@@ -234,12 +253,14 @@ export function stepOf(c: Call): Step | undefined {
     if (c.isRunning) return { ...base, tone: 'muted', result: [{ text: 'running…', tone: 'muted' }], quiet: true }
     if (c.isInterrupted) return { ...base, icon: 'stop', tone: 'muted', result: [{ text: 'interrupted', tone: 'muted' }] }
     if (out?.backgroundTaskId) return { ...base, tone: 'muted', result: [{ text: 'in the background', tone: 'muted' }], quiet: true }
+    const meter = tests ? { good: tests.passed, bad: tests.failed } : undefined
     if (tests && tests.failed > 0)
-      return { ...base, tone: 'bad', result: [{ text: `✗ ${tests.failed} of ${tests.passed + tests.failed} failed`, tone: 'bad' }] }
-    if (c.isErrored) return { ...base, tone: 'bad', result: [{ text: '✗ failed', tone: 'bad' }] }
+      return { ...base, tone: 'bad', result: [{ text: `✗ ${tests.failed} of ${tests.passed + tests.failed} failed`, tone: 'bad' }], meter }
+    const exit = typeof c.output === 'string' ? c.output.match(/^Exit code (\d+)/)?.[1] : undefined
+    if (c.isErrored) return { ...base, tone: 'bad', result: [{ text: exit ? `✗ exit ${exit}` : '✗ failed', tone: 'bad' }] }
     if (tests) {
       const skipped: Part[] = tests.skipped ? [{ text: ` · ${tests.skipped} skipped`, tone: 'muted' }] : []
-      return { ...base, tone: 'ok', result: [{ text: `✓ ${tests.passed} passed`, tone: 'ok' }, ...skipped], quiet: true }
+      return { ...base, tone: 'ok', result: [{ text: `✓ ${tests.passed} passed`, tone: 'ok' }, ...skipped], meter, quiet: true }
     }
     return { ...base, tone: 'ok', result: [{ text: '✓ done', tone: 'ok' }] }
   }
@@ -247,21 +268,29 @@ export function stepOf(c: Call): Step | undefined {
   if (!path) return undefined
   const where = { detail: shortPath(path), ...(time ? { time } : {}) }
   const running: Part[] = [{ text: 'working…', tone: 'muted' }]
-  if (c.tool === 'Edit')
-    return { icon: 'pen', tone: 'edit', title: `Edited ${basename(path)}`, ...where, result: c.isRunning || !out?.structuredPatch ? running : changes(out.structuredPatch), ...(c.isRunning ? { quiet: true } : {}) }
+  const counted = (n: number) => `${n} line${n === 1 ? '' : 's'}`
+  if (c.tool === 'Edit') {
+    if (c.isRunning) return { icon: 'pen', tone: 'edit', title: `Editing ${basename(path)}`, ...where, result: running, quiet: true }
+    const patch = out?.structuredPatch ?? (input.new_string !== undefined ? [{ lines: [...(input.old_string ? lines(input.old_string).map(l => `-${l}`) : []), ...lines(input.new_string).map(l => `+${l}`)] }] : undefined)
+    const result = patch ? changes(patch) : []
+    const all = (patch ?? []).flatMap(h => h.lines)
+    const meter = { good: all.filter(l => l.startsWith('+')).length, bad: all.filter(l => l.startsWith('-')).length }
+    return { icon: 'pen', tone: 'edit', title: `Edited ${basename(path)}`, ...where, result, ...(meter.good + meter.bad ? { meter } : {}) }
+  }
   if (c.tool === 'Write') {
-    if (out?.type === 'create') {
-      const n = lines(out.content ?? '').length
-      return { icon: 'file', tone: 'ok', title: `Created ${basename(path)}`, ...where, result: [{ text: `new · ${n} line${n === 1 ? '' : 's'}`, tone: 'ok' }] }
-    }
-    return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: out?.structuredPatch ? changes(out.structuredPatch) : running, ...(c.isRunning ? { quiet: true } : {}) }
+    if (c.isRunning) return { icon: 'file', tone: 'edit', title: `Writing ${basename(path)}`, ...where, result: running, quiet: true }
+    if (out?.type === 'create')
+      return { icon: 'file', tone: 'ok', title: `Created ${basename(path)}`, ...where, result: [{ text: `new · ${counted(lines(out.content ?? '').length)}`, tone: 'ok' }] }
+    if (out?.structuredPatch) return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: changes(out.structuredPatch) }
+    return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: input.content === undefined ? [] : [{ text: counted(lines(input.content).length), tone: 'edit' }] }
   }
   if (c.tool === 'Read') {
     const f = out?.type === 'text' ? out.file : undefined
     const total = f?.totalLines ?? 0
     const start = f?.startLine ?? 1
     const n = f?.numLines ?? 0
-    const range = !f || total === 0 ? '' : start <= 1 && n >= total ? `${total} lines` : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
+    const asked = input.limit ? `lines ${input.offset ?? 1}–${(input.offset ?? 1) + input.limit - 1}` : 'whole file'
+    const range = !f || total === 0 ? asked : start <= 1 && n >= total ? `${total} lines` : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
     return { icon: 'read', tone: 'read', title: `Read ${basename(path)}`, ...where, result: range ? [{ text: range, tone: 'muted' }] : [], quiet: true }
   }
   return undefined

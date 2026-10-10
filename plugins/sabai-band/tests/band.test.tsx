@@ -898,7 +898,7 @@ test('Edit, Write and Read rows gain their summary on both surfaces', async ($, 
   for (const { want, ...props } of rows) {
     const desk = await mountTool($, 'desktop', props)
     const svg = (await desk.findAll({ type: 'Svg' }))[0]
-    expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(' · '), 600, 46])
+    expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(' · '), 640, 30])
     const term = await mountTool($, 'terminal', props)
     for (const w of want) expect(await lineWords(term, 'terminal')).toContain(w)
   }
@@ -918,7 +918,7 @@ test('with Test results off, a test run is a plain failed Bash line', async ($, 
   engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: false, callouts: true, label: true } } } })
   await start($)
   const ui = await mountTool($, 'desktop', TEST_ROW)
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test · ✗ failed'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test · ✗ exit 1'])
 })
 
 test('with Tool summaries off, the engine’s row stays and its output still shows under it', async ($, on) => {
@@ -1013,7 +1013,7 @@ test('a run whose tests all passed but whose command failed says it failed', asy
   engine(on)
   await start($)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'bt', tool: 'Bash', input: { command: 'bun test && tsc' }, isErrored: true, output: 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS2304' })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test && tsc · ✗ failed'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test && tsc · ✗ exit 2'])
 })
 
 test('a backgrounded Bash call says so, with no time and no output, though its tool.call resolved', async ($, on) => {
@@ -1025,7 +1025,7 @@ test('a backgrounded Bash call says so, with no time and no output, though its t
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'npm run dev', description: '', tool_use_id: 'bg' } as Parameters<typeof $.tool.call>[0])
   const ui = await mountTool($, 'desktop', { tool_use_id: 'bg', tool: 'Bash', input: { command: 'npm run dev' }, output: { stdout: 'ready', stderr: '', interrupted: false, backgroundTaskId: 'b1' } })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Npm run dev · in the background · 2m 0s'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Npm run dev · in the background · 🐢 2m 0s'])
   expect(await ui.findAll({ type: 'Code' })).toEqual([])
 })
 
@@ -1046,11 +1046,11 @@ test('a Bash call that waited on a permission prompt shows no time', async ($, o
 test('a tool row shows what it holds without being opened: a command’s last lines, an edit’s diff', async ($, on) => {
   engine(on)
   await start($)
-  const out = Array.from({ length: 9 }, (_, i) => `step ${i + 1}`).join('\n')
+  const out = Array.from({ length: 8 }, (_, i) => `step ${i + 1}`).join('\n')
   for (const surface of SURFACES) {
     const bash = await mountTool($, surface, { tool_use_id: `o-${surface}`, tool: 'Bash', input: { command: 'make' }, output: { stdout: out, stderr: '', interrupted: false } })
     const code = (await bash.findAll({ type: 'Code' }))[0]
-    expect([surface, code?.props.source]).toEqual([surface, 'step 4\nstep 5\nstep 6\nstep 7\nstep 8\nstep 9'])
+    expect([surface, code?.props.source]).toEqual([surface, 'step 4\nstep 5\nstep 6\nstep 7\nstep 8'])
     expect((await bash.findAll({ type: 'Text' })).map(t => t.text).join(' ')).toContain('… 3 more lines')
   }
   const edit = await mountTool($, 'desktop', { tool_use_id: 'od', tool: 'Edit', input: { file_path: 'a.ts' }, output: { filePath: 'a.ts', structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-a', '+b'] }] } })
@@ -1082,4 +1082,16 @@ test('with Tool output on, grouped reads unfold into their own rows; off, the gr
   expect([seen[0], seen.at(-1)]).toEqual([true, false])
   const bash = await mountTool($, 'desktop', { tool_use_id: 'off', tool: 'Bash', input: { command: 'make' }, output: { stdout: 'x', stderr: '', interrupted: false } })
   expect(await bash.findAll({ type: 'Code' })).toEqual([])
+})
+
+test('an edit or a write whose row carries no result is read from what was asked of it', async ($, on) => {
+  engine(on)
+  await start($)
+  const edit = await mountTool($, 'desktop', { tool_use_id: 'ni', tool: 'Edit', input: { file_path: 'a.ts', old_string: 'old', new_string: 'new\nmore' } })
+  expect((await edit.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Edited a.ts · +2 −1'])
+  expect((await edit.findAll({ type: 'Code' })).map(c => [c.props.language, c.props.source])).toEqual([['diff', '-old\n+new\n+more']])
+  const write = await mountTool($, 'desktop', { tool_use_id: 'nw', tool: 'Write', input: { file_path: 'n.md', content: 'a\nb\n' } })
+  expect((await write.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Wrote n.md · 2 lines'])
+  const read = await mountTool($, 'desktop', { tool_use_id: 'nr', tool: 'Read', input: { file_path: 'r.md', offset: 10, limit: 5 } })
+  expect((await read.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Read r.md · lines 10–14'])
 })
