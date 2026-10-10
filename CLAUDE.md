@@ -34,9 +34,11 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, u
 
 ## Engine constraints that shape the code
 
+- A render tree (a band or a pane) must stay under 100,000 characters serialized, or nothing of it is drawn ("Nothing to show yet" in a pane). A Clawd sprite alone is ~14k.
+
 - `$` cannot be passed across an import: any helper taking `$` must be declared in `register.tsx` itself.
 - The terminal's element table lists `Svg` but cannot draw it — branch on `e.surface !== 'terminal'`, not on `'Svg' in ui`.
-- The desktop draws an `Svg` as an image and wraps sibling elements onto new lines, so each site is a single SVG. With no `width` prop the surface scales a wider markup down to the slot (never up), hence drawing at `bodyColumns × 8.25`. Svg width/height must be 1–4096 px; clip-path ids must be unique (`sabai-band-*`).
+- The desktop draws an `Svg` as an image and wraps sibling elements onto new lines, so each site is a single SVG. With no `width` prop the surface scales a wider markup down to the slot (never up), hence drawing at `bodyColumns × 8.25`. Svg width/height must be 1–4096 px and its source ≤ 131,072 characters; clip-path ids must be unique (`sabai-band-*`).
 - `session.measure` only fires on the next API response, so `session.start` reads `$.session.usage()` itself.
 - Work started from a button press is cancelled when the press ends; run it via `$.clock.after`.
 - In the desktop Code tab `$.ui.status` is not shown and `/config` is unavailable, so settings are slash commands.

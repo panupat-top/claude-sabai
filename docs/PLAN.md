@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-10): Phase 3 — C2 agents panel เสร็จ (`sabai-band` 0.3.0)
+> สถานะ (2026-10-10): Phase 3 — C2 agents panel + skins panel เสร็จ (`sabai-band` 0.4.0)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -16,7 +16,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | Usage | การ์ด Context `434.5k / 1M (43%)` · 5H Limit · 7D All พร้อม `↻` countdown · เตือน 70% / แดง 90% | engine อย่างเดียว (`session.usage`, `session.measure`) · ยังไม่มีค่า = ซ่อน |
 
 - **Agents panel (C2):** `/sabai-agents` เปิด/ปิด pane · การ์ดต่อ subagent: Clawd (เดินเมื่อทำงาน), ชื่องาน, ชนิด agent, model, จำนวนรอบเรียก model, context, เวลา · กลุ่ม RUNNING / DONE (จางลง, ✗ เมื่อล้มเหลว) · เก็บ 40 รายการล่าสุด · ข้อมูลจาก `agent.spawn`, `turn.step`, `turn.complete` · นาฬิกานับทุกวินาทีเฉพาะตอนมี agent ทำงาน · ใช้ skin เดียวกับ band
-- **Skin:** `/sabai-skin [name]` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนพื้นหลัง band, การ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`)
+- **Skin:** `/sabai-skin` เปิด/ปิด pane เลือก skin (ชื่อ skin ชิดซ้าย ปุ่ม Use ชิดขวา + ตัวอย่างสีของ skin นั้น, กดแล้วเปลี่ยนทันที) · `/sabai-skin <name>` — `auto` (ตาม OS) + Catppuccin Latte / Frappé / Macchiato / Mocha, Dracula, Tokyo Night, Nord, Gruvbox Dark, Rosé Pine · จำใน `$.store` · เปลี่ยนพื้นหลัง band, การ์ด, ชิป, ราง bar, ตัวอักษร, สี meter, เตือน/แดง, progress bar, pill, Clawd และสีใน terminal · สีตัวอักษรที่ไม่ถึง 4.5:1 ถูกปรับเฉด (`readable`)
 - **รอบการอ่าน:** countdown และ branch ทุก 30 วิ · `git status` + ahead/behind เฉพาะตอนเริ่ม session, จบ turn และเมื่อ branch เปลี่ยน
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 

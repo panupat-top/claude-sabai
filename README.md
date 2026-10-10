@@ -18,7 +18,7 @@ A card per subagent: Clawd, the task, the agent type, model, number of model req
 
 **Skins**
 
-Ten looks for the band and the panel: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`.
+Ten looks for the band and the panels, picked from a panel of previews (`/sabai-skin`): `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`.
 
 ## Requirements
 
@@ -47,7 +47,7 @@ claude plugin install sabai-band@claude-sabai
 
 | Command | What it does |
 |---|---|
-| `/sabai-skin` | Shows the current skin and lists all of them. |
+| `/sabai-skin` | Opens the skins panel, or hides it if it is open: every skin with a swatch in its colours. Press **Use** to switch. |
 | `/sabai-skin <name>` | Switches skin. Names are forgiving: `mocha`, `Catppuccin Mocha`, `TokyoNight` and `Frappé` all work. Your choice is remembered across sessions. |
 | `/sabai-agents` | Shows the agents panel, or hides it if it is open. |
 

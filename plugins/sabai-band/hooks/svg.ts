@@ -266,6 +266,44 @@ export function bandSvg(
   return framed(look, W, y - GAP, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
 }
 
+// The skin picker's swatch: a strip of the skin's background with its text colours (`Aa`) and,
+// on its card colour, the four accents as segmented bars. Kept small, since a pane's whole tree
+// must stay under 100,000 characters: only the skin in use carries Clawd (~14k), walking.
+const SWATCH_H = 32
+const SWATCH_TOP = 8
+const SEGMENTS = 6
+const SAMPLE_FILL: Record<MeterKind | 'tasks', number> = { tasks: 5, context: 3, session: 2, week: 4 }
+
+export function skinPreview(skin: string, W: number, inUse = false): Drawing {
+  const look = lookOf(skin)
+  const w = Math.max(200, W)
+  const clawd = spriteSize('tasks')
+  const textX = PAD + (inUse ? clawd.width + 8 : 0)
+  const cardX = textX + 52
+  const cardW = w - cardX - 6
+  const kinds = Object.keys(SAMPLE_FILL) as (MeterKind | 'tasks')[]
+  const barW = (cardW - PAD * 2 - GAP * (kinds.length - 1)) / kinds.length
+  const segW = barW / SEGMENTS
+  const bars = kinds
+    .map((kind, i) =>
+      Array.from({ length: SEGMENTS }, (_, j) => {
+        const x = (cardX + PAD + i * (barW + GAP) + j * segW).toFixed(1)
+        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind, 0)}"` : 'class="k"'
+        return `<rect ${paint} x="${x}" y="${SWATCH_H / 2 - 3}" width="${(segW - 2).toFixed(1)}" height="6" rx="1"/>`
+      }).join(''),
+    )
+    .join('')
+  const body =
+    (look.base ? `<rect width="${w}" height="${SWATCH_H}" rx="8" fill="${look.base}"/>` : `<rect class="p" width="${w}" height="${SWATCH_H}" rx="8"/>`) +
+    (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
+    `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
+    (look.base ? `<rect class="p" x="${cardX}" y="6" width="${cardW}" height="${SWATCH_H - 12}" rx="6"/>` : '') +
+    bars
+  // The pane has no spacing finer than a row, so the gap under the name row is drawn here.
+  const h = SWATCH_TOP + SWATCH_H
+  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`), width: w, height: h, alt: `${THEMES[skin]?.name ?? 'Auto'} skin colours` }
+}
+
 // A drawing of `inner` height: a skin with a background draws it behind, inset by BG_PAD.
 function framed(look: Look, W: number, inner: number, body: string, alt: string): Drawing {
   const pad = look.base ? BG_PAD : 0

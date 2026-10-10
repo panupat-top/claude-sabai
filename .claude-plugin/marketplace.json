@@ -12,7 +12,7 @@
       "name": "sabai-band",
       "source": "./plugins/sabai-band",
       "description": "Mod: pixel-art band above the prompt (info row, task progress, context, 5H and 7D) and an agents panel, in ten skins.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "category": "mod"
     }
   ]

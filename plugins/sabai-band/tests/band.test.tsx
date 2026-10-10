@@ -201,11 +201,10 @@ test('TodoWrite drives the progress row too', async ($, on) => {
 const skinCommand = ($: Engine, args: string) =>
   $.command.run({ command: 'sabai-skin', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
-test('/sabai-skin lists the skins, switches by any spelling, and remembers the choice', async ($, on) => {
+test('/sabai-skin switches by any spelling, and remembers the choice', async ($, on) => {
   const { store } = engine(on)
   await start($)
-  expect((await skinCommand($, '')).text).toMatch(/^Skin: auto\. Available: auto, catppuccin-latte \(Catppuccin Latte\),/)
-  expect((await skinCommand($, 'solarized')).text).toMatch(/^No skin called "solarized"/)
+  expect((await skinCommand($, 'solarized')).text).toMatch(/^No skin called "solarized"\. Available: auto, catppuccin-latte \(Catppuccin Latte\),/)
   expect((await skinCommand($, 'TokyoNight')).text).toBe('Skin set to Tokyo Night.')
   const ui = await mountBand($, 'desktop')
   const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
@@ -238,10 +237,13 @@ test('a saved skin comes back with the next session', async ($, on) => {
 })
 
 // The agents pane, opened and closed through the engine's own ui noun.
+const opened: { id: string; focus?: true; closeOnEscape?: true }[] = []
+
 function panes(on: On) {
   const open = new Set<string>()
   on('ui.panes', () => ({ value: [...open].map(id => ({ id, title: 'Agents', isShown: true, isFocused: false, isPlaced: true })) }))
   on('ui.open', ($, e) => {
+    opened.push(e)
     open.add(e.id)
     return { value: { isPlaced: true } }
   })
@@ -268,12 +270,12 @@ const spawn = ($: Engine, description: string) =>
     fork: false,
   })
 
-const mountPane = ($: Engine, surface: Surface) =>
+const mountPane = ($: Engine, surface: Surface, requestId = 'sabai-agents') =>
   $.ui.mount({
     plugin: 'sabai-band',
     surface,
     component: 'Pane',
-    requestId: 'sabai-agents',
+    requestId,
     viewport: { columns: 120, rows: 30 },
     props: { title: 'Agents', isFocused: false, bodyColumns: 40, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
   })
@@ -315,4 +317,41 @@ test('an empty panel says there is nothing yet', async ($, on) => {
   await start($)
   const ui = await mountPane($, 'terminal')
   expect(await ui.find({ type: 'Text', text: /No subagents yet/ })).toBeDefined()
+})
+
+test('/sabai-skin alone opens the skins panel and closes it again', async ($, on) => {
+  engine(on)
+  const open = panes(on)
+  await start($)
+  expect((await skinCommand($, '')).text).toBe('Skins panel opened.')
+  expect([...open]).toEqual(['sabai-skins'])
+  expect(opened.at(-1)).toMatchObject({ id: 'sabai-skins', focus: true, closeOnEscape: true })
+  expect((await skinCommand($, '')).text).toBe('Skins panel closed.')
+  expect([...open]).toEqual([])
+})
+
+test('the skins panel previews every skin and a press switches to it', async ($, on) => {
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await mountPane($, surface, 'sabai-skins')
+    const buttons = await ui.findAll({ type: 'Button' })
+    expect(buttons).toHaveLength(9)
+    expect(buttons.every(b => b.text === 'Use')).toBe(true)
+    expect((await ui.find({ text: '✓ In use' })) !== undefined).toBe(true)
+    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 : 0)
+    // The engine draws nothing of a tree past 100,000 characters.
+    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+    await ui.unmount()
+  }
+  const ui = await mountPane($, 'desktop', 'sabai-skins')
+  await ui.press({ key: 'use-dracula' })
+  expect(store.skin).toBe('dracula')
+  expect(await ui.find({ key: 'use-dracula' })).toBeUndefined()
+  expect(await ui.find({ key: 'use-auto' })).toBeDefined()
+  const previews = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
+  const dracula = previews.find(p => p.props.alt === 'Dracula skin colours')
+  expect(dracula?.props.source).toContain('fill="#282a36"')
+  expect(dracula?.props.source).toContain('class="run"')
 })

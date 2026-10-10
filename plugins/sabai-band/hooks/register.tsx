@@ -4,8 +4,8 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, Env, Task, Usage } from '../types'
 import { clock, elapsed, finished, groups, modelName, spawned, stepped } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { agentsSvg, bandSvg, lookOf } from './svg'
-import { SKINS, THEMES, pickSkin } from './themes'
+import { agentsSvg, bandSvg, lookOf, skinPreview } from './svg'
+import { SKINS, THEMES, contrast, pickSkin } from './themes'
 
 const usage = atom({ plugin: 'sabai-band', key: 'usage' } as const, null as Usage | null)
 const tasks = atom({ plugin: 'sabai-band', key: 'tasks' } as const, [] as Task[])
@@ -15,6 +15,7 @@ const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as AgentRun[])
 
 const PANE = 'sabai-agents'
+const SKIN_PANE = 'sabai-skins'
 
 const TICK_MS = 30_000
 // The terminal's stand-ins for the desktop's marks.
@@ -57,6 +58,23 @@ async function checkBranch($: EngineInterface) {
 async function tick($: EngineInterface) {
   const t = await $.clock.now()
   await update($, now, () => t)
+}
+
+// Opens a pane, or closes it when it is open already; true when it opened.
+// `focus` lets the pane take the keyboard, so the first click on one of its buttons presses it
+// rather than only focusing the pane; Escape then closes it.
+async function togglePane($: EngineInterface, id: string, title: string, focus = false): Promise<boolean> {
+  if ((await $.ui.panes()).some(p => p.id === id)) {
+    await $.ui.close({ id })
+    return false
+  }
+  await $.ui.open(focus ? { id, title, focus: true, closeOnEscape: true } : { id, title })
+  return true
+}
+
+async function setSkin($: EngineInterface, name: string) {
+  await update($, skin, () => name)
+  await $.store.set('skin', name)
 }
 
 export const register: Register = on => {
@@ -136,13 +154,8 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sabai-agents' }, async $ => {
-    if ((await $.ui.panes()).some(p => p.id === PANE)) {
-      await $.ui.close({ id: PANE })
-      return { text: 'Agents panel closed.' }
-    }
     await tick($)
-    await $.ui.open({ id: PANE, title: 'Agents' })
-    return { text: 'Agents panel opened.' }
+    return { text: (await togglePane($, PANE, 'Agents')) ? 'Agents panel opened.' : 'Agents panel closed.' }
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
@@ -204,13 +217,61 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sabai-skin' }, async ($, e) => {
-    const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
-    if (!e.args.trim()) return { text: `Skin: ${await read($, skin)}. Available: ${names}. Use /sabai-skin <name>.` }
+    if (!e.args.trim()) return { text: (await togglePane($, SKIN_PANE, 'Skins', true)) ? 'Skins panel opened.' : 'Skins panel closed.' }
     const picked = pickSkin(e.args)
-    if (!picked) return { text: `No skin called "${e.args.trim()}". Available: ${names}.` }
-    await update($, skin, () => picked)
-    await $.store.set('skin', picked)
+    if (!picked) {
+      const names = SKINS.map(k => `${k}${THEMES[k] ? ` (${THEMES[k].name})` : ''}`).join(', ')
+      return { text: `No skin called "${e.args.trim()}". Available: ${names}.` }
+    }
+    await setSkin($, picked)
     return { text: `Skin set to ${THEMES[picked]?.name ?? 'auto'}.` }
+  })
+
+  // Every skin: its name and tone on the left, Use on the right, its colours underneath.
+  on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e) => {
+    const current = await read($, skin)
+    const ui = $.ui.resolve(e)
+    const { Box, Button, Text } = ui
+    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    const W = Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25))
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Text dimColor>Choose how the band and panels look. Your choice is kept for new sessions. Esc closes.</Text>
+        {SKINS.map(k => {
+          const t = THEMES[k]
+          const look = lookOf(k)
+          const preview = Svg && skinPreview(k, W, k === current)
+          return (
+            <Box key={`row-${k}`} flexDirection="column">
+              <Box flexDirection="row" alignItems="center" columnGap={2}>
+                <Box flexGrow={1}>
+                  <Text wrap="truncate-end">
+                    <Text bold>{t?.name ?? 'Auto'}</Text>
+                    <Text dimColor>{`  ${t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'}`}</Text>
+                  </Text>
+                </Box>
+                {k === current ? (
+                  <Text color={look.clawd} bold>
+                    ✓ In use
+                  </Text>
+                ) : (
+                  <Button key={`use-${k}`} label="Use" variant="primary" onPress={() => setSkin($, k)} />
+                )}
+              </Box>
+              {Svg && preview ? (
+                <Svg source={preview.source} alt={preview.alt} />
+              ) : (
+                <Text>
+                  {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
+                    <Text key={kind} color={look.bar(kind, 0)}>{'▰▰▰ '}</Text>
+                  ))}
+                </Text>
+              )}
+            </Box>
+          )
+        })}
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
