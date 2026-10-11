@@ -823,6 +823,64 @@ test('the guard, once turned on, refuses a risky command and says why', async ($
   expect((await run('ls')).deny).toBeUndefined()
 })
 
+const guardOn = async ($: Engine) => {
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-guard' })
+  return pane
+}
+const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command, description: '' } as Parameters<typeof $.tool.call>[0])
+// The permission decision for a real Bash call: the guard's Ask answers here.
+let checks = 0
+const check = async ($: Engine, command: string) =>
+  (await $.tool.check({ tool: 'Bash', input: { command }, tool_use_id: `c${++checks}` } as never)) as { decision: string; reason?: string }
+const allowBeneath = (on: On) => on('tool.check', () => ({ decision: 'allow' as const }))
+
+test('each guard rule blocks, asks or passes as Settings say', async ($, on) => {
+  engine(on)
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  const pane = await guardOn($)
+  // Defaults: wipe and env block; force and discard ask.
+  expect((await bash($, 'rm -rf /')).deny).toMatch(/deletes the whole disk/)
+  expect((await bash($, 'git reset --hard')).deny).toBeUndefined()
+  expect(await check($, 'git reset --hard')).toEqual({ decision: 'ask', reason: expect.stringMatching(/throws away uncommitted work/) })
+  expect((await check($, 'rm -rf /')).decision).toBe('allow')
+  expect((await check($, 'ls')).decision).toBe('allow')
+  // Discard set to Block, wipe set to Off.
+  await pane.press({ key: 'guard-discard-block' })
+  await pane.press({ key: 'guard-wipe-off' })
+  expect((await bash($, 'git reset --hard')).deny).toMatch(/throws away uncommitted work/)
+  expect((await check($, 'git reset --hard')).decision).toBe('allow')
+  expect((await bash($, 'rm -rf /')).deny).toBeUndefined()
+})
+
+test('the band’s guard chip counts what the guard caught this session', async ($, on) => {
+  engine(on)
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await guardOn($)
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringMatching(/guard(?! ·)/)])
+  await bash($, 'rm -rf /')
+  await check($, 'git reset --hard')
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 2')])
+})
+
+test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true }, notify: true, limits: true, guard: true, steps: true, chat: { spinner: true, tools: true, tests: true, callouts: true } } } })
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  expect((await bash($, 'cat .env')).deny).toMatch(/reads a .env file/)
+  expect((await check($, 'git push -f origin main')).reason).toMatch(/force-pushes to main/)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const rule of ['wipe', 'force', 'env', 'discard']) expect([rule, await pane.find({ key: `guard-${rule}-ask` })]).not.toEqual([rule, undefined])
+})
+
 test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
   engine(on)
   panes(on)

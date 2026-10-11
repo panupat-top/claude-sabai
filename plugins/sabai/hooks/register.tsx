@@ -1,11 +1,11 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
+import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { STARTLE_MS, blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { failClosed, riskOf } from './guard'
+import { GUARD_FAILED, GUARD_RULES, failClosed, riskOf } from './guard'
 import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
@@ -20,6 +20,7 @@ const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
+const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
 const DEFAULT_PREFS: Prefs = {
   rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
   notify: true,
@@ -27,6 +28,7 @@ const DEFAULT_PREFS: Prefs = {
   guard: false,
   steps: true,
   chat: { spinner: true, tools: true, tests: true, callouts: true },
+  guardRules: DEFAULT_GUARD_RULES,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -37,9 +39,14 @@ const withDefaults = (v: unknown): Prefs => {
     ...p,
     rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
+    guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
+const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
+const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
+// What the guard refused or asked about this session; not stored.
+const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -186,12 +193,30 @@ async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
   await $.store.set('prefs', next)
 }
 
-// The guard's refusal for a call, told to the person too, or nothing when it passes or is off.
+// The guard's catch for a call under one action: the risk when the guard is on and that rule is
+// set to `action`, or nothing.
+async function riskFor($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }, action: GuardAction) {
+  const p = await read($, prefs)
+  const risk = p.guard ? riskOf(tool, input) : undefined
+  return risk && p.guardRules[risk.rule] === action ? risk : undefined
+}
+
+// One more catch this session, stamped on the turn so Clawd startles.
+async function caught($: EngineInterface) {
+  const at = await $.clock.now()
+  await update($, guardCaught, n => n + 1)
+  await update($, turnLog, l => ({ ...l, caught: at }))
+  await update($, now, () => at)
+  $.clock.after(STARTLE_MS + 100, () => void tick($))
+}
+
+// The guard's refusal for a call, told to the person too, or nothing when it passes, asks or is off.
 async function guarded($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }): Promise<string | undefined> {
-  const risk = (await read($, prefs)).guard ? riskOf(tool, input)?.reason : undefined
+  const risk = await riskFor($, tool, input, 'block')
   if (!risk) return undefined
-  $.ui.toast(`Blocked: this ${risk}`)
-  return `sabai's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`
+  await caught($)
+  $.ui.toast(`Blocked: this ${risk.reason}`)
+  return `sabai's guard refused this: it ${risk.reason}. The person can turn the guard off in /sabai-settings.`
 }
 
 async function setSkin($: EngineInterface, name: string) {
@@ -512,6 +537,14 @@ export const register: Register = on => {
     const risk = await guarded($, 'Read', e)
     return risk ? { deny: risk } : next(e)
   }).catch(($, e, next) => failClosed(next, () => next(e)))
+  // The guard's Ask: the permission decision becomes an ask with the guard's reason, which opens
+  // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
+  on('tool.check', async ($, e, next) => {
+    const risk = e.tool_use_id === undefined ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
+    if (!risk) return next(e)
+    await caught($)
+    return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
+  }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))
   // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
   // refuses a command.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
@@ -680,7 +713,28 @@ export const register: Register = on => {
           '◈',
           'Safety',
           'What Claude may not run',
-          flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on'),
+          <Box flexDirection="column" rowGap={1}>
+            {flag('guard', 'Guard', 'Catch the commands below; a shield in the band counts what it caught. In auto mode, Ask goes to the classifier')}
+            {p.guard ? (
+              <Box flexDirection="column" rowGap={1}>
+                {(Object.keys(GUARD_RULES) as GuardRule[]).map(rule => (
+                  <Box key={`row-guard-${rule}`} flexDirection="row" alignItems="center" columnGap={2}>
+                    {named(GUARD_RULES[rule].name, GUARD_RULES[rule].note)}
+                    <Box flexDirection="row" columnGap={1}>
+                      {(['block', 'ask', 'off'] as GuardAction[]).map(action => (
+                        <Button
+                          key={`guard-${rule}-${action}`}
+                          label={action === 'block' ? 'Block' : action === 'ask' ? 'Ask' : 'Off'}
+                          variant={p.guardRules[rule] === action ? 'primary' : 'secondary'}
+                          onPress={() => setPrefs($, x => ({ ...x, guardRules: { ...x.guardRules, [rule]: action } }))}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            ) : null}
+          </Box>,
         )}
         {group(
           'alerts',
@@ -804,7 +858,8 @@ export const register: Register = on => {
     const list = rows.usage ? meters(measured, at) : []
     const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
-    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
+    const caughtCount = await read($, guardCaught)
+    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.

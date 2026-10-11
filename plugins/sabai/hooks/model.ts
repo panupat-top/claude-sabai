@@ -118,3 +118,6 @@ export const blocks = (ratio: number, width: number, full: string, empty: string
   const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width)
   return full.repeat(filled) + empty.repeat(width - filled)
 }
+
+// How long Clawd stays startled after the guard catches a call.
+export const STARTLE_MS = 3000
