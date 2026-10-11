@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, moodOf } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -79,4 +79,23 @@ test('info chips: directory, git user and branch on the left, node on the right'
   })
   expect(chips({ branch: 'main', ahead: 0, behind: 0, changes: 0 })).toEqual({ left: [{ icon: 'branch', label: 'Branch', value: 'main' }], right: [] })
   expect(chips({})).toEqual({ left: [], right: [] })
+})
+
+test('Clawd’s mood follows the session, the most pressing first', () => {
+  const log = { files: {}, commands: 0, failed: 0 }
+  const base = { log, now: 1_000_000, isWorking: false, lastTurnAt: 1_000_000 - 1000 }
+  expect(moodOf(base)).toBe('idle')
+  expect(moodOf({ ...base, isWorking: true })).toBe('working')
+  expect(moodOf({ ...base, lastTurnAt: base.now - SLEEP_AFTER_MS })).toBe('sleeping')
+  expect(moodOf({ ...base, lastTurnAt: 0 })).toBe('idle')
+  expect(moodOf({ ...base, lastTurnAt: base.now - SLEEP_AFTER_MS, isWorking: true })).toBe('working')
+  expect(moodOf({ ...base, contextPercent: 90, isWorking: true })).toBe('sweating')
+  expect(moodOf({ ...base, contextPercent: 89.9 })).toBe('idle')
+  const passed = { ...log, test: { passed: 9, failed: 0, at: base.now - 1000 } }
+  expect(moodOf({ ...base, log: passed, contextPercent: 95 })).toBe('celebrating')
+  expect(moodOf({ ...base, log: { ...passed, test: { ...passed.test, at: base.now - CELEBRATE_MS } } })).toBe('idle')
+  const failed = { ...log, test: { passed: 7, failed: 2, at: base.now - 60_000 } }
+  expect(moodOf({ ...base, log: failed, contextPercent: 95 })).toBe('sad')
+  expect(moodOf({ ...base, log: { ...failed, caught: base.now - 100 } })).toBe('startled')
+  expect(moodOf({ ...base, log: { ...log, caught: base.now - STARTLE_MS } })).toBe('idle')
 })
