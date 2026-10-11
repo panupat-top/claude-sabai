@@ -188,7 +188,7 @@ async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
 
 // The guard's refusal for a call, told to the person too, or nothing when it passes or is off.
 async function guarded($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }): Promise<string | undefined> {
-  const risk = (await read($, prefs)).guard ? riskOf(tool, input) : undefined
+  const risk = (await read($, prefs)).guard ? riskOf(tool, input)?.reason : undefined
   if (!risk) return undefined
   $.ui.toast(`Blocked: this ${risk}`)
   return `sabai's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`

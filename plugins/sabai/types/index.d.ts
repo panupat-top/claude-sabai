@@ -48,6 +48,9 @@ export type Prefs = {
   chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean }
 }
 
+export type GuardRule = 'wipe' | 'force' | 'env' | 'discard'
+export type GuardAction = 'block' | 'ask' | 'off'
+
 
 declare module 'claude-code' {
   interface PluginState {
