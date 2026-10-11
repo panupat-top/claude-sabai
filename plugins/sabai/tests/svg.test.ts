@@ -401,3 +401,12 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
   expect(noClawd.alt).toContain('Race: LV 1')
 })
+
+test('no race element carries two class attributes, whatever its runner is doing', () => {
+  for (const doing of ['read', 'edit', 'command', 'test'] as const) {
+    const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const body = racePart(lookOf('auto'), race as never, 300, 0).body
+    const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
+    expect([doing, twice]).toEqual([doing, null])
+  }
+})

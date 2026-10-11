@@ -430,8 +430,13 @@ const pixelHeart = (x: number, y: number, full: boolean, look: Look) =>
 // and note at the left, its call tiles on the ground, its runner at its progress (the middle when
 // unknown) holding the tool of its call in flight over a glow, and its flag at the right.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
-  const kindFill = (k: CallKind, ok: boolean) =>
-    !ok ? `fill="${look.bar('tasks', 'alert')}"` : k === 'read' ? `fill="${look.bar('context')}"` : k === 'edit' ? `fill="${look.bar('session')}"` : k === 'test' ? 'class="f-ok"' : 'class="m"'
+  // A kind's colour as attributes, merged with the element's own classes: two class attributes on
+  // one element make the drawing invalid, and the desktop then draws nothing.
+  const kindFill = (k: CallKind, ok: boolean, cls = '') => {
+    const paint = !ok ? { fill: look.bar('tasks', 'alert') } : k === 'read' ? { fill: look.bar('context') } : k === 'edit' ? { fill: look.bar('session') } : { cls: k === 'test' ? 'f-ok' : 'm' }
+    const classes = [cls, paint.cls].filter(Boolean).join(' ')
+    return `${classes ? `class="${classes}"` : ''}${paint.fill ? ` fill="${paint.fill}"` : ''}`
+  }
   const time = mmss(race.elapsedMs)
   const head =
     `<text class="st" x="10" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="800">LV ${race.lv}</text>` +
@@ -453,7 +458,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
     const runner = `<g transform="translate(${rx},${ground - 18}) scale(.85)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'waiting' ? l.doing : undefined)}</g>`
-    const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse class="glow" cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true)}/>` : ''
+    const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
     const dust = l.state === 'running' ? `<circle class="dust k" cx="${rx}" cy="${ground - 1}" r="1.5"/><circle class="dust dust2 k" cx="${rx + 3}" cy="${ground - 2}" r="1.2"/>` : ''
     const speed = l.state === 'running' && l.doing === 'command' ? `<g class="speed m"><rect x="${rx - 12}" y="${ground - 12}" width="6" height="1"/><rect x="${rx - 15}" y="${ground - 8}" width="8" height="1"/></g>` : ''
     const flagX = laneX + laneW + 3
