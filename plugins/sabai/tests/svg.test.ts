@@ -381,6 +381,19 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
 })
 
+test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 0, commands: 0 }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', calls: [], state: 'running' }] }
+  const hero = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live, race: race as never, clawdLine: 'on it' })!
+  expect(hero.source).toContain('>on it<')
+  expect(hero.source).not.toMatch(/undefined|NaN|\d+:\d\d</)
+  expect(hero.alt).not.toMatch(/undefined|NaN/)
+  const strip = bandSvg(undefined, info, LIST, 600, { hero: true, mood: 'working', live })!
+  expect(strip.source).toContain('Editing svg.ts')
+  expect(strip.source + strip.alt).not.toMatch(/undefined|NaN/)
+})
+
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }

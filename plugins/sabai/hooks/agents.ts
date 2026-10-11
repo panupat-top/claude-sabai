@@ -140,7 +140,7 @@ export function groups(list: AgentRun[]): { running: AgentRun[]; finished: Agent
 
 export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'waiting'
 export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
-export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs: number; more: number; lanes: Lane[] }
+export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
 
@@ -156,7 +156,8 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     id: 'main',
     who: 'Main',
     step: mainStep ?? (mainWorking ? 'Working' : 'Waiting'),
-    ...(mainWorking ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
+    // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
+    ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { progress: tasks.done / tasks.total } : {}),
     calls: log.calls.main ?? [],
     ...(log.doing.main ? { doing: log.doing.main } : {}),
@@ -213,7 +214,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     done: ended.length,
     ok: log.total - log.fails,
     fails: log.fails,
-    elapsedMs: Math.max(0, now - since),
+    ...(since !== 0 ? { elapsedMs: Math.max(0, now - since) } : {}),
     more: shown.slice(RACE_LANES).reduce((n, u) => n + u.length, 0),
     lanes: [main, ...shown.slice(0, RACE_LANES).map(lane)],
   }

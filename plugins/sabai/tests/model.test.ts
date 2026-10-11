@@ -174,6 +174,13 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   expect([ends.running, ends.done]).toEqual([1, 2])
 })
 
+test('a turn whose start was not seen (the mod loaded mid-turn) shows no time, never one counted from 1970', () => {
+  const now = 1_700_000_000_000
+  const r = raceOf(EMPTY_RACE, [], undefined, now, true, 0)!
+  expect(r.lanes[0]!.timeMs).toBeUndefined()
+  expect(r.elapsedMs).toBeUndefined()
+})
+
 test('a finished agent stays in the race for the crew’s linger minute, then leaves it', () => {
   const now = 1_000_000
   const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
