@@ -45,7 +45,7 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
-  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; label: boolean }
+  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean }
 }
 
 

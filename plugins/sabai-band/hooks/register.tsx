@@ -26,7 +26,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true, label: true },
+  chat: { spinner: true, tools: true, tests: true, callouts: true },
 }
 const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -630,12 +630,11 @@ export const register: Register = on => {
           {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
           {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-          {chatToggle('label', 'Guard label', "A shield chip in the band's info row (needs Guard)")}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Agents and safety', '')}
           {flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session')}
-          {flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files')}
+          {flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on')}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Color theme', 'The band and panels')}
@@ -743,7 +742,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const p = await read($, prefs)
     // The desktop draws no footer for these; the band's info row carries the guard there.
-    if (!p.chat.label || !p.guard || e.surface !== 'terminal') return next(e)
+    if (!p.guard || e.surface !== 'terminal') return next(e)
     return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '◈ guard'] } })
   })
 
@@ -764,7 +763,7 @@ export const register: Register = on => {
     const list = rows.usage ? meters(measured, at) : []
     const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
-    if (rows.info && shownPrefs.guard && shownPrefs.chat.label) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
+    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.

@@ -980,7 +980,8 @@ test('settings: each chat feature has its own toggle, kept for new sessions', as
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  for (const k of ['spinner', 'tools', 'tests', 'callouts', 'label']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  for (const k of ['spinner', 'tools', 'tests', 'callouts']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  expect(await pane.find({ key: 'pref-chat-label' })).toBeUndefined()
   await pane.press({ key: 'pref-chat-tools' })
   expect((await pane.find({ key: 'pref-chat-tools' }))?.props.label).toBe('○ Off')
   expect((store.prefs as { chat: { tools: boolean } }).chat.tools).toBe(false)
@@ -1073,10 +1074,16 @@ test('the guard label sits in the band’s info row, a shield chip before Node, 
   expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
 })
 
-test('no guard chip while the guard is off, or while Guard label is off', async ($, on) => {
-  engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
+test('the guard chip follows the guard alone: off, no chip; an old Guard label setting is ignored', async ($, on) => {
+  engine(on, { store: { prefs: { guard: false } } })
   await start($)
   expect((await shown($, 'desktop')).words).not.toContain('guard')
+})
+
+test('a guard turned on shows its chip even where an older version saved Guard label off', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Turned on: guard')
 })
 
 test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
