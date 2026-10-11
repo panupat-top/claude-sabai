@@ -1098,11 +1098,12 @@ export const register: Register = on => {
     const turn = await read($, turnLog)
     // The contract types the icon as a string; the hooks only ever write a StepIcon.
     const step = (await read($, liveStep)) as { icon: StepIcon; title: string } | null
+    const began = await read($, turnStartedAt)
     const live = rows.live && e.props.isWorking
-      ? { elapsedMs: Math.max(0, at - (await read($, turnStartedAt))), ...(step ? { step } : {}), files: Object.keys(turn.files).length, commands: turn.commands, ...(turn.test ? { test: turn.test } : {}) }
+      ? { ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}), ...(step ? { step } : {}), files: Object.keys(turn.files).length, commands: turn.commands, ...(turn.test ? { test: turn.test } : {}) }
       : undefined
     // The race: Main and the agents at work, while any work runs.
-    const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, await read($, turnStartedAt), step?.title) : undefined
+    const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
     if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
@@ -1209,7 +1210,7 @@ export const register: Register = on => {
         {live && (
           <Text wrap="truncate-end">
             <Text color={look.clawd}>{`${(shownPrefs.show.clawd && !p && MOOD_GLYPH[mood]) || '●'} `}</Text>
-            <Text bold>{clock(live.elapsedMs)}</Text>
+            {live.elapsedMs !== undefined ? <Text bold>{clock(live.elapsedMs)}</Text> : null}
             {live.step ? <Text>{`  ${live.step.title}`}</Text> : null}
             <Text dimColor>
               {`   ${[live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join(' · ')}`}
