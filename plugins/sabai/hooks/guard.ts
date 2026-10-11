@@ -11,7 +11,7 @@ export const GUARD_RULES: Record<GuardRule, { name: string; note: string; action
   wipe: { name: 'Delete disk or home', note: 'rm -rf aimed at / or ~', action: 'block' },
   force: { name: 'Force-push main', note: 'git push --force to main or master', action: 'ask' },
   env: { name: 'Read .env', note: 'Reading a .env file, with Read or a shell reader', action: 'block' },
-  discard: { name: 'Discard uncommitted', note: 'git reset --hard, git clean -f, git checkout/restore .', action: 'ask' },
+  discard: { name: 'Discard uncommitted', note: 'git reset --hard, clean -f, checkout -f, checkout/restore .', action: 'ask' },
 }
 
 export const GUARD_FAILED = "sabai's guard could not check this call, so it refused it. The person can turn the guard off in /sabai-settings."
@@ -229,14 +229,16 @@ function gitCall({ words }: Command): { sub: string; args: string[] }[] {
 }
 
 // A git call that throws away work not yet committed: `reset --hard`, `clean` with -f (not a dry
-// run), and `checkout` or `restore` of the whole tree (a last path of `.`), but not
-// `restore --staged`, which only unstages.
+// run), `checkout` or `restore` of the whole tree (a last path of `.`, `./` or `:/`), and a forced
+// `checkout` or `switch`, but not `restore --staged`, which only unstages.
 function discards(calls: { sub: string; args: string[] }[]): boolean {
   return calls.some(({ sub, args }) => {
-    const whole = args.filter(a => !a.startsWith('-')).at(-1) === '.'
+    const whole = /^(?:\.\/*|:\/)$/.test(args.filter(a => !a.startsWith('-')).at(-1) ?? '')
+    const forced = args.some(a => a === '--force' || a === '--discard-changes' || /^-[a-zA-Z]*f/.test(a))
     if (sub === 'reset') return args.includes('--hard')
     if (sub === 'clean') return args.some(a => /^-[a-z]*f/i.test(a) || a === '--force') && !args.some(a => /^-[a-z]*n/i.test(a) || a === '--dry-run')
-    if (sub === 'checkout') return whole
+    if (sub === 'checkout') return whole || forced
+    if (sub === 'switch') return forced
     if (sub === 'restore') {
       const staged = args.includes('--staged') || args.some(a => /^-[A-Za-z]*S/.test(a))
       const worktree = args.includes('--worktree') || args.some(a => /^-[A-Za-z]*W/.test(a))
@@ -246,9 +248,12 @@ function discards(calls: { sub: string; args: string[] }[]): boolean {
   })
 }
 
+// A shell as a command's program: `bash`, `/bin/sh`, `sudo zsh`.
+const SHELL_RUN = /^\s*(?:sudo\s+)?(?:\S*\/)?(?:ba|z|da|k)?sh\b/
+
 // The command without the text of its heredocs: a script piped to python or a file written with
-// cat is data, whatever words it holds. A heredoc a shell reads is commands and is kept, and so
-// is one never closed, rather than skip text on a guess.
+// cat is data, whatever words it holds. A heredoc a shell reads, itself or through a pipe, is
+// commands and is kept, and so is one never closed, rather than skip text on a guess.
 function withoutData(cmd: string): string {
   const lines = cmd.split('\n')
   const kept: string[] = []
@@ -257,7 +262,8 @@ function withoutData(cmd: string): string {
     kept.push(line)
     for (const m of line.matchAll(/(^|[^<])<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\3/g)) {
       const runner = line.slice(0, m.index! + m[1]!.length).split(/&&|\|\||[;|]/).pop()!
-      const isShell = /^\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/.test(runner)
+      const piped = line.slice(m.index! + m[0].length).split(/&&|\|\||;/)[0]!.split('|').slice(1)
+      const isShell = [runner, ...piped].some(c => SHELL_RUN.test(c))
       const end = lines.findIndex((l, j) => j > i && (m[2] ? l.replace(/^\t+/, '') : l) === m[4])
       if (end === -1) return cmd
       if (isShell) kept.push(...lines.slice(i + 1, end))

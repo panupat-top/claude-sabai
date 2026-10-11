@@ -66,7 +66,8 @@ export type Show = { folder: boolean; gitUser: boolean; branch: boolean; node: b
 export type CallKind = 'read' | 'edit' | 'command' | 'test'
 export type RaceLog = {
   calls: Record<string, { kind: CallKind; ok: boolean }[]>
-  doing: Record<string, CallKind>
+  // Each member's calls in flight, oldest first: parallel calls each hold their own.
+  doing: Record<string, CallKind[]>
   fellAt: Record<string, number>
   scoredAt: Record<string, number>
   // The turn's finished calls, and how many of them failed.
@@ -112,6 +113,7 @@ declare module 'claude-code' {
       turnStartedAt: number
       race: RaceLog
       liveStep: { icon: string; title: string } | null
+      warned: string[]
     }
   }
 }

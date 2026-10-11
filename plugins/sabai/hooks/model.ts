@@ -49,10 +49,10 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
   return out
 }
 
-// 434512 → 434.5k, 1000000 → 1M, 200000 → 200k.
+// 434512 → 434.5k, 1000000 → 1M, 200000 → 200k; 999950 rounds up to 1M, not 1000k.
 export function tokens(n: number): string {
   const one = (x: number) => String(Math.round(x * 10) / 10)
-  return n >= 1e6 ? `${one(n / 1e6)}M` : n >= 1e3 ? `${one(n / 1e3)}k` : String(n)
+  return n >= 999_950 ? `${one(n / 1e6)}M` : n >= 1e3 ? `${one(n / 1e3)}k` : String(n)
 }
 
 // What a meter reads as: `434.5k / 1M (43%)` for the context, `43%` for a limit.
@@ -218,6 +218,11 @@ export function accessoryOf(d: Date): Accessory | undefined {
 }
 
 export const EMPTY_RACE: RaceLog = { calls: {}, doing: {}, fellAt: {}, scoredAt: {}, fails: 0, total: 0 }
+// A member's calls in flight, oldest first; a log kept from before they were a list reads as none.
+export const doingOf = (log: RaceLog, member: string): CallKind[] => {
+  const d = log.doing[member]
+  return Array.isArray(d) ? d : []
+}
 export const TRIP_MS = 4000
 export const SCORE_MS = 3000
 export const RACE_TILES = 16

@@ -107,7 +107,7 @@ Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are ke
 | Clawd | Clawd on or off; extras: Accessories (hats and props) and Tricks (waves, yawns, looks) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
 | Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
-| Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f` or `git checkout`/`restore .` (Ask) |
+| Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
 | Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
 | Look | Progress bar style, and ten colour themes (`auto` follows your OS) |
 

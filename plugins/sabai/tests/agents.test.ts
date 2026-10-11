@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
-import { RESULT_MAX, clearFinished, typeEmoji, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
+import { RESULT_MAX, clearFinished, reported, typeEmoji, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
 import { agentCardSvg, emptyAgentsSvg, summarySvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -199,4 +199,13 @@ test('a card’s bar dots hold still (the pane restarts animations each second),
   const sweep = agentCardSvg(run('s'), 420, 5000).source
   const x = Number(sweep.match(/class="sweep" x="([-\d.]+)"/)?.[1])
   expect(x).toBeGreaterThanOrEqual(64)
+})
+
+test('a step note and a report are cut between code points, never inside an emoji', () => {
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
+  const run: AgentRun = { id: 'a', agentId: 'a', type: 'Plan', description: 'a', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 0 }
+  const note = reported([run], 'a', { done: 1, total: 2, note: `${'x'.repeat(79)}🐢🐢` })[0]!.progress!.note!
+  expect([lone.test(note), Array.from(note).length, note.endsWith('🐢')]).toEqual([false, 80, true])
+  const result = finished([run], 'a', 'answer', 1, `${'x'.repeat(RESULT_MAX - 2)}🐢🐢🐢`)[0]!.result!
+  expect([lone.test(result), result.endsWith('🐢…')]).toEqual([false, true])
 })

@@ -1,6 +1,6 @@
 import type { AgentRun, CallKind, RaceLog, Task } from '../types'
 import type { Progress } from './model'
-import { RACE_LANES, RACE_LINGER_MS, SCORE_MS, TRIP_MS, tokens } from './model'
+import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, doingOf, tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -33,6 +33,9 @@ export const stepped = (list: AgentRun[], agentId: string, model: string, u: Usa
   )
 
 export const RESULT_MAX = 1500
+// The first `n` characters, cut between code points: half an emoji would leave a lone surrogate,
+// which makes a drawing that carries it invalid.
+const cut = (s: string, n: number) => Array.from(s).slice(0, n).join('')
 
 export const finished = (list: AgentRun[], agentId: string, reason: NonNullable<AgentRun['reason']>, at: number, answer?: string): AgentRun[] =>
   list.map(a =>
@@ -43,7 +46,7 @@ export const finished = (list: AgentRun[], agentId: string, reason: NonNullable<
           status: reason === 'answer' ? 'done' : 'failed',
           reason,
           endedAt: at,
-          result: answer && answer.length > RESULT_MAX ? `${answer.slice(0, RESULT_MAX - 1)}…` : answer || undefined,
+          result: answer && Array.from(answer).length > RESULT_MAX ? `${cut(answer, RESULT_MAX - 1)}…` : answer || undefined,
         },
   )
 
@@ -74,7 +77,7 @@ export const reported = (list: AgentRun[], agentId: string, input: { done?: unkn
     const num = (v: unknown, prev: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : prev)
     const total = num(input.total, a.progress?.total ?? 0)
     const done = num(input.done, a.progress?.done ?? 0)
-    const note = typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 80) : undefined
+    const note = typeof input.note === 'string' && input.note.trim() ? cut(input.note.trim(), 80) : undefined
     return { ...a, progress: { done: total ? Math.min(done, total) : done, total, note } }
   })
 
@@ -150,6 +153,11 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
   // Agents are kept oldest first; the race runs the newest.
   const running = agents.filter(a => a.status === 'running').reverse()
   if (!mainWorking && running.length === 0) return undefined
+  // The call a lane's runner holds: the latest in flight among its members.
+  const doingFor = (ids: string[]): { doing?: CallKind } => {
+    const kind = ids.flatMap(id => doingOf(log, id)).at(-1)
+    return kind ? { doing: kind } : {}
+  }
   const timed = (id: string): LaneState | undefined =>
     now - (log.fellAt[id] ?? -Infinity) < TRIP_MS ? 'tripped' : now - (log.scoredAt[id] ?? -Infinity) < SCORE_MS ? 'scored' : undefined
   const main: Lane = {
@@ -160,8 +168,8 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { progress: tasks.done / tasks.total } : {}),
     calls: log.calls.main ?? [],
-    ...(log.doing.main ? { doing: log.doing.main } : {}),
-    state: timed('main') ?? (mainWorking && log.doing.main ? 'running' : 'waiting'),
+    ...doingFor(['main']),
+    state: timed('main') ?? (mainWorking && doingOf(log, 'main').length ? 'running' : 'waiting'),
   }
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   // More running than lanes: agents of one type share a lane, the most numerous type first.
@@ -189,8 +197,9 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         many: u.length,
         step: `${u.length} running`,
         timeMs: Math.max(...u.map(time)),
-        calls: log.calls[id] ?? [],
-        ...(log.doing[id] ? { doing: log.doing[id] } : {}),
+        // Every member's tiles, agent by agent: no call carries its time to interleave them by.
+        calls: ids.flatMap(i => log.calls[i] ?? []).slice(-RACE_TILES),
+        ...doingFor(ids),
         state: ids.some(i => timed(i) === 'tripped') ? 'tripped' : 'running',
       }
     }
@@ -204,7 +213,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       timeMs: time(a),
       ...(state === 'finished' ? { progress: 1 } : p ? { progress: p.done / p.total } : {}),
       calls: log.calls[id] ?? [],
-      ...(log.doing[id] ? { doing: log.doing[id] } : {}),
+      ...doingFor([id]),
       state,
     }
   }

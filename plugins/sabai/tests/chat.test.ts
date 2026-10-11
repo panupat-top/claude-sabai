@@ -249,3 +249,18 @@ test('reads do not fill a receipt alone; with an edit or a test run they count',
   // replace_all: the change counted once per occurrence.
   expect(logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'x', newText: 'y', times: 3 }).files.a).toEqual({ added: 3, removed: 3 })
 })
+
+test('an overwrite counts its diff, a new file every line', () => {
+  const patch = [{ lines: [' keep', '-old', '+new'] }]
+  expect(logged(EMPTY_LOG, { tool: 'Write', path: 'a', content: 'keep\nnew\n', patch }).files.a).toEqual({ added: 1, removed: 1 })
+  expect(logged(EMPTY_LOG, { tool: 'Write', path: 'a', content: 'one\ntwo\n' }).files.a).toEqual({ added: 2, removed: 0 })
+})
+
+test('a test run whose counts cannot be read drops the older run’s, so no stale result stands', () => {
+  const passed = logged(EMPTY_LOG, { tool: 'Bash', command: 'bun test', output: BUN_OK, isError: false, at: 1 })
+  expect(passed.test).toBeDefined()
+  const crashed = logged(passed, { tool: 'Bash', command: 'bun test', output: 'SyntaxError: Unexpected token', isError: true, at: 2 })
+  expect([crashed.test, receiptOf(crashed)?.headline]).toEqual([undefined, '1 command failed'])
+  // Any other command leaves the test result alone.
+  expect(logged(passed, { tool: 'Bash', command: 'ls', output: '', isError: false, at: 3 }).test).toEqual(passed.test)
+})

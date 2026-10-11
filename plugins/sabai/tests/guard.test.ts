@@ -208,3 +208,28 @@ test('nesting past any real script refuses rather than hang', () => {
   expect(() => riskOf('Bash', { command: 'eval '.repeat(20000) + 'rm -rf /' })).toThrow()
   expect(riskOf('Bash', { command: 'eval eval rm -rf /' })?.rule).toBe('wipe')
 })
+
+test('a heredoc piped into a shell is read as commands; piped elsewhere it stays data', () => {
+  const bash = (command: string) => riskOf('Bash', { command })?.reason
+  expect(bash('cat <<EOF | bash\nrm -rf /\nEOF')).toBe('deletes the whole disk')
+  expect(bash("cat <<'X' | sudo sh -s\ncat .env\nX")).toBe('reads a .env file')
+  expect(bash('/bin/bash <<EOF\nrm -rf ~\nEOF')).toBe('deletes your home folder')
+  expect(bash('cat <<EOF | grep rm\nrm -rf /\nEOF')).toBeUndefined()
+  expect(bash('cat <<EOF > run.sh && bash ok.sh\nrm -rf /\nEOF')).toBeUndefined()
+})
+
+test('checkout of the tree as ./ or :/, and a forced checkout or switch, discard', () => {
+  const rule = (command: string) => riskOf('Bash', { command })?.rule
+  expect(rule('git checkout ./')).toBe('discard')
+  expect(rule('git checkout -- ./')).toBe('discard')
+  expect(rule('git checkout :/')).toBe('discard')
+  expect(rule('git restore ./')).toBe('discard')
+  expect(rule('git checkout -f')).toBe('discard')
+  expect(rule('git checkout -f main')).toBe('discard')
+  expect(rule('git checkout --force feature')).toBe('discard')
+  expect(rule('git switch --discard-changes main')).toBe('discard')
+  expect(rule('git switch -f main')).toBe('discard')
+  expect(rule('git checkout -b fix')).toBeUndefined()
+  expect(rule('git switch -c feature')).toBeUndefined()
+  expect(rule('git checkout ./src')).toBeUndefined()
+})

@@ -1669,3 +1669,86 @@ test('prefs saved by 2.2 load with extras and the usage style filled in', async 
   expect(String((await band.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('class="usage"')
   await band.unmount()
 })
+
+test('two turns that answer word for word alike keep their own receipts', async ($, on) => {
+  engine(on)
+  turnStarts(on)
+  await start($)
+  expect((await turn($, () => bash($, 'npm run build'), 'Done.')).text).toBe('')
+  // The second turn's receipt goes in its notice, so the first reply's card still tells its own turn.
+  const second = await turn($, async () => {
+    await bash($, 'npm run build')
+    await bash($, 'npm run lint')
+  }, 'Done.')
+  expect(second.text).toBe('› 2 commands')
+  expect(await receiptUnder($, 'desktop', 'Done.')).toBe('Turn receipt: Done; 1 command')
+})
+
+test('/clear starts over: no receipt, turn or guard count carried into the new conversation', async ($, on) => {
+  engine(on)
+  panes(on)
+  allowBeneath(on)
+  turnStarts(on)
+  on('ui.toast', () => ({ value: undefined }))
+  on('classic.SessionStart', () => ({}) as never)
+  await start($)
+  await guardOn($)
+  await turn($, async () => {
+    await bash($, 'rm -rf /')
+    await bash($, 'npm run build')
+  }, 'Built.')
+  expect(await receiptUnder($, 'desktop', 'Built.')).toContain('Turn receipt')
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 1')])
+  await $.classic.SessionStart({ source: 'clear' } as never)
+  expect(await receiptUnder($, 'desktop', 'Built.')).not.toContain('Turn receipt')
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words.includes('guard · ')]).toEqual([surface, false])
+})
+
+test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {
+  engine(on)
+  await $.tool.call({ tool: 'TaskCreate', subject: 'Plan the work', description: '' } as Parameters<typeof $.tool.call>[0])
+  const ui = await mountBand($, 'desktop')
+  const source = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source)).join('')
+  await ui.unmount()
+  expect(source).toContain('Plan the work')
+  // The New Year hat's gold; nothing else Clawd wears on an idle band in October has it.
+  expect(source).not.toContain('#f5c542')
+})
+
+test('parallel calls of one member each hold their place in the race until they end', async ($, on) => {
+  let release: () => void = () => undefined
+  const held = new Promise<void>(r => (release = r))
+  on('tool.call', { tool: 'Read' }, async (_, e) => {
+    if ((e as { file_path: string }).file_path === '/w/slow.ts') await held
+    return { result: {} }
+  })
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'p' } as never)
+  const slow = $.tool.call({ tool: 'Read', file_path: '/w/slow.ts' } as Parameters<typeof $.tool.call>[0])
+  await settle()
+  await $.tool.call({ tool: 'Read', file_path: '/w/fast.ts' } as Parameters<typeof $.tool.call>[0])
+  const ui = await mountBand($, 'desktop', true, 115)
+  const alt = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
+  await ui.unmount()
+  expect(alt).toContain('Main running')
+  release()
+  await slow
+})
+
+test('a Write over an existing file counts its diff in the receipt, a new file every line', async ($, on) => {
+  on('tool.call', { tool: 'Write' }, (_, e) =>
+    (e as { file_path: string }).file_path === '/w/old.ts'
+      ? { result: { type: 'update', filePath: '/w/old.ts', content: 'a\nB\nc\n', originalFile: 'a\nb\nc\n', structuredPatch: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [' a', '-b', '+B', ' c'] }] } }
+      : { result: { type: 'create', filePath: '/w/new.ts', content: 'x\ny\n', originalFile: null, structuredPatch: [] } },
+  )
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await turn($, async () => {
+    await $.tool.call({ tool: 'Write', file_path: '/w/old.ts', content: 'a\nB\nc\n' } as Parameters<typeof $.tool.call>[0])
+    await $.tool.call({ tool: 'Write', file_path: '/w/new.ts', content: 'x\ny\n' } as Parameters<typeof $.tool.call>[0])
+  }, 'Wrote both.')
+  expect(await receiptUnder($, 'desktop', 'Wrote both.')).toBe('Turn receipt: Done; 2 files +3 −1')
+})

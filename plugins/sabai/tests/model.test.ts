@@ -155,7 +155,7 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
     run('d', { type: 'plugin:helper', status: 'done', endedAt: now - 2000 }),
     run('e', { status: 'failed', endedAt: now - 2000 }),
   ]
-  const r = raceOf({ ...log, doing: { main: 'edit' } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
+  const r = raceOf({ ...log, doing: { main: ['read', 'edit'] } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
   expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['c', 'scored'], ['b', 'tripped'], ['a', 'running']])
   expect(r.more).toBe(2)
   expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', step: 'Editing svg.ts' })
@@ -234,7 +234,8 @@ test('raceOf merges agents of one type when more run than lanes hold, and names 
   const r = raceOf(log, agents, undefined, now, true, now - 10_000)!
   expect(r.lanes.map(l => [l.who, l.many ?? 1])).toEqual([['Main', 1], ['Explore', 3], ['task g1', 1], ['task p1', 1]])
   const merged = r.lanes[1]!
-  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', calls: [{ kind: 'read', ok: true }] })
+  // Every merged agent's tiles show, not only the first one's.
+  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', calls: [{ kind: 'read', ok: true }, { kind: 'command', ok: false }] })
   expect(merged.progress).toBeUndefined()
   expect(merged.timeMs).toBe(now - 500)
   expect(r.more).toBe(0)
@@ -260,4 +261,19 @@ test('resetClock names the reset as a local time, with the weekday past today, a
 test('the context meter says what is left', () => {
   const [ctx] = meters({ contextPercent: 74, contextTokens: 743_500, contextWindow: 1_000_000, rateLimits: [] }, 0)
   expect(ctx!.left).toBe('256.5k left')
+})
+
+test('tokens rounds up to the next unit rather than say 1000k', () => {
+  expect([tokens(999_949), tokens(999_950), tokens(1_000_000), tokens(999)]).toEqual(['999.9k', '1M', '1M', '999'])
+})
+
+test('a lane holds the latest of its calls in flight, and a merged lane any member’s', () => {
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const agents = ['a', 'b', 'c', 'd'].map(run)
+  const r = raceOf({ ...EMPTY_RACE, doing: { main: ['read', 'command'], c: ['edit'] } }, agents, undefined, 1000, true, 1)!
+  expect([r.lanes[0]!.doing, r.lanes[0]!.state]).toEqual(['command', 'running'])
+  expect(r.lanes[1]).toMatchObject({ many: 4, doing: 'edit' })
+  // A log from before calls in flight were lists holds none.
+  const old = raceOf({ ...EMPTY_RACE, doing: { main: 'read' as never } }, [], undefined, 1000, true, 1)!
+  expect([old.lanes[0]!.doing, old.lanes[0]!.state]).toEqual([undefined, 'waiting'])
 })
