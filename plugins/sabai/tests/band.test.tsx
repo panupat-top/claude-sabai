@@ -923,6 +923,38 @@ test('a subagent’s calls stay out of the main turn’s receipt, and the toggle
   expect((await turn($, () => bash($, 'ls'))).text).toBe('')
 })
 
+test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 7 pass\n 2 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await turn($, () => bash($, 'bun test'))
+  expect((await shown($, 'desktop')).words).toContain('Clawd is sad')
+  expect((await shown($, 'terminal')).words).toContain('✗')
+  await guardOn($)
+  await bash($, 'rm -rf /')
+  expect((await shown($, 'desktop')).words).toContain('Clawd is startled')
+})
+
+test('the band with every row, a full crew and Clawd in the info row stays under the tree limit', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (let i = 0; i < 6; i++) await spawn($, `job ${i}`)
+  const ui = await mountBand($, 'desktop', true)
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  const svg = (await ui.findAll({ type: 'Svg' }))[0]
+  expect(String(svg?.props.source)).toContain('class="run"')
+  expect(String(svg?.props.source).length).toBeLessThanOrEqual(131_072)
+  await ui.unmount()
+})
+
 test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
   engine(on)
   panes(on)

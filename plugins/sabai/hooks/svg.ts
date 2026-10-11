@@ -1,6 +1,6 @@
 import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
-import type { Chip, Meter, Progress } from './model'
+import type { Chip, Meter, Mood, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import type { CalloutKind, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
@@ -189,9 +189,31 @@ const CARD_H = 44
 
 type Part = { body: string; height: number; alt: string }
 
+
+// Each mood's sprite mode, and the words a reader is told for it (idle and working say nothing).
+const MOOD_MODE: Record<Mood, string> = { startled: 'startle', sad: 'dizzy', celebrating: 'hop', sweating: 'sweat', working: 'run', sleeping: 'sleep', idle: 'idle' }
+const moodSaid = (mood: Mood) => (mood === 'idle' || mood === 'working' ? '' : `; Clawd is ${mood}`)
+
+// Confetti beside Clawd's head in the band, clear of his face and of the next chip or title.
+const BAND_CONFETTI = [
+  [25, 1, 'context'],
+  [29, 5, 'session'],
+  [26, 9, 'week'],
+  [30, 12, 'tasks'],
+] as const
+
+// Clawd in his mood, in the skin's colour, with confetti while he celebrates.
+function clawdAt(look: Look, x: number, y: number, mood: Mood): string {
+  const confetti =
+    mood === 'celebrating'
+      ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      : ''
+  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd) + confetti
+}
+
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
-// Clawd walks while the turn is working and waits, blinking, otherwise, in the skin's colour.
-function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, top: number, style: BarStyle): Part {
+// Clawd shows the session's mood: walking while the turn works, blinking while it waits.
+function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
@@ -206,13 +228,13 @@ function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, to
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    sprite('tasks', 0, (ROW_H - clawd.height) / 2, isWorking ? 'run' : 'idle', look.clawd) +
+    clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood) +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
     pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
     `<text class="sm" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
-  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}` }
+  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}${moodSaid(mood)}` }
 }
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
@@ -262,8 +284,9 @@ const fitMono = (s: string, size: number, maxW: number) => {
 }
 
 // The info row: one chip per fact, its mark then its value. The left group runs from the
-// left edge, the right group ends at the right edge; left chips that would meet it are left out.
-function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number): Part {
+// left edge (after Clawd, when the band has no tasks row to hold him), the right group ends at
+// the right edge; left chips that would meet it are left out.
+function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood }): Part {
   const width = (c: Chip) => Math.ceil(CHIP_PAD * 2 + ICON + 6 + monoWidth(c.value, 11.5))
   const chip = (c: Chip, x: number) =>
     `<rect class="p" x="${x}" y="${y}" width="${width(c)}" height="${CHIP_H}" rx="6"/>` +
@@ -271,7 +294,8 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
     `<text class="t" x="${x + CHIP_PAD + ICON + 6}" y="${y + CHIP_H / 2 + 4}" font-family="${MONO}" font-size="11.5" font-weight="600">${xml(c.value)}</text>`
   let right = W
   const rightBody = [...info.right].reverse().map(c => chip(c, (right -= width(c) + GAP) + GAP)).join('')
-  let x = 0
+  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood) : ''
+  let x = clawd ? spriteSize('tasks').width + GAP : 0
   const drawn: Chip[] = []
   const leftBody = info.left
     .map(c => {
@@ -282,8 +306,8 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
       return chip(c, at)
     })
     .join('')
-  const alt = [...drawn, ...info.right].map(c => `${c.label} ${c.value}`).join(', ')
-  return { body: leftBody + rightBody, height: CHIP_H, alt }
+  const alt = [...drawn, ...info.right].map(c => `${c.label} ${c.value}`).join(', ') + (clawd ? moodSaid(clawd.mood) : '')
+  return { body: lead + leftBody + rightBody, height: CHIP_H, alt: alt.replace(/^; /, '') }
 }
 
 const CREW_H = 22
@@ -353,10 +377,10 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
 // surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
 export function bandSvg(
   p: Progress | undefined,
-  info: { left: readonly Chip[]; right: readonly Chip[] },
+  info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },
   list: readonly Meter[],
   W: number,
-  isWorking = false,
+  mood: Mood = 'idle',
   skin = 'auto',
   style: BarStyle = 'dither',
   crew?: { runs: readonly AgentRun[]; now: number },
@@ -368,8 +392,10 @@ export function bandSvg(
     parts.push(part)
     y += part.height + GAP
   }
-  if (info.left.length + info.right.length > 0) add(chipsPart(info, W, y))
-  if (p) add(progressPart(look, p, W, isWorking, y, style))
+  // Clawd stands in the info row when there is no tasks row to hold him.
+  const clawdInInfo = !p && Boolean(info.show)
+  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
+  if (p) add(progressPart(look, p, W, mood, y, style))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style))
   if (parts.length === 0) return undefined
@@ -504,6 +530,7 @@ function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio
     `<text x="${pillX + pillW / 2}" y="${y + h / 2 + 2.6}" text-anchor="middle" font-family="${MONO}" font-size="7.5" font-weight="700" fill="#ffffff">${pill}</text>`
   )
 }
+
 
 // A few pixels of confetti over a just-finished agent; they twinkle and drift, starting in place.
 const CONFETTI = [

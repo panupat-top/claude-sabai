@@ -173,12 +173,12 @@ export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?:
   return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${art}</g>`
 }
 
-// A mood's mark beside Clawd (24×16 at px 1), mid-tones that read on light and dark; the `z` takes
-// the band's muted ink.
+// A mood's mark beside Clawd's head (24×16 at px 1, so x ≥ 24 is past him and y ≥ 0 stays inside
+// the row), mid-tones that read on light and dark; the `z` takes the band's muted ink.
 const MOOD_MARKS: Record<string, string> = {
-  startle: '<g class="bang"><rect x="11" y="-8" width="2" height="4" fill="#e3b341"/><rect x="11" y="-3" width="2" height="1" fill="#e3b341"/></g>',
+  startle: '<g class="bang"><rect x="25" y="0" width="2" height="4" fill="#e3b341"/><rect x="25" y="5" width="2" height="1" fill="#e3b341"/></g>',
   sweat: '<g class="drop"><rect x="21" y="1" width="2" height="2" fill="#5fb4ff"/><rect x="21.5" y="0" width="1" height="1" fill="#5fb4ff"/></g>',
-  sleep: '<g class="zz"><rect x="19" y="-6" width="3" height="1" class="sm"/><rect x="20" y="-5" width="1" height="1" class="sm"/><rect x="19" y="-4" width="3" height="1" class="sm"/></g>',
+  sleep: '<g class="zz"><rect x="25" y="0" width="4" height="1" class="sm"/><rect x="27" y="1" width="1" height="1" class="sm"/><rect x="26" y="2" width="1" height="1" class="sm"/><rect x="25" y="3" width="4" height="1" class="sm"/></g>',
 }
 
 export const SPRITE_CSS =

@@ -2,8 +2,9 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, Usage } from '../types'
+import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { CELEBRATE_MS, STARTLE_MS, blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, riskOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -97,6 +98,8 @@ const CREW_LINGER_MS = 60_000
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: '◈' } as const
+// Clawd's mood on the terminal, as one glyph; idle shows none.
+const MOOD_GLYPH: Partial<Record<Mood, string>> = { startled: '!', sad: '✗', celebrating: '✓', sweating: '≈', working: '●', sleeping: 'z' }
 // The terminal's stand-ins for a step's icon.
 const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
@@ -900,6 +903,7 @@ export const register: Register = on => {
     const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
     const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
     if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
+    const mood = moodOf({ log: await read($, turnLog), contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: await read($, lastTurnAt) })
 
     const skinName = await read($, skin)
     const style = await read($, bar)
@@ -961,7 +965,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName, style, { runs, now: at })
+      const band = bandSvg(p, { ...info, show: rows.info }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -974,8 +978,9 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {info.left.length + info.right.length > 0 && (
+        {(info.left.length + info.right.length > 0 || (rows.info && !p && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
+            {!p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>
@@ -991,7 +996,7 @@ export const register: Register = on => {
         {p && (
           <Box flexDirection="row" columnGap={2}>
             <Text wrap="truncate-end">
-              <Text color={look.bar('tasks', 0)}>● </Text>
+              <Text color={look.bar('tasks', 0)}>{`${MOOD_GLYPH[mood] ?? '●'} `}</Text>
               {p.title}
             </Text>
             <Text color={look.bar('tasks', 0)}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
