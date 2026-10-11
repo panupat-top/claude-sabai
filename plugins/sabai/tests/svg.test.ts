@@ -64,16 +64,16 @@ test('the info row comes first: marks and values, left group from the left, node
     right: [{ icon: 'node', label: 'Node', value: 'v24.1.0' }],
   } as const
   const d = bandSvg({ done: 1, total: 2, title: 'a' }, info, LIST, 900)
-  expect(d?.height).toBe(20 + 8 + 20 + 8 + 44)
+  expect(d?.height).toBe(22 + 8 + 20 + 8 + 44)
   expect(d?.alt).toContain('Directory claude-skins, Git user Panupat <dev>, Branch main ±2, Node v24.1.0; a: 1/2 tasks, 50%; Context')
   expect(d?.source).toContain('Panupat &lt;dev&gt;')
-  expect(d?.source).toContain('fill="#F05032"')
-  expect(d?.source).toContain('<g transform="translate(0,28)">')
-  // The node chip ends at the right edge.
-  const node = d?.source.match(/<rect class="p" x="([\d.]+)" y="0" width="(\d+)" height="20" rx="6"\/><path fill="#5FA04E"/)
-  expect(Number(node?.[1]) + Number(node?.[2])).toBe(900)
-  // Too narrow: left chips give way, node stays.
-  expect(bandSvg(undefined, info, [], 260)?.alt).toBe('Directory claude-skins, Node v24.1.0')
+  expect(d?.source).toContain('<g transform="translate(0,30)">')
+  // The git user, last at the right, ends at the right edge.
+  const user = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)
+  expect(Math.abs(Number(user?.[1]) + monoWidth('Panupat <dev>', 10.5) - 900)).toBeLessThan(1)
+  // Too narrow: the user gives way first; the folder and branch stay, cut if they must.
+  expect(bandSvg(undefined, info, [], 260)?.alt).not.toContain('Git user')
+  expect(bandSvg(undefined, info, [], 260)?.alt).toContain('Directory claude-skins')
 })
 
 test('only Clawd and the context draw a sprite, each within the row', () => {
@@ -294,8 +294,8 @@ test('Clawd sits in the tasks row when there is one, else at the left of the inf
   const noTasks = bandSvg(undefined, info, [], 600, { mood: 'sleeping', skin: 'auto', style: 'dither' })!
   expect(noTasks.source.match(/class="sleep"/g)?.length).toBe(1)
   expect(noTasks.alt).toContain('Clawd is sleeping')
-  // The folder chip moves right of Clawd.
-  expect(noTasks.source).toMatch(/<rect class="p" x="(3[2-9]|[4-9]\d)/)
+  // The folder moves right of Clawd.
+  expect(noTasks.source).toMatch(/<path class="sm" transform="translate\((3[2-9]|[4-9]\d)/)
   // Idle and working say nothing extra; an info row turned off has no Clawd.
   expect(bandSvg(undefined, info, [], 600, { mood: 'idle', skin: 'auto', style: 'dither' })!.alt).not.toContain('Clawd')
   expect(bandSvg(undefined, { left: [], right: [], show: false }, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })).toBeUndefined()
@@ -521,4 +521,71 @@ test('a mark can take a class in place of its own colour', () => {
   const classed = icon('git', 0, 0, 12, 'sm')
   expect(classed).toContain('class="sm"')
   expect(classed).not.toContain('fill=')
+})
+
+const ROW = {
+  left: [
+    { icon: 'folder', label: 'Directory', value: 'claude-skins' },
+    { icon: 'git', label: 'Git user', value: 'Panupat' },
+    { icon: 'branch', label: 'Branch', value: 'sabai-2.4 ↑2 ↓1 ±3', branch: 'sabai-2.4', ahead: 2, behind: 1, changes: 3 },
+  ],
+  right: [{ icon: 'shield', label: 'Turned on:', value: 'guard · 7' }, { icon: 'node', label: 'Node', value: 'v24.21.0' }],
+  show: true,
+} as const
+// The info row's texts in order, from the first drawn part of the band.
+const rowTexts = (source: string) => [...source.slice(0, source.indexOf('</g><!--info-->')).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
+
+test('the info row: the project, a branch tag with its sync, then guard, Node and the user in muted ink', () => {
+  const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
+  expect(rowTexts(d.source)).toEqual([
+    ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
+    ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
+  ])
+  // Marks at the right take the muted ink; no chip cards.
+  expect(d.source.slice(0, d.source.indexOf('</g><!--info-->'))).not.toContain('<rect class="p"')
+  expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
+})
+
+test('a narrow info row drops the user, then the guard; Node stays; at 240 px the names are cut', () => {
+  const at = (W: number) => rowTexts(bandSvg(undefined, ROW, [], W, { hero: true, clawd: false })!.source).map(t => t[1]!)
+  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24'])
+  expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'v24'])
+  const tiny = at(240)
+  expect(tiny.some(t => t.endsWith('…'))).toBe(true)
+  expect(tiny).not.toContain('v24')
+})
+
+test('hidden or unread parts leave no gap; a plain branch chip draws its value; plain guard says guard', () => {
+  const noFolder = { ...ROW, left: ROW.left.slice(1) }
+  expect(rowTexts(bandSvg(undefined, noFolder, [], 900, { hero: true, clawd: false })!.source)[0]).toEqual(['s-session', 'sabai-2.4'])
+  const noBranch = { ...ROW, left: ROW.left.slice(0, 2) }
+  expect(rowTexts(bandSvg(undefined, noBranch, [], 900, { hero: true, clawd: false })!.source).map(t => t[0])).not.toContain('s-ok')
+  const plain = { left: [{ icon: 'branch', label: 'Branch', value: 'main ±2' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
+  expect(rowTexts(bandSvg(undefined, plain, [], 900, { hero: true, clawd: false })!.source)).toEqual([['s-session', 'main ±2'], ['sm', 'guard']])
+  // Zero counts are not drawn.
+  const zero = { left: [{ icon: 'branch', label: 'Branch', value: 'main', branch: 'main', ahead: 0, behind: 0, changes: 0 }], right: [], show: true } as const
+  expect(rowTexts(bandSvg(undefined, zero, [], 900, { hero: true, clawd: false })!.source)).toEqual([['s-session', 'main']])
+})
+
+test('in the stacked band Clawd still leads the info row', () => {
+  const d = bandSvg(undefined, ROW, [], 400, { mood: 'idle' })!
+  const row = d.source.slice(0, d.source.indexOf('</g><!--info-->'))
+  expect(row).toContain('crispEdges')
+  const name = row.match(/<text class="st" x="([\d.]+)"[^>]*>claude-skins</)
+  expect(Number(name![1])).toBeGreaterThan(24)
+})
+
+test('no two info-row texts overlap at any width', () => {
+  for (const W of [240, 320, 400, 480, 600, 760, 900, 1400]) {
+    for (const hero of [true, false]) {
+      const src = bandSvg(undefined, ROW, [], W, { hero, clawd: false })!.source
+      const row = src.slice(0, src.indexOf('</g><!--info-->'))
+      const boxes = [...row.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+        const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
+        return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
+      })
+      for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, hero, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, hero, false])
+      for (const [a, b] of boxes) expect([W, hero, a! >= -1 && b! <= W + 1]).toEqual([W, hero, true])
+    }
+  }
 })
