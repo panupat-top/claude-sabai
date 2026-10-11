@@ -121,3 +121,5 @@ export const blocks = (ratio: number, width: number, full: string, empty: string
 
 // How long Clawd stays startled after the guard catches a call.
 export const STARTLE_MS = 3000
+// How long Clawd celebrates a test run that passed.
+export const CELEBRATE_MS = 4000

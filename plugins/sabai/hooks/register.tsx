@@ -3,11 +3,11 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 
 import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { STARTLE_MS, blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, STARTLE_MS, blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, riskOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
-import type { Step, StepIcon, Tone } from './chat'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -27,7 +27,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true },
+  chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
   guardRules: DEFAULT_GUARD_RULES,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
@@ -46,6 +46,8 @@ const STEP_TOOL = 'mcp__sabai__step'
 const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
 // What the guard refused or asked about this session; not stored.
 const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
+// Clock time the main conversation's last turn ended; 0 before any.
+const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -218,6 +220,12 @@ async function guarded($: EngineInterface, tool: string, input: { command?: unkn
   return `sabai's guard refused this: it ${risk.reason}. The person can turn the guard off in /sabai-settings.`
 }
 
+// The main turn's work, for its receipt and Clawd's mood; a refused call did nothing.
+async function logCall($: EngineInterface, agentId: string | undefined, called: { deny?: string }, call: Logged) {
+  if (agentId !== undefined || called.deny !== undefined) return
+  await update($, turnLog, l => logged(l, call))
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -353,6 +361,11 @@ export const register: Register = on => {
       // Not waited on: a large repository's status must not delay the turn's end.
       void readRepo($)
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
+      const ended = await $.clock.now()
+      await update($, lastTurnAt, () => ended)
+      // The receipt: drawn under the answer as a notice, the answer itself kept.
+      const line = (await read($, prefs)).chat.receipt ? receiptText(await read($, turnLog)) : undefined
+      if (line) return { ...completed, text: line }
     } else {
       const at = await $.clock.now()
       const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
@@ -544,6 +557,16 @@ export const register: Register = on => {
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
   }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const called = await next(e)
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string })
+    return called
+  })
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const called = await next(e)
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
+    return called
+  })
   // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
   // refuses a command.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
@@ -555,6 +578,15 @@ export const register: Register = on => {
       if (id && !asked.has(id)) {
         const ms = (await $.clock.now()) - startedAt
         await update($, memberOf(durations, { requestId: id }), () => ms)
+      }
+      const r = called.result as { stdout?: string; stderr?: string } | string | undefined
+      const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
+      const at = await $.clock.now()
+      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at })
+      // This call just set the turn's test result: redraw now, and again when the celebration ends.
+      if (e.agentId === undefined && (await read($, turnLog)).test?.at === at) {
+        await update($, now, () => at)
+        $.clock.after(CELEBRATE_MS + 100, () => void tick($))
       }
       return called
     } finally {
@@ -703,6 +735,7 @@ export const register: Register = on => {
             {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
             {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
             {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
+            {chatToggle('receipt', 'Turn receipt', 'One line under a working turn’s answer: files changed, tests, commands')}
             {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </>,
         )}
@@ -823,6 +856,8 @@ export const register: Register = on => {
 
   on('turn.start', async ($, e, next) => {
     turnSeed = seedOf(e.turnId)
+    // Only the main conversation's turns start here: a subagent's run has no turn.start.
+    await update($, turnLog, () => EMPTY_LOG)
     return next(e)
   })
 

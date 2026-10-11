@@ -881,6 +881,48 @@ test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, 
   for (const rule of ['wipe', 'force', 'env', 'discard']) expect([rule, await pane.find({ key: `guard-${rule}-ask` })]).not.toEqual([rule, undefined])
 })
 
+// A main turn: start, the calls, end; what turn.complete answered.
+let turns = 0
+async function turn($: Engine, calls: () => Promise<unknown>) {
+  const turnId = `main-${++turns}`
+  await $.turn.start({ turnId } as never)
+  await calls()
+  return (await $.turn.complete({ turnId, answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })) as { text: string }
+}
+const turnStarts = (on: On) => on('turn.start', ($, e) => ({ turnId: (e as { turnId: string }).turnId }))
+
+test('a working turn ends with its receipt; a plain answer or reads alone with none', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  turnStarts(on)
+  await start($)
+  const done = await turn($, async () => {
+    await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b\nc', replace_all: false } as Parameters<typeof $.tool.call>[0])
+    await bash($, 'bun test')
+    await bash($, 'ls')
+  })
+  expect(done.text).toBe('✎ 1 file +2 −1 · ✓ 9 passed · › 2 commands')
+  expect((await turn($, async () => undefined)).text).toBe('')
+  const reads = await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]))
+  expect(reads.text).toBe('')
+})
+
+test('a subagent’s calls stay out of the main turn’s receipt, and the toggle turns it off', async ($, on) => {
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  const sub = await turn($, () => $.tool.call({ tool: 'Bash', command: 'ls', description: '', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0]))
+  expect(sub.text).toBe('')
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-chat-receipt' })
+  expect((await turn($, () => bash($, 'ls'))).text).toBe('')
+})
+
 test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
   engine(on)
   panes(on)

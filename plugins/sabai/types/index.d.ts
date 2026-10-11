@@ -45,7 +45,7 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
-  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean }
+  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
   guardRules: Record<GuardRule, GuardAction>
 }
 
@@ -80,6 +80,7 @@ declare module 'claude-code' {
       durations: StateFamily<number>
       turnLog: TurnLog
       guardCaught: number
+      lastTurnAt: number
     }
   }
 }
