@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { lookOf } from '../hooks/svg'
+import { TEXT, lookOf } from '../hooks/svg'
 import { SKINS, THEMES, cardOf, contrast, readable } from '../hooks/themes'
 
 test('every skin paints text that reads at 4.5:1 on its cards, and white on its pill', () => {
@@ -32,4 +32,14 @@ test('a legible colour is kept as the theme has it; an illegible one is stepped'
 
 test('auto is the first skin', () => {
   expect(SKINS[0]).toBe('auto')
+})
+
+test('the branch tag’s words read over its wash on light and dark surfaces, for every skin', () => {
+  const hex = (c: string) => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+  const mix = (a: string, b: string, t: number) => '#' + hex(a).map((v, i) => Math.round(v * t + hex(b)[i]! * (1 - t)).toString(16).padStart(2, '0')).join('')
+  for (const skin of SKINS)
+    for (const [i, surface] of (['#ffffff', '#1f1f1f'] as const).entries()) {
+      const wash = mix(lookOf(skin).bar('session'), surface, 0.13)
+      expect([skin, surface, contrast(TEXT.session[i]!, wash) >= 4.5]).toEqual([skin, surface, true])
+    }
 })

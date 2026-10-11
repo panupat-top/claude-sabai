@@ -26,7 +26,7 @@ In the comfortable density (the default) the band is three panels:
 
 ```
 ╭─────────┬─────────────────────────────────────────────┬────────────────────────────────╮
-│  CLAWD  │ 📁 claude-skins  ⎇ main ±1   🛡 guard·2  ⬢ v24 │ 3 running · 1 done  ✗1 ✓12 1:42 │
+│  CLAWD  │ ▪ claude-skins (⑂ main) ↑2 ±1  ◇ guard 2 ⬢ v24 │ 3 running · 1 done  ✗1 ✓12 1:42 │
 │   (×3)  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ Main · Editing svg.ts     1:42 │
 │ working │ │ CONTEXT     │ │ 5H          │ │ 7D          │ │ ▬▬▬▬▬     🦀✏            ⚑ │
 │  1m 42s │ │ 74%         │ │ 27%         │ │ 18%         │ │ Explore ×3 · 3 running    0:12 │
@@ -46,7 +46,7 @@ In the comfortable density (the default) the band is three panels:
 
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
-  - the info row: folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted), the `guard` shield (`guard · 2` once it has caught something) and Node;
+  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), Node and your git user. On a narrow window the user goes first, then Node; the guard stays, as just its shield and count when room is tight;
   - Claude's task list as a progress bar, when it keeps one;
   - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`).
   - Pick how they look in Settings → Usage → Style:

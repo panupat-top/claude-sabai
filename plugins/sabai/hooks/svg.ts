@@ -6,6 +6,7 @@ import { countdown, level, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
 import { icon } from './icons'
+import type { IconKind } from './icons'
 import { STROKES } from './strokes'
 import type { StrokeKind } from './strokes'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
@@ -299,9 +300,6 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
   return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }
 
-const CHIP_H = 20
-const CHIP_PAD = 8
-const ICON = 13
 export const monoWidth = (s: string, size: number) => s.length * size * 0.6
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
 // Cut on whole characters, never inside a surrogate pair, which would leave the SVG malformed.
@@ -311,31 +309,88 @@ const fitMono = (s: string, size: number, maxW: number) => {
   return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
 }
 
-// The info row: one chip per fact, its mark then its value. The left group runs from the
-// left edge (after Clawd, when the band has no tasks row to hold him), the right group ends at
-// the right edge; left chips that would meet it are left out.
-function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
-  const width = (c: Chip) => Math.ceil(CHIP_PAD * 2 + ICON + 6 + monoWidth(c.value, 11.5))
-  const chip = (c: Chip, x: number) =>
-    `<rect class="p" x="${x}" y="${y}" width="${width(c)}" height="${CHIP_H}" rx="6"/>` +
-    icon(c.icon, x + CHIP_PAD, y + (CHIP_H - ICON) / 2, ICON) +
-    `<text class="t" x="${x + CHIP_PAD + ICON + 6}" y="${y + CHIP_H / 2 + 4}" font-family="${MONO}" font-size="11.5" font-weight="600">${xml(c.value)}</text>`
-  let right = W
-  const rightBody = [...info.right].reverse().map(c => chip(c, (right -= width(c) + GAP) + GAP)).join('')
-  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory, clawd.trick) : ''
-  let x = clawd ? spriteSize('tasks').width + GAP : 0
-  const drawn: Chip[] = []
-  const leftBody = info.left
-    .map(c => {
-      if (x + width(c) > right - GAP) return ''
-      drawn.push(c)
-      const at = x
-      x += width(c) + GAP
-      return chip(c, at)
-    })
-    .join('')
-  const alt = [...drawn, ...info.right].map(c => `${c.label} ${c.value}`).join(', ') + (clawd ? moodSaid(clawd.mood) : '')
-  return { body: lead + leftBody + rightBody, height: CHIP_H, alt: alt.replace(/^; /, '') }
+const INFO_H = 22
+// The info row: the project, its branch as a tinted tag with the sync counts, then at the right
+// the guard, Node and the git user as small marks in the muted ink. Room runs out from the right:
+// the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
+// The row sits on the surface, so every word takes the surface's inks.
+function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
+  const all = [...info.left, ...info.right]
+  const by = (k: IconKind) => all.find(c => c.icon === k)
+  const folder = by('folder')
+  const branch = by('branch')
+  const user = by('git')
+  const node = by('node')
+  const guard = by('shield')
+  const mid = y + INFO_H / 2
+  const lead = clawd ? clawdAt(clawd.look, 0, y + (INFO_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory, clawd.trick) : ''
+  const x0 = clawd ? spriteSize('tasks').width + GAP : 0
+  // The right side in its order, each with how long it stays when room is short.
+  const items = [
+    guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
+    node && { k: 'node' as const, v: node.value.match(/^v?\d+/)?.[0] ?? node.value, keep: 2 },
+    user && { k: 'git' as const, v: user.value, keep: 1 },
+  ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
+  const itemW = (i: { v: string }) => 12 + (i.v ? 5 + monoWidth(i.v, 10.5) : 0)
+  const rightW = (list: typeof items) => list.reduce((n, i) => n + itemW(i), 0) + 16 * Math.max(0, list.length - 1)
+  const counts =
+    branch && branch.branch !== undefined
+      ? ([[branch.ahead, '↑', 's-ok'], [branch.behind, '↓', 's-context'], [branch.changes, '±', 's-warn']] as const)
+          .filter(([n]) => n !== undefined && n > 0)
+          .map(([n, mark, cls]) => ({ s: `${mark}${n}`, cls }))
+      : []
+  const countsW = counts.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
+  // A very long branch (a dependabot or feature path) is cut to its first 24 characters before it can
+  // push the guard and Node off an otherwise roomy row.
+  const fullName = [...(branch ? (branch.branch ?? branch.value) : '')]
+  const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
+  const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 9
+  const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
+  const leftW = (f: string, b: string) => x0 + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
+  let shown = items
+  while (shown.length && leftW(folder?.value ?? '', name) + 12 > W - rightW(shown)) {
+    const least = Math.min(...shown.map(i => i.keep))
+    shown = shown.filter(i => i.keep !== least)
+  }
+  let b = name
+  let f = folder?.value ?? ''
+  // The guard is the band's only sign of it, so it holds on longest: as its shield and count alone,
+  // then by cutting the branch name (to six characters) to make room.
+  if (guard && !shown.length) {
+    shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
+    const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
+    if (room < tagW(b)) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), room - tagW('')))
+    if (leftW(f, b) + 12 > W - rightW(shown)) shown = []
+  }
+  // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
+  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), monoWidth(b, 11) - (leftW(f, b) - W)))
+  if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
+  let x = x0
+  let body = lead
+  if (folder) {
+    body += icon('folder', x, mid - 6.5, 13, 'sm') + `<text class="st" x="${x + 19}" y="${mid + 5}" font-family="${SANS}" font-size="14.5" font-weight="700">${xml(f)}</text>`
+    x += folderW(f)
+  }
+  if (branch) {
+    const tw = tagW(b)
+    body +=
+      `<rect x="${+x.toFixed(1)}" y="${mid - 10}" width="${+tw.toFixed(1)}" height="20" rx="10" fill="${look.bar('session')}" opacity=".13"/>` +
+      icon('branch', +(x + 8).toFixed(1), mid - 6, 12, 's-session') +
+      `<text class="s-session" x="${+(x + 25).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="11" font-weight="600">${xml(b)}</text>`
+    x += tw + 10
+    for (const c of counts) {
+      body += `<text class="${c.cls}" x="${+x.toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5" font-weight="600">${c.s}</text>`
+      x += monoWidth(c.s, 10.5) + 7
+    }
+  }
+  let rx = W - rightW(shown)
+  for (const i of shown) {
+    body += icon(i.k, +rx.toFixed(1), mid - 6, 12, 'sm') + `<text class="sm" x="${+(rx + 17).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5">${xml(i.v)}</text>`
+    rx += itemW(i) + 16
+  }
+  const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
+  const alt = drawn.map(c => `${c.label} ${c.value}`).join(', ') + (clawd ? moodSaid(clawd.mood) : '')
+  return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
 }
 
 const CREW_H = 22
@@ -653,7 +708,7 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
     parts.push(part)
     y += part.height + GAP
   }
-  if (info.left.length + info.right.length > 0) add(chipsPart(info, rw, y))
+  if (info.left.length + info.right.length > 0) add(infoPart(info, rw, y, look))
   if (live && !race) add(livePart(look, live, rw, y))
   if (p) add(progressPart(look, p, rw, mood, y, style, false))
   if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
@@ -762,7 +817,7 @@ export function bandSvg(
   const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
   const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && (clawdInLive || (!live && Boolean(p))))
   if (hatted && firstHoldsClawd) y = HAT_H
-  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
+  if (info.left.length + info.right.length > 0 || clawdInInfo) add(infoPart(info, W, y, look, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
   if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))

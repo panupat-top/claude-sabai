@@ -34,9 +34,10 @@ export const ICONS: Record<IconKind, Icon> = {
   },
 }
 
-// The mark drawn `size` pixels square with its top-left at (x, y).
-export function icon(kind: IconKind, x: number, y: number, size: number): string {
+// The mark drawn `size` pixels square with its top-left at (x, y); `cls` paints it with a class
+// (the surface's muted ink, say) instead of its own colour.
+export function icon(kind: IconKind, x: number, y: number, size: number, cls?: string): string {
   const { box, fill, d } = ICONS[kind]
-  const paint = fill.startsWith('.') ? `class="${fill.slice(1)}"` : `fill="${fill}"`
+  const paint = cls ? `class="${cls}"` : fill.startsWith('.') ? `class="${fill.slice(1)}"` : `fill="${fill}"`
   return `<path ${paint} transform="translate(${x},${y}) scale(${size / box})" d="${d}"/>`
 }
