@@ -219,13 +219,13 @@ const paint = (rows: string[], cells: [number, number, string][]) => {
 // a yawn opens the mouth (its shut eyes come from the shut-eye rows).
 function trickRows(rows: string[], has: (m: string) => boolean): string[] {
   if (has('look-right')) return rows.map((r, i) => (i === 2 || i === 3 ? r.slice(0, 4) + 'o' + r.slice(4, 19) + r.slice(20) : r))
-  if (has('look-up')) return paint(rows.map((r, i) => (i === 2 || i === 3 ? r.replace(/k/g, 'o') : r)), [[6, 1, 'k'], [7, 1, 'k'], [16, 1, 'k'], [17, 1, 'k']])
+  if (has('look-up')) return paint(rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)), [[6, 1, 'k'], [7, 1, 'k'], [16, 1, 'k'], [17, 1, 'k']])
   if (has('yawn')) return paint(rows, [[11, 5, 'k'], [12, 5, 'k'], [11, 6, 'k'], [12, 6, 'k']])
   return rows
 }
 // The wave's two frames, the raised claw first so a still first frame reads as a wave. Carried
 // by the waving sprite alone: SPRITE_CSS rides in every swatch of the skins pane.
-const WAVE_CSS = '.wave .wv-up{animation:wvu 1s steps(1) infinite}.wave .wv-down{animation:wvd 1s steps(1) infinite}@keyframes wvu{50%{opacity:0}}@keyframes wvd{0%{opacity:0}50%{opacity:1}}'
+const WAVE_CSS = '.wave .wv-up{animation:wvu 1s steps(1) infinite}.wave .wv-down{animation:wvd 1s steps(1) infinite}@keyframes wvu{50%{opacity:0}}@keyframes wvd{0%{opacity:0}50%{opacity:1}}@media (prefers-reduced-motion: reduce){.wave .wv-down{opacity:0}}'
 // The wave's raised claw: the right arm leaves its side and rises by the head.
 const raised = (rows: string[]) =>
   paint(rows, [
@@ -237,7 +237,7 @@ const raised = (rows: string[]) =>
 // the row), mid-tones that read on light and dark; the `z` takes the band's muted ink.
 const MOOD_MARKS: Record<string, string> = {
   startle: '<g class="bang"><rect x="25" y="0" width="2" height="4" fill="#e3b341"/><rect x="25" y="5" width="2" height="1" fill="#e3b341"/></g>',
-  yawn: '<g class="zz"><rect x="25" y="0" width="3" height="1" class="sm"/><rect x="26" y="1" width="1" height="1" class="sm"/><rect x="25" y="2" width="3" height="1" class="sm"/></g>',
+  yawn: '<g class="zz"><rect x="25" y="0" width="3" height="1" class="sm"/><rect x="26" y="1" width="1" height="1" class="sm"/><rect x="25" y="2" width="1" height="1" class="sm"/><rect x="25" y="3" width="3" height="1" class="sm"/></g>',
   sweat: '<g class="drop"><rect x="21" y="1" width="2" height="2" fill="#5fb4ff"/><rect x="21.5" y="0" width="1" height="1" fill="#5fb4ff"/></g>',
   sleep: '<g class="zz"><rect x="25" y="0" width="4" height="1" class="sm"/><rect x="27" y="1" width="1" height="1" class="sm"/><rect x="26" y="2" width="1" height="1" class="sm"/><rect x="25" y="3" width="4" height="1" class="sm"/></g>',
 }

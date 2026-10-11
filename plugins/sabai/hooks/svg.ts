@@ -643,7 +643,7 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
         (m.percent > 0 ? `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>` : '')
       const pct = utext(pctClass(m), cx, cy + fs * 0.35, `${m.percent}%`, fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
       const words = stacked
-        ? utext('t', cx, cy + d / 2 + 16, `${usageLabel(m)} · ${mainOf(m)}`, 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
+        ? utext('t', cx, cy + d / 2 + 16, [usageLabel(m), mainOf(m)].filter(Boolean).join(' · '), 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
           (h - (cy + d / 2) >= 34 ? utext('m', cx, cy + d / 2 + 30, subOf(m, now), 9.5, cw - 12, ' text-anchor="middle"') : '')
         : utext('m', x + 18 + d, h / 2 - 8, usageLabel(m), 9.5, cw - d - 26, ' font-weight="700" letter-spacing=".08em"') +
           utext('t', x + 18 + d, h / 2 + 8, mainOf(m), 10.5, cw - d - 26, ' font-weight="600"') +
@@ -878,7 +878,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
     (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
     `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
     bars
-  return swatch(look, w, body, `${THEMES[skin]?.name ?? 'Auto'} skin colours`)
+  return swatch(look, w, body, `${THEMES[skin]?.name ?? 'Auto'} skin colours`, !inUse)
 }
 
 // The picker's sample of a bar style: one bar, part filled, in the skin's task colour.
@@ -886,15 +886,15 @@ export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
   const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
-  return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`)
+  return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`, style !== 'dither')
 }
 
 const strip = (w: number) => `<rect class="p" width="${w}" height="${SWATCH_H}" rx="8"/>`
 
 // The pane has no spacing finer than a row, so the gap under a swatch's name row is drawn here.
-function swatch(look: Look, w: number, body: string, alt: string): Drawing {
+function swatch(look: Look, w: number, body: string, alt: string, still = false): Drawing {
   const h = SWATCH_TOP + SWATCH_H
-  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`), width: w, height: h, alt }
+  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`, still), width: w, height: h, alt }
 }
 
 const drawing = (look: Look, W: number, height: number, body: string, alt: string, still = false): Drawing => ({

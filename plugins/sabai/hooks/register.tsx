@@ -49,7 +49,7 @@ const withDefaults = (v: unknown): Prefs => {
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
     show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
     extras: { ...DEFAULT_PREFS.extras, ...(p.extras ?? {}) },
-    usageStyle: p.usageStyle && p.usageStyle in USAGE_STYLES ? p.usageStyle : DEFAULT_PREFS.usageStyle,
+    usageStyle: p.usageStyle && Object.hasOwn(USAGE_STYLES, p.usageStyle) ? p.usageStyle : DEFAULT_PREFS.usageStyle,
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -98,7 +98,7 @@ const RUNNING_SHOWN = 6
 // the rest included, must stay under the engine's 100,000.
 const PANE_BUDGET = 70_000
 
-const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
+const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && Object.hasOwn(BAR_STYLES, v)
 // The terminal's stand-ins for each style's filled and empty cells.
 const BAR_GLYPHS: Record<BarStyle, [string, string]> = { dither: ['▓', '░'], blocks: ['▰', '▱'], solid: ['█', '░'] }
 
@@ -361,7 +361,7 @@ export const register: Register = on => {
     const known = await $.session.usage().catch(() => undefined)
     if (known) {
       await update($, usage, () => toUsage(known))
-      }
+    }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -1121,7 +1121,8 @@ export const register: Register = on => {
     if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
-    const clawdLine = moodLine(mood, {
+    // With the live strip off, the turn's time stands under Clawd's word instead.
+    const clawdLine = mood === 'working' && began !== 0 ? clock(Math.max(0, at - began)) : moodLine(mood, {
       caught: caughtCount,
       passed: turn.test?.passed,
       failed: turn.test?.failed,

@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -701,6 +701,18 @@ test('a lane’s tiles stop before its flag, however many calls it made', () => 
   const flag = Number(body.match(/<rect class="m" x="([\d.]+)"[^>]*width="1.2"/)![1])
   expect(ends.length).toBeGreaterThan(16)
   expect(Math.max(...ends) <= flag).toBe(true)
+})
+
+test('a stacked ring with nothing beside its label leaves no dangling separator', () => {
+  const list = [{ kind: 'context', label: 'Context', percent: 12 }, { kind: 'session', label: '5H Limit', percent: 30 }, { kind: 'week', label: '7D All', percent: 40 }] as never
+  expect(bandSvg(undefined, { left: [], right: [] }, list, 480, { hero: true, usageStyle: 'rings' })!.source).not.toContain(' · </text>')
+})
+
+test('idle skin swatches and the still bar previews carry no motion stylesheet', () => {
+  expect(skinPreview('nord', 400).source).not.toContain(MOTION)
+  expect(skinPreview('nord', 400, true).source).toContain(MOTION)
+  expect(barPreview('solid', 'nord', 400).source).not.toContain(MOTION)
+  expect(barPreview('dither', 'nord', 400).source).toContain(MOTION)
 })
 
 test('a ring at 0% draws its track and no dot', () => {
