@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -302,4 +302,17 @@ test('Clawd sits in the tasks row when there is one, else at the left of the inf
   expect(bandSvg(undefined, { left: [], right: [], show: true }, [], 600, 'sweating', 'auto', 'dither')!.source).toContain('class="sweat"')
   // Celebrating hops with confetti.
   expect(bandSvg(undefined, info, [], 600, 'celebrating', 'auto', 'dither')!.source).toContain('class="cf"')
+})
+
+test('a receipt card is fixed in size, in the colour of how the turn went, with confetti only when all green', () => {
+  const green = receiptSvg({ tone: 'ok', headline: 'All green', test: { passed: 9, failed: 0 }, commands: { count: 2, failed: 0 } })
+  expect([green.width, green.height]).toEqual([560, 36])
+  expect(green.source).toContain('class="s-ok an-pop"')
+  expect(green.source).toContain(' rc"')
+  const failing = receiptSvg({ tone: 'bad', headline: 'Tests failing', files: { count: 3, added: 40, removed: 12 }, test: { passed: 96, failed: 2 }, commands: { count: 4, failed: 1 } })
+  expect(failing.source).toContain('class="s-bad an-shake"')
+  expect(failing.source).not.toContain(' rc"')
+  // All three chips fit, even with the longest words.
+  expect(failing.alt).toBe('Turn receipt: Tests failing; 3 files +40 −12; 2 of 98 failed; 4 commands · 1 failed')
+  for (const words of ['3 files ', '2 of 98 failed', '4 commands']) expect([words, failing.source.includes(`>${words}<`)]).toEqual([words, true])
 })

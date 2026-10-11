@@ -895,15 +895,22 @@ test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, 
 
 // A main turn: start, the calls, end; what turn.complete answered.
 let turns = 0
-async function turn($: Engine, calls: () => Promise<unknown>) {
+async function turn($: Engine, calls: () => Promise<unknown>, answer = 'ok') {
   const turnId = `main-${++turns}`
   await $.turn.start({ turnId } as never)
   await calls()
-  return (await $.turn.complete({ turnId, answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })) as { text: string }
+  return (await $.turn.complete({ turnId, answer, durationMs: 1000, isAborted: false, reason: 'answer' })) as { text: string }
+}
+// The receipt under a reply: the desktop's drawing by its alt, the terminal's line.
+async function receiptUnder($: Engine, surface: Surface, text: string) {
+  const ui = await mountReply($, surface, text)
+  const words = surface === 'desktop' ? (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('') : (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
+  await ui.unmount()
+  return words
 }
 const turnStarts = (on: On) => on('turn.start', ($, e) => ({ turnId: (e as { turnId: string }).turnId }))
 
-test('a working turn ends with its receipt; a plain answer or reads alone with none', async ($, on) => {
+test('a working turn’s last reply carries its receipt card; other replies, plain answers and reads none', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
       ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
@@ -912,15 +919,26 @@ test('a working turn ends with its receipt; a plain answer or reads alone with n
   engine(on)
   turnStarts(on)
   await start($)
-  const done = await turn($, async () => {
-    await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b\nc', replace_all: false } as Parameters<typeof $.tool.call>[0])
-    await bash($, 'bun test')
-    await bash($, 'ls')
-  })
-  expect(done.text).toBe('✎ 1 file +2 −1 · ✓ 9 passed · › 2 commands')
-  expect((await turn($, async () => undefined)).text).toBe('')
-  const reads = await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]))
-  expect(reads.text).toBe('')
+  const done = await turn(
+    $,
+    async () => {
+      await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b\nc', replace_all: false } as Parameters<typeof $.tool.call>[0])
+      await bash($, 'bun test')
+      await bash($, 'ls')
+    },
+    'All done.',
+  )
+  // The answer itself is left alone: the card is drawn under the reply instead.
+  expect(done.text).toBe('')
+  expect(await receiptUnder($, 'desktop', 'All done.')).toBe('Turn receipt: All green; 1 file +2 −1; 9 passed; 2 commands')
+  expect(await receiptUnder($, 'terminal', 'All done.')).toContain('All green · ✎ 1 file +2 −1 · ✓ 9 passed · › 2 commands')
+  expect(await receiptUnder($, 'desktop', 'An earlier reply.')).not.toContain('Turn receipt')
+  await turn($, async () => undefined, 'Just talk.')
+  expect(await receiptUnder($, 'desktop', 'Just talk.')).not.toContain('Turn receipt')
+  await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]), 'Read it.')
+  expect(await receiptUnder($, 'desktop', 'Read it.')).not.toContain('Turn receipt')
+  // A turn that ends with no words of its own falls back to the notice under it.
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('› 1 command')
 })
 
 test('a subagent’s calls stay out of the main turn’s receipt, and the toggle turns it off', async ($, on) => {
@@ -928,11 +946,13 @@ test('a subagent’s calls stay out of the main turn’s receipt, and the toggle
   panes(on)
   turnStarts(on)
   await start($)
-  const sub = await turn($, () => $.tool.call({ tool: 'Bash', command: 'ls', description: '', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0]))
-  expect(sub.text).toBe('')
+  await turn($, () => $.tool.call({ tool: 'Bash', command: 'ls', description: '', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0]), 'Sub ran.')
+  expect(await receiptUnder($, 'desktop', 'Sub ran.')).not.toContain('Turn receipt')
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   await pane.press({ key: 'pref-chat-receipt' })
-  expect((await turn($, () => bash($, 'ls'))).text).toBe('')
+  await turn($, () => bash($, 'ls'), 'Ran ls.')
+  expect(await receiptUnder($, 'desktop', 'Ran ls.')).not.toContain('Turn receipt')
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
 })
 
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {

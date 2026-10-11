@@ -1,13 +1,13 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, Usage } from '../types'
+import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -49,6 +49,10 @@ const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
 const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
 // Clock time the main conversation's last turn ended; 0 before any.
 const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
+// Recent turns' logs by their final answer, so the reply that answer is drawn as carries its
+// receipt card; the engine names no turn on a reply, but its text is the answer's.
+const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
+const RECEIPTS_KEPT = 40
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -101,6 +105,8 @@ const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: 
 // Clawd's mood on the terminal, as one glyph; idle shows none.
 const MOOD_GLYPH: Partial<Record<Mood, string>> = { startled: '!', sad: '✗', celebrating: '✓', sweating: '≈', working: '●', sleeping: 'z' }
 // The terminal's stand-ins for a step's icon.
+// The receipt's mark on the terminal, by how the turn went.
+const RECEIPT_GLYPH: Record<Tone, string> = { ok: '✓', bad: '✗', warn: '▲', edit: '●', text: '●', muted: '●', read: '●' }
 const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
 // Module state is fine here: session.start sets it again after a reload.
@@ -368,9 +374,14 @@ export const register: Register = on => {
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
-      // The receipt: drawn under the answer as a notice, the answer itself kept.
-      const line = (await read($, prefs)).chat.receipt ? receiptText(await read($, turnLog)) : undefined
-      if (line) return { ...completed, text: line }
+      // The receipt: a card under the reply that holds the answer; a turn with no words of its own
+      // gets it as the notice under it instead.
+      const log = await read($, turnLog)
+      if ((await read($, prefs)).chat.receipt && receiptOf(log)) {
+        const answer = e.answer.trim()
+        if (!answer) return { ...completed, text: receiptText(log)! }
+        await update($, receipts, all => Object.fromEntries([...Object.entries(all).filter(([k]) => k !== answer), [answer, log]].slice(-RECEIPTS_KEPT)))
+      }
     } else {
       const at = await $.clock.now()
       const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
@@ -832,13 +843,17 @@ export const register: Register = on => {
   )
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !(await read($, prefs)).chat.callouts) return next(e)
-    const parts = splitCallouts(e.props.text)
-    if (!parts.some(s => s.kind === 'callout')) return next(e)
+    const p = await read($, prefs)
     const ui = $.ui.resolve(e)
     const { Box, Markdown, Text } = ui
     const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
-    return (
+    // The turn's receipt, when this reply holds a working turn's final answer.
+    const log = p.chat.receipt && !e.props.isSummary ? (await read($, receipts))[e.props.text.trim()] : undefined
+    const receipt = log && receiptOf(log)
+    const parts = e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !p.chat.callouts ? [] : splitCallouts(e.props.text)
+    const body = !parts.some(s => s.kind === 'callout') ? (
+      await next(e)
+    ) : (
       <Box flexDirection="column" rowGap={1}>
         {parts.map((s, i) => {
           if (s.kind === 'md') return s.text.trim() ? <Markdown key={`md${i}`} text={s.text} /> : null
@@ -857,6 +872,18 @@ export const register: Register = on => {
             </Box>
           )
         })}
+      </Box>
+    )
+    if (!receipt || !log) return body
+    const card = Svg ? receiptSvg(receipt) : undefined
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        {body}
+        {Svg && card ? (
+          <Svg source={card.source} alt={card.alt} width={card.width} height={card.height} />
+        ) : (
+          <Text color={TONE_KEY[receipt.tone]}>{`${RECEIPT_GLYPH[receipt.tone]} ${receipt.headline} · ${receiptText(log)}`}</Text>
+        )}
       </Box>
     )
   })

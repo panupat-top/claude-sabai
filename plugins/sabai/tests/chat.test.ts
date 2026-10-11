@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, logged, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -214,4 +214,20 @@ test('the receipt says only what the turn did, in one line', () => {
   ).toBe('✎ 3 files +40 −12 · ✗ 2 of 98 failed · › 2 commands, 1 failed')
   // The guard's stamp alone is no work.
   expect(receiptText({ ...EMPTY_LOG, caught: 5 })).toBeUndefined()
+})
+
+test('a receipt’s parts and mood: all green, failing tests, a failed command, or plain work', () => {
+  const files = { 'a.ts': { added: 30, removed: 10 }, 'b.ts': { added: 10, removed: 2 } }
+  expect(receiptOf(EMPTY_LOG)).toBeUndefined()
+  expect(receiptOf({ ...EMPTY_LOG, caught: 1 })).toBeUndefined()
+  expect(receiptOf({ files, commands: 2, failed: 0, test: { passed: 9, failed: 0, at: 0 } })).toEqual({
+    tone: 'ok',
+    headline: 'All green',
+    files: { count: 2, added: 40, removed: 12 },
+    test: { passed: 9, failed: 0 },
+    commands: { count: 2, failed: 0 },
+  })
+  expect(receiptOf({ files: {}, commands: 1, failed: 1, test: { passed: 7, failed: 2, at: 0 } })).toMatchObject({ tone: 'bad', headline: 'Tests failing' })
+  expect(receiptOf({ files, commands: 3, failed: 1 })).toMatchObject({ tone: 'warn', headline: '1 command failed' })
+  expect(receiptOf({ files, commands: 0, failed: 0 })).toMatchObject({ tone: 'edit', headline: 'Done', files: { count: 2, added: 40, removed: 12 } })
 })

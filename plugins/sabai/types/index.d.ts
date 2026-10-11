@@ -81,6 +81,7 @@ declare module 'claude-code' {
       turnLog: TurnLog
       guardCaught: number
       lastTurnAt: number
+      receipts: Record<string, TurnLog>
     }
   }
 }

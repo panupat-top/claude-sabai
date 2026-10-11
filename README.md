@@ -60,7 +60,7 @@ Press **Report** on a finished agent to read what it found, and **Clear** to tid
 - **Test results:** runs of bun, jest, vitest, pytest, cargo or go show their pass and fail counts.
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!WARNING]` and the other GitHub alerts in a reply become coloured boxes.
 - **Spinner words:** Thai words while Claude works (`กำลังคิด`, `กำลังลงมือทำ`).
-- **Turn receipt:** a turn that changed files, ran tests or ran commands ends with one line under the answer, e.g. `✎ 3 files +40 −12 · ✓ 159 passed · › 6 commands, 1 failed`.
+- **Turn receipt:** a turn that changed files, ran tests or ran commands ends with a card under its last reply: how it went (`All green` with confetti, `Tests failing`, `1 command failed`, `Done`) and a chip each for files `+40 −12`, tests and commands.
 
 Want the native rows that expand to output and diffs? Turn **Tool summaries** off.
 

@@ -310,15 +310,37 @@ export function logged(log: TurnLog, c: Logged): TurnLog {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-// The turn's receipt, or nothing for a turn that changed, tested and ran nothing.
+export type Receipt = {
+  tone: Tone
+  headline: string
+  files?: { count: number; added: number; removed: number }
+  test?: { passed: number; failed: number }
+  commands?: { count: number; failed: number }
+}
+
+// What a turn did, for its receipt, with a headline and tone for how it went; nothing for a turn
+// that changed, tested and ran nothing.
+export function receiptOf(log: TurnLog): Receipt | undefined {
+  const all = Object.values(log.files)
+  const files = all.length ? { count: all.length, added: all.reduce((n, f) => n + f.added, 0), removed: all.reduce((n, f) => n + f.removed, 0) } : undefined
+  const test = log.test ? { passed: log.test.passed, failed: log.test.failed } : undefined
+  const commands = log.commands ? { count: log.commands, failed: log.failed } : undefined
+  if (!files && !test && !commands) return undefined
+  const [tone, headline]: [Tone, string] =
+    test && test.failed > 0 ? ['bad', 'Tests failing']
+    : log.failed > 0 ? ['warn', `${plural(log.failed, 'command')} failed`]
+    : test ? ['ok', 'All green']
+    : ['edit', 'Done']
+  return { tone, headline, ...(files ? { files } : {}), ...(test ? { test } : {}), ...(commands ? { commands } : {}) }
+}
+
+// The turn's receipt in one line, or nothing for a turn that changed, tested and ran nothing.
 export function receiptText(log: TurnLog): string | undefined {
-  const files = Object.values(log.files)
+  const r = receiptOf(log)
+  if (!r) return undefined
   const parts: string[] = []
-  if (files.length) {
-    const sum = (k: 'added' | 'removed') => files.reduce((n, f) => n + f[k], 0)
-    parts.push(`✎ ${plural(files.length, 'file')} +${sum('added')} −${sum('removed')}`)
-  }
-  if (log.test) parts.push(log.test.failed ? `✗ ${log.test.failed} of ${log.test.passed + log.test.failed} failed` : `✓ ${log.test.passed} passed`)
-  if (log.commands) parts.push(`› ${plural(log.commands, 'command')}${log.failed ? `, ${log.failed} failed` : ''}`)
-  return parts.length ? parts.join(' · ') : undefined
+  if (r.files) parts.push(`✎ ${plural(r.files.count, 'file')} +${r.files.added} −${r.files.removed}`)
+  if (r.test) parts.push(r.test.failed ? `✗ ${r.test.failed} of ${r.test.passed + r.test.failed} failed` : `✓ ${r.test.passed} passed`)
+  if (r.commands) parts.push(`› ${plural(r.commands.count, 'command')}${r.commands.failed ? `, ${r.commands.failed} failed` : ''}`)
+  return parts.join(' · ')
 }
