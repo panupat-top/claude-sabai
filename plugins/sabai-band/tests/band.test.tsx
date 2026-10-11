@@ -1066,7 +1066,20 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   expect(seen.at(-1)).toBe(true)
 })
 
-test('the guard label is drawn like a step’s icon on the desktop, and as a glyph on the terminal', async ($, on) => {
+test('the guard label sits in the band’s info row, a shield chip before Node, on both surfaces', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).toMatch(/Turned on: guard, Node v24\.1\.0/)
+  expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
+})
+
+test('no guard chip while the guard is off, or while Guard label is off', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).not.toContain('guard')
+})
+
+test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
   const seen: string[][] = []
   on('ui.render', { component: 'SessionMode' }, ($, e) => {
     seen.push([...(e.props as { modes: string[] }).modes])
@@ -1075,10 +1088,8 @@ test('the guard label is drawn like a step’s icon on the desktop, and as a gly
   engine(on, { store: { prefs: { guard: true } } })
   await start($)
   const mount = (surface: Surface, n: number) => $.ui.mount({ plugin: 'sabai-band', surface, component: 'SessionMode', requestId: `sm${n}`, viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
-  const desk = await mount('desktop', 1)
-  const svg = (await desk.findAll({ type: 'Svg' }))[0]
-  expect([svg?.props.alt, typeof svg?.props.width, typeof svg?.props.height]).toEqual(['focus & guard', 'number', 'number'])
-  expect(String(svg?.props.source)).toContain('M20 13c0 5-3.5 7.5-7.66 8.95')
+  await mount('desktop', 1)
+  expect(seen.at(-1)).toEqual(['focus'])
   await mount('terminal', 2)
   expect(seen.at(-1)).toEqual(['focus', '◈ guard'])
 })

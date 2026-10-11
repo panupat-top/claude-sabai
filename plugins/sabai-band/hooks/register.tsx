@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, modesSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
 import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Step, StepIcon, Tone } from './chat'
@@ -86,7 +86,7 @@ const CREW_LINGER_MS = 60_000
 // A hung git (a network drive, a stale lock) gives up rather than hold the band.
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
-const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
+const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: '◈' } as const
 // The terminal's stand-ins for a step's icon.
 const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
@@ -630,7 +630,7 @@ export const register: Register = on => {
           {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
           {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-          {chatToggle('label', 'Guard label', 'A shield and guard under the prompt (needs Guard)')}
+          {chatToggle('label', 'Guard label', "A shield chip in the band's info row (needs Guard)")}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Agents and safety', '')}
@@ -742,12 +742,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
     const p = await read($, prefs)
-    if (!p.chat.label || !p.guard) return next(e)
-    const ui = $.ui.resolve(e)
-    if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
-      const d = modesSvg(e.props.modes)
-      return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
-    }
+    // The desktop draws no footer for these; the band's info row carries the guard there.
+    if (!p.chat.label || !p.guard || e.surface !== 'terminal') return next(e)
     return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '◈ guard'] } })
   })
 
@@ -760,12 +756,15 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const { rows } = await read($, prefs)
+    const shownPrefs = await read($, prefs)
+    const { rows } = shownPrefs
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
     const list = rows.usage ? meters(measured, at) : []
     const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
+    // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
+    if (rows.info && shownPrefs.guard && shownPrefs.chat.label) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.

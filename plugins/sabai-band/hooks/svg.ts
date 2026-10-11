@@ -715,27 +715,6 @@ export function stepSvg(step: Step): Drawing {
   }
 }
 
-// The footer's mode labels with the guard's: each dim, the guard's after a shield drawn like a
-// step's icon. One small drawing, since a drawing sets its siblings on lines of their own.
-export function modesSvg(modes: readonly string[]): Drawing {
-  let x = 0
-  let body = ''
-  for (const m of modes) {
-    body += `<text class="k-muted" x="${x}" y="12" font-family="${SANS}" font-size="11">${xml(m)}</text>`
-    x += sansWidth(m, 11) * 0.95 + 4
-    body += `<text class="k-muted" x="${x}" y="12" font-family="${SANS}" font-size="11">&amp;</text>`
-    x += 12
-  }
-  body += stroke('shield-check', 's-ok', x, 1, 12) + `<text class="k-muted" x="${x + 15}" y="12" font-family="${SANS}" font-size="11">guard</text>`
-  const w = Math.ceil(x + 15 + sansWidth('guard', 11) * 0.95 + 2)
-  return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="16" viewBox="0 0 ${w} 16"><style>${CHAT_CSS}</style>${body}</svg>`,
-    width: w,
-    height: 16,
-    alt: [...modes, 'guard'].join(' & '),
-  }
-}
-
 // Each callout kind: its stroke icon, the theme key its box and terminal title take, a terminal
 // glyph, and its SVG ink as [light, dark].
 export const CALLOUT_KINDS = {

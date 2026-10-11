@@ -8,7 +8,7 @@ A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its o
 
 | Row | What it shows |
 |---|---|
-| Info | Current directory, git user and branch on the left — the branch with commits ahead `↑` / behind `↓` its upstream and uncommitted files `±` — and the Node.js version on the right. |
+| Info | Current directory, git user and branch on the left — the branch with commits ahead `↑` / behind `↓` its upstream and uncommitted files `±` — and the Node.js version on the right, with a shield `guard` chip before it while the guard is on. |
 | Tasks | Clawd, a pixel Claude mascot, beside a progress bar of Claude's own task list: the task in progress, `done/total` and percent. Clawd walks while Claude works and blinks while it waits. The row leaves once every task is done. |
 | Crew | While subagents are around: a small Clawd per running agent in its type's hat, holding its tool, walking; the newest agent's task and progress; running ●, done ✓ and failed ✗ counts and the time. Once all are done the crew stands by with a summary for a minute, then leaves the band. |
 | Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
@@ -55,7 +55,7 @@ The newest running agents get a card (up to six, fewer when their drawings would
 - **Test results:** a command that runs bun, jest, vitest, pytest, cargo or go tests gets a flask icon, a meter and its counts (`✓ 141 passed`, `✗ 2 of 98 failed`).
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
 - **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
-- **Guard label:** a shield and `guard` under the prompt while the guard is on, drawn like the steps' icons.
+- **Guard label:** while the guard is on, a shield chip `guard` in the band's info row, before Node (on the terminal, also beside the footer's mode labels).
 
 Colours in the conversation follow your light or dark theme, not the skin.
 
