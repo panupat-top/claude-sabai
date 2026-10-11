@@ -24,11 +24,18 @@ The band appears in every new session, the Code tab included. Mods do not load i
 
 | Row | Shows |
 |---|---|
-| Info | Folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted) and Node, plus a shield `guard` chip while the guard is on |
-| Tasks | Claude's task list as a progress bar, with Pixel Clawd walking while it works |
+| Info | Folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted) and Node, plus a shield `guard` chip while the guard is on (`guard · 2` once it has caught something), and Clawd when there is no task list |
+| Tasks | Claude's task list as a progress bar, with Pixel Clawd, who walks while Claude works and shows how it's going |
 | Crew | A small Clawd per running subagent, with its task and the running, done and failed counts |
 | Usage | Context, 5H and 7D limits with reset countdowns (amber from 70%, red from 90%) |
 | Toolbar | `/review`, `/compact`, `/rewind`, `/resume`, and the `✻ Agents` and `⚙ Settings` buttons |
+
+Clawd's moods, the most pressing first:
+- **startled:** the guard just caught a command;
+- **sad:** the turn's last test run failed;
+- **celebrating:** the last test run passed;
+- **sweating:** the context is 90% full;
+- **sleeping:** nothing has happened for five minutes.
 
 It fills itself in as you work. Tasks show when Claude keeps a task list, and agents when it hands work to subagents.
 
@@ -53,6 +60,7 @@ Press **Report** on a finished agent to read what it found, and **Clear** to tid
 - **Test results:** runs of bun, jest, vitest, pytest, cargo or go show their pass and fail counts.
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!WARNING]` and the other GitHub alerts in a reply become coloured boxes.
 - **Spinner words:** Thai words while Claude works (`กำลังคิด`, `กำลังลงมือทำ`).
+- **Turn receipt:** a turn that changed files, ran tests or ran commands ends with one line under the answer, e.g. `✎ 3 files +40 −12 · ✓ 159 passed · › 6 commands, 1 failed`.
 
 Want the native rows that expand to output and diffs? Turn **Tool summaries** off.
 
@@ -63,9 +71,9 @@ Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are ke
 | Group | Choices |
 |---|---|
 | Band | Show or hide each row |
-| Conversation | Tool summaries, Test results, Callouts, Spinner words (all on) |
+| Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
-| Safety | Guard: refuses deleting the whole disk or home folder, force-pushing to `main`/`master`, and reading `.env` files (off) |
+| Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f` or `git checkout`/`restore .` (Ask) |
 | Alerts | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
 | Appearance | Progress bar style, and ten colour themes (`auto` follows your OS) |
 
