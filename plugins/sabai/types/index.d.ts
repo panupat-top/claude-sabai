@@ -57,6 +57,8 @@ export type TurnLog = {
   files: Record<string, { added: number; removed: number }>
   commands: number
   failed: number
+  // Commands that only read, counted apart: alone they are no work for a receipt.
+  reads?: number
   // The turn's last test run, with the clock time it ended.
   test?: { passed: number; failed: number; at: number }
   // Clock time of the guard's latest refusal or ask.

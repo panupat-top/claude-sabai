@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
 // missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[] } = {}) {
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '' } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -34,7 +34,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     const fails = failing.some(f => cmd.startsWith(f))
     return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('turn.complete', () => ({ text: '' }))
+  on('turn.complete', () => ({ text: completeText }))
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -938,7 +938,9 @@ test('a working turn’s last reply carries its receipt card; other replies, pla
   await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]), 'Read it.')
   expect(await receiptUnder($, 'desktop', 'Read it.')).not.toContain('Turn receipt')
   // A turn that ends with no words of its own falls back to the notice under it.
-  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('› 1 command')
+  expect((await turn($, () => bash($, 'npm run build'), '')).text).toBe('› 1 command')
+  // Reads alone are no work to receipt.
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
 })
 
 test('a subagent’s calls stay out of the main turn’s receipt, and the toggle turns it off', async ($, on) => {
@@ -953,6 +955,13 @@ test('a subagent’s calls stay out of the main turn’s receipt, and the toggle
   await turn($, () => bash($, 'ls'), 'Ran ls.')
   expect(await receiptUnder($, 'desktop', 'Ran ls.')).not.toContain('Turn receipt')
   expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
+})
+
+test('a receipt that falls back to the notice keeps text another plugin left there', async ($, on) => {
+  engine(on, { completeText: 'from beneath' })
+  turnStarts(on)
+  await start($)
+  expect((await turn($, () => bash($, 'npm run build'), '')).text).toBe('from beneath\n› 1 command')
 })
 
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {

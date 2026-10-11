@@ -6,8 +6,8 @@ import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -379,7 +379,7 @@ export const register: Register = on => {
       const log = await read($, turnLog)
       if ((await read($, prefs)).chat.receipt && receiptOf(log)) {
         const answer = e.answer.trim()
-        if (!answer) return { ...completed, text: receiptText(log)! }
+        if (!answer) return { ...completed, text: completed.text ? `${completed.text}\n${receiptText(log)!}` : receiptText(log)! }
         await update($, receipts, all => Object.fromEntries([...Object.entries(all).filter(([k]) => k !== answer), [answer, log]].slice(-RECEIPTS_KEPT)))
       }
     } else {
@@ -568,16 +568,16 @@ export const register: Register = on => {
   // The guard's Ask: the permission decision becomes an ask with the guard's reason, which opens
   // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
   // A deny decided beneath (a settings rule, a classic hook) stands: the guard only tightens.
-  on('tool.check', async ($, e, next) => {
+  on('tool.check', { tool: ['Bash', 'Read'] }, async ($, e, next) => {
     const decided = await next(e)
     const risk = e.tool_use_id === undefined || decided.decision === 'deny' ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
     if (!risk) return decided
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
-  }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))
+  }).catch(($, e, next) => checkFailClosed(next, () => next(e)))
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const called = await next(e)
-    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string })
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
@@ -600,7 +600,7 @@ export const register: Register = on => {
       const r = called.result as { stdout?: string; stderr?: string } | string | undefined
       const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
       const at = await $.clock.now()
-      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at })
+      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at, readOnly: isReadOnly(e.command) })
       // This call just set the turn's test result: redraw now, and again when the celebration ends.
       if (e.agentId === undefined && (await read($, turnLog)).test?.at === at) {
         await update($, now, () => at)
