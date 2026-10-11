@@ -985,6 +985,22 @@ test('with every chip and Clawd hidden and nothing else to show, the band is lef
   for (const surface of SURFACES) expect((await shown($, surface)).words).toBe('stock row')
 })
 
+test('the density setting switches the band to compact', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const height = async () => {
+    const ui = await mountBand($, 'desktop')
+    const svg = (await ui.findAll({ type: 'Svg' }))[0]
+    await ui.unmount()
+    return Number(String(svg?.props.source).match(/height="(\d+)"/)?.[1])
+  }
+  const roomy = await height()
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'density-compact' })
+  expect(await height()).toBeLessThan(roomy)
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'

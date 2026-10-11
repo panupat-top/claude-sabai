@@ -183,6 +183,26 @@ const ROW_H = 20
 const GAP = 8
 const PAD = 10
 const CARD_H = 44
+const CARD_H_COMPACT = 22
+
+// A usage card on one line, for the compact band: its mark (context only), label, bar, percent,
+// and the reset countdown when there is room.
+function compactCard(look: Look, m: Meter, x: number, y: number, w: number, style: BarStyle): string {
+  const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
+  const label = m.kind === 'context' ? 'CTX' : m.label.split(' ')[0]!.toUpperCase()
+  const countdownText = m.resetsInMs === undefined ? '' : ` ↻${countdown(m.resetsInMs).replace(' ', '')}`
+  const room = (tail: string) => x + w - PAD - monoWidth(tail, 11) - 8 - (labelX + monoWidth(label, 10) + 8)
+  const tail = room(`${m.percent}%${countdownText}`) >= 40 ? `${m.percent}%${countdownText}` : `${m.percent}%`
+  const barX = labelX + monoWidth(label, 10) + 8
+  const barW = Math.max(30, room(tail))
+  return (
+    `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H_COMPACT}" rx="6"/>` +
+    (m.kind === 'context' ? sprite('context', x + PAD + 1, y + CARD_H_COMPACT / 2 - spriteSize('context').height / 2) : '') +
+    `<text class="m" x="${labelX}" y="${y + 15}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+    pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style) +
+    `<text class="c-${m.level ?? m.kind}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
+  )
+}
 
 type Part = { body: string; height: number; alt: string }
 
@@ -236,13 +256,16 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
 // first, the pixel bar and its percent on the second. Four across, two or one when narrow.
-function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle): Part {
+function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle, compact = false): Part {
   const cols = Math.min(list.length, W >= 720 ? 4 : W >= 400 ? 2 : 1)
   const rows = Math.ceil(list.length / cols)
-  const cardW = Math.floor((W - GAP * (cols - 1)) / cols)
+  const gap = compact ? 4 : GAP
+  const cardH = compact ? CARD_H_COMPACT : CARD_H
+  const cardW = Math.floor((W - gap * (cols - 1)) / cols)
   const cards = list.map((m, i) => {
-    const x = (i % cols) * (cardW + GAP)
-    const y = y0 + Math.floor(i / cols) * (CARD_H + GAP)
+    const x = (i % cols) * (cardW + gap)
+    const y = y0 + Math.floor(i / cols) * (cardH + gap)
+    if (compact) return compactCard(look, m, x, y, cardW, style)
     const right = x + cardW - PAD
     const top = y + 14
     const bottom = y + 31
@@ -265,7 +288,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
   const alt = list
     .map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
     .join('; ')
-  return { body: cards.join(''), height: rows * CARD_H + (rows - 1) * GAP, alt }
+  return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }
 
 const CHIP_H = 20
@@ -370,6 +393,16 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
+// How the band is drawn, past its rows' content.
+export type BandOpts = {
+  mood?: Mood
+  skin?: string
+  style?: BarStyle
+  crew?: { runs: readonly AgentRun[]; now: number }
+  density?: 'comfortable' | 'compact'
+  clawd?: boolean
+}
+
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
 // surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
 export function bandSvg(
@@ -377,27 +410,26 @@ export function bandSvg(
   info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },
   list: readonly Meter[],
   W: number,
-  mood: Mood = 'idle',
-  skin = 'auto',
-  style: BarStyle = 'dither',
-  crew?: { runs: readonly AgentRun[]; now: number },
-  clawd = true,
+  opts: BandOpts = {},
 ): Drawing | undefined {
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true } = opts
+  const compact = opts.density === 'compact'
+  const gap = compact ? 4 : GAP
   const look = lookOf(skin)
   const parts: Part[] = []
   let y = 0
   const add = (part: Part) => {
     parts.push(part)
-    y += part.height + GAP
+    y += part.height + gap
   }
   // Clawd stands in the info row when there is no tasks row to hold him.
   const clawdInInfo = !p && Boolean(info.show) && clawd
   if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
-  if (list.length > 0) add(cardsPart(look, list, W, y, style))
+  if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
   if (parts.length === 0) return undefined
-  return drawing(look, W, y - GAP, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
+  return drawing(look, W, y - gap, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
 }
 
 // The skin picker's swatch: a strip of the skin's card colour with its text colours (`Aa`) and

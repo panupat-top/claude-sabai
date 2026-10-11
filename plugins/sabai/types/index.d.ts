@@ -50,6 +50,7 @@ export type Prefs = {
   show: Show
   warnAt: number
   alertAt: number
+  density: 'comfortable' | 'compact'
 }
 
 // What the band shows: each info chip, each usage card, and Clawd.

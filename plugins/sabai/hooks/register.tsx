@@ -33,6 +33,7 @@ const DEFAULT_PREFS: Prefs = {
   show: { folder: true, gitUser: true, branch: true, node: true, context: true, session: true, week: true, clawd: true },
   warnAt: 70,
   alertAt: 90,
+  density: 'comfortable',
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -831,6 +832,12 @@ export const register: Register = on => {
           'Appearance',
           'The band and panels',
           <>
+            {subheading('Density', 'How tall the band is')}
+            <Box flexDirection="row" columnGap={1}>
+              {(['comfortable', 'compact'] as const).map(d => (
+                <Button key={`density-${d}`} label={d === 'comfortable' ? 'Comfortable' : 'Compact'} variant={p.density === d ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, density: d }))} />
+              ))}
+            </Box>
             {subheading('Progress bar', 'Tasks and usage cards')}
             <Box flexDirection="row" columnGap={1}>
               {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
@@ -1025,7 +1032,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at }, shownPrefs.show.clawd)
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
