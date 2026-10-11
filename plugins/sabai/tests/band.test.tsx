@@ -552,7 +552,8 @@ test('a wide pane in pixel blocks with eight finished agents open stays under th
 })
 
 test('the band shows the crew while agents work, on both surfaces, and drops it once cleared', async ($, on) => {
-  engine(on)
+  // Compact keeps the crew row; the comfortable band carries agents in its race instead.
+  engine(on, { store: { prefs: { density: 'compact' } } })
   panes(on)
   await start($)
   await spawn($, 'scan the hooks')
@@ -1049,7 +1050,7 @@ test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   await ui.unmount()
 })
 
-test('every row on, nine agents, a forecast, the live strip and a hat stay under the tree limit', async ($, on) => {
+test('every row on, nine agents, the race with 60 calls, a forecast and a hat stay under the tree limit', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
   turnStarts(on)
@@ -1057,7 +1058,11 @@ test('every row on, nine agents, a forecast, the live strip and a hat stay under
   await start($)
   for (let i = 0; i < 9; i++) await spawn($, `job ${i}`)
   await $.turn.start({ turnId: 'big' } as never)
+  for (let i = 0; i < 60; i++) await bash($, `npm run step-${i}`)
   const ui = await mountBand($, 'desktop', true)
+  // The race is in it, and Main's lane keeps only its last 16 tiles.
+  const svg = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+  expect(svg).toContain('>LV 13<')
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1077,6 +1082,39 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   await pane.press({ key: 'density-compact' })
   expect(await source()).not.toMatch(/scale\(3\)/)
+})
+
+test('each member’s calls land in its own lane; a failed Main command costs a heart; a passing test is a coin', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : (e as { command: string }).command === 'false'
+        ? ({ result: 'Exit code 1', isError: true } as never)
+        : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await spawn($, 'x')
+  await $.turn.start({ turnId: 'r' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
+  await bash($, 'bun test')
+  await bash($, 'false')
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toMatch(/Race: LV 1, 1 coin, 2 hearts, combo 0/)
+  expect(words).toMatch(/Main (tripped|running|waiting)/)
+  expect(words).toContain('Explore running')
+})
+
+test('the race leaves when the turn ends and no agent runs', async ($, on) => {
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'x' } as never)
+  expect((await shown($, 'desktop', true)).words).toContain('Race:')
+  await $.turn.complete({ turnId: 'x', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop', false)).words).not.toContain('Race:')
 })
 
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {

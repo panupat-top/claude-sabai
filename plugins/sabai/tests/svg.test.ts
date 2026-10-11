@@ -380,3 +380,24 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   for (const s of ['>LV 5<', '>×4 COMBO<', '>1:42<', '>+1<', '>OUCH<', 'class="coin', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"']) expect([s, part.body.includes(s)]).toEqual([s, true])
   expect(part.alt).toBe('Race: LV 5, 2 coins, 2 hearts, combo 4, 1:42; Main running: Editing svg.ts; Explore scored: 3/5; General tripped: build failed; Plan finished: Done; 1 more')
 })
+
+test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
+  const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
+  const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
+  const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
+  const wide = bandSvg(undefined, info, LIST, 900, opts)!
+  expect(wide.alt).toContain('Race: LV 1')
+  expect(wide.alt).not.toContain('Working 1m 42s:')
+  expect(wide.alt).not.toContain('Agents:')
+  const mid = bandSvg(undefined, info, LIST, 600, opts)!
+  expect(mid.alt).not.toContain('Race:')
+  expect(mid.alt).toContain('Working 1m 42s: Editing svg.ts')
+  expect(mid.alt).toContain('Agents:')
+  expect(bandSvg(undefined, info, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
+  // Clawd hidden: no panel, the race stays.
+  const noClawd = bandSvg(undefined, info, LIST, 900, { ...opts, clawd: false })!
+  expect(noClawd.source).not.toMatch(/scale\(3\)/)
+  expect(noClawd.alt).toContain('Race: LV 1')
+})
