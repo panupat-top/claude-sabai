@@ -214,7 +214,7 @@ type Part = { body: string; height: number; alt: string }
 const MOOD_MODE: Record<Mood, string> = { startled: 'startle', sad: 'dizzy', celebrating: 'hop', sweating: 'sweat', working: 'run', sleeping: 'sleep', idle: 'idle' }
 const moodSaid = (mood: Mood) => (mood === 'idle' || mood === 'working' ? '' : `; Clawd is ${mood}`)
 
-// Confetti beside Clawd's head in the band, clear of his face and of the next chip or title.
+// Confetti beside Clawd's head in the band, clear of his face and of the project name or title.
 const BAND_CONFETTI = [
   [25, 1, 'context'],
   [29, 5, 'session'],
@@ -302,14 +302,14 @@ export const monoWidth = (s: string, size: number) => graphemes(s).reduce((w, g)
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
 // Cut on whole characters, never inside a surrogate pair or a joined emoji, which would leave the
 // SVG malformed or a glyph broken.
-const fitMono = (s: string, size: number, maxW: number) => {
+const fitMono = (s: string, size: number, maxW: number, min = 1) => {
   const adv = (g: string) => ((wideEm(g) ?? 0.6) / 0.6) * 0.64 * size
   const chars = graphemes(s)
   if (chars.reduce((w, g) => w + adv(g), 0) <= maxW) return s
   let w = adv('…')
   let n = 0
   while (n < chars.length && w + adv(chars[n]!) <= maxW) w += adv(chars[n++]!)
-  return `${chars.slice(0, Math.max(1, n)).join('')}…`
+  return `${chars.slice(0, Math.max(min, n)).join('')}…`
 }
 
 const INFO_H = 22
@@ -331,7 +331,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   // The right side in its order, each with how long it stays when room is short.
   const items = [
     guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
-    node && { k: 'node' as const, v: node.value.match(/^v?\d+/)?.[0] ?? node.value, keep: 2 },
+    node && { k: 'node' as const, v: node.value.replace(/^v?(\d+).*/, 'v$1'), keep: 2 },
     user && { k: 'git' as const, v: user.value, keep: 1 },
   ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
   const itemW = (i: { v: string }) => 12 + (i.v ? 5 + monoWidth(i.v, 10.5) : 0)
@@ -347,7 +347,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   // push the guard and Node off an otherwise roomy row.
   const fullName = graphemes(branch ? (branch.branch ?? branch.value) : '')
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
-  const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 9
+  const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 8
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
   const leftW = (f: string, b: string) => x0 + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
   let shown = items
@@ -362,7 +362,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   if (guard && !shown.length) {
     shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
     const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
-    if (room < tagW(b)) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), room - tagW('')))
+    if (room < tagW(b)) b = fitMono(b, 11, room - tagW(''), 6)
     // Even the shield does not fit: it goes, and the branch takes back what was cut for it.
     if (leftW(f, b) + 12 > W - rightW(shown)) {
       shown = []
@@ -370,7 +370,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
     }
   }
   // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
-  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), monoWidth(b, 11) - (leftW(f, b) - W)))
+  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
   if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
   let x = x0
   let body = lead
@@ -811,7 +811,7 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
 }
 
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
-// surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
+// surface's between two elements. Rows top to bottom: info row, tasks, usage cards.
 export function bandSvg(
   p: Progress | undefined,
   info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },

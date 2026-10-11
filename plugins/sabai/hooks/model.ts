@@ -81,7 +81,7 @@ const branchLine = ({ branch, ahead, behind, changes }: Env) =>
 // `label` is what the drawing says for a reader.
 export function chips(env: Env, show: Partial<Show> = {}): { left: Chip[]; right: Chip[] } {
   const known = (list: { icon: IconKind; label: string; value?: string | false; branch?: string; ahead?: number; behind?: number; changes?: number }[]) =>
-    list.filter(c => Boolean(c.value)).map(c => Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined)) as Chip)
+    list.filter(c => Boolean(c.value)) as Chip[]
   const on = (key: keyof Show) => show[key] !== false
   return {
     left: known([

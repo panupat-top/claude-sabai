@@ -549,9 +549,17 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
     ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
     ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
   ])
+  // The tag's words sit 8 px from either end.
+  expect(infoRow(d.source)).toContain('width="92.4"')
   // Marks at the right take the muted ink; no chip cards.
   expect(infoRow(d.source)).not.toContain('<rect class="p"')
   expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
+})
+
+test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [], show: true } as const
+  expect(rowTexts(bandSvg(undefined, row, [], 80, { clawd: false })!.source)[1]).toEqual(['s-session', 'abcdef…'])
+  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24']])
 })
 
 test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
@@ -642,7 +650,8 @@ test('when the guard cannot fit even as its shield, the branch name is not left 
 
 test('a guard with nothing caught draws its shield alone, with no empty text', () => {
   const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
-  for (const W of [230, 250, 270]) {
+  // Below 240 px the branch, kept to six characters, leaves the shield no room.
+  for (const W of [240, 250, 270]) {
     const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
     expect([W, row2.match(/<path class="sm"/g)?.length]).toEqual([W, 2])
     expect([W, /<text class="sm"[^>]*><\/text>/.test(row2)]).toEqual([W, false])

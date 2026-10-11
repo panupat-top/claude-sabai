@@ -102,7 +102,7 @@ Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are ke
 | Group | Choices |
 |---|---|
 | Layout | Density (comfortable or compact); each row as a toggle: Info, Tasks, Activity (the race or the live strip), Agents (race lanes or the crew row), Usage, Toolbar |
-| Info | Each chip: Folder, Git user, Branch, Node |
+| Info | Each part: Folder, Git user, Branch, Node |
 | Usage | Style (Tiles, Rings, Columns, Rows); each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
 | Clawd | Clawd on or off; extras: Accessories (hats and props) and Tricks (waves, yawns, looks) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
@@ -138,7 +138,7 @@ sabai reads only what Claude Code gives a mod, and runs `git` and `node --versio
 |---|---|
 | No 5H or 7D card | No plan-limit reading yet (before the first reply), or not a subscription plan |
 | No task row | Claude has not made a task list in this session |
-| No Node or branch chip | `node` is not on Claude Code's `PATH`, or the folder is not a git repository |
+| No Node or branch in the info row | `node` is not on Claude Code's `PATH`, or the folder is not a git repository |
 | Thai spinner words rarely show on the desktop | The desktop usually names the step itself; the words replace only its generic `Working` |
 | An agent card shows a step count, not `3/5` | That agent type is not given the step tool (e.g. claude-code-guide) |
 
