@@ -856,6 +856,18 @@ test('each guard rule blocks, asks or passes as Settings say', async ($, on) => 
   expect((await bash($, 'rm -rf /')).deny).toBeUndefined()
 })
 
+test('a deny decided beneath stands over the guard’s ask; a compound command takes its strictest rule', async ($, on) => {
+  engine(on)
+  panes(on)
+  on('tool.check', () => ({ decision: 'deny' as const, reason: 'a settings rule' }))
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await guardOn($)
+  expect(await check($, 'git reset --hard')).toEqual({ decision: 'deny', reason: 'a settings rule' })
+  // Discard asks and .env blocks by default: together, the block wins.
+  expect((await bash($, 'git reset --hard && cat .env')).deny).toMatch(/reads a .env file/)
+})
+
 test('the band’s guard chip counts what the guard caught this session', async ($, on) => {
   engine(on)
   panes(on)

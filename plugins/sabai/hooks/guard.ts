@@ -22,40 +22,61 @@ export const failClosed = <T>(next: { called: boolean }, run: () => T): T | { de
 
 const ENV_FILE = /(^|[\s/'"])\.env(\.(?!example\b|sample\b|template\b)[\w.-]+)?(?=$|[\s'";|&)])/
 
-export function riskOf(tool: string, input: { command?: unknown; file_path?: unknown }): Risk | undefined {
+// The first risk of a call, or nothing.
+export const riskOf = (tool: string, input: { command?: unknown; file_path?: unknown }): Risk | undefined => risksOf(tool, input)[0]
+
+// Every risk of a call, in rule order: a compound command can hold several, and the guard acts on
+// the strictest of them.
+export function risksOf(tool: string, input: { command?: unknown; file_path?: unknown }): Risk[] {
   if (tool === 'Read') {
     const path = typeof input.file_path === 'string' ? input.file_path : ''
-    return ENV_FILE.test(path) ? { rule: 'env', reason: 'reads a .env file' } : undefined
+    return ENV_FILE.test(path) ? [{ rule: 'env', reason: 'reads a .env file' }] : []
   }
-  if (tool !== 'Bash' || typeof input.command !== 'string') return undefined
+  if (tool !== 'Bash' || typeof input.command !== 'string') return []
   const cmd = withoutData(input.command)
+  const risks: Risk[] = []
   // rm with both -r and -f (in any order or spelling) aimed at the root or the home folder.
   const rm = /\brm\s+(?:-\w*\s+)*-\w*(?:r\w*f|f\w*r)\w*(?:\s+-\w+)*\s+(\S+)/i.exec(cmd)
   if (rm) {
     const target = rm[1]!.replace(/\/\*?$/, '/')
-    if (target === '/' || target === '/*') return { rule: 'wipe', reason: 'deletes the whole disk' }
-    if (['~', '~/', '$HOME', '$HOME/', '${HOME}', '${HOME}/'].includes(target)) return { rule: 'wipe', reason: 'deletes your home folder' }
+    if (target === '/' || target === '/*') risks.push({ rule: 'wipe', reason: 'deletes the whole disk' })
+    else if (['~', '~/', '$HOME', '$HOME/', '${HOME}', '${HOME}/'].includes(target)) risks.push({ rule: 'wipe', reason: 'deletes your home folder' })
   }
-  const force = forcedPush(cmd)
-  if (force) return { rule: 'force', reason: `force-pushes to ${force}` }
-  if (discards(cmd)) return { rule: 'discard', reason: 'throws away uncommitted work' }
-  if (/\b(cat|less|more|head|tail|bat|source|grep|rg)\b/.test(cmd) && ENV_FILE.test(cmd)) return { rule: 'env', reason: 'reads a .env file' }
-  return undefined
+  const calls = gitCalls(cmd)
+  const force = forcedPush(calls)
+  if (force) risks.push({ rule: 'force', reason: `force-pushes to ${force}` })
+  if (discards(calls)) risks.push({ rule: 'discard', reason: 'throws away uncommitted work' })
+  if (/\b(cat|less|more|head|tail|bat|source|grep|rg)\b/.test(cmd) && ENV_FILE.test(cmd)) risks.push({ rule: 'env', reason: 'reads a .env file' })
+  return risks
 }
 
-// A git command that throws away work not yet committed, read from each git call's own arguments
-// up to the next shell operator: `reset --hard`, `clean` with -f (not a dry run), and `checkout`
-// or `restore` of the whole tree (`.`), but not `restore --staged`, which only unstages.
-function discards(cmd: string): boolean {
-  for (const m of cmd.matchAll(/(?:^|[;&|(]|\n)\s*(?:sudo\s+)?git\s+([^;&|\n]*)/g)) {
-    const [sub, ...args] = m[1]!.trim().split(/\s+/)
-    if (sub === 'reset' && args.includes('--hard')) return true
-    if (sub === 'clean' && args.some(a => /^-[a-z]*f/i.test(a) || a === '--force') && !args.some(a => /^-[a-z]*n/i.test(a) || a === '--dry-run')) return true
-    const paths = args.filter(a => !a.startsWith('-'))
-    if (sub === 'checkout' && paths.length === 1 && paths[0] === '.') return true
-    if (sub === 'restore' && paths.length === 1 && paths[0] === '.' && !(args.includes('--staged') && !args.includes('--worktree'))) return true
+// Each git call in a command: its subcommand and arguments, up to the next shell operator or the
+// end of a subshell, past wrappers (`sudo`, `env X=1`, `command`, `time`, `nohup`) and git's own
+// global options (`-C <dir>`, `-c <key=value>`, `--no-pager`, …).
+function gitCalls(cmd: string): { sub: string; args: string[] }[] {
+  const out: { sub: string; args: string[] }[] = []
+  const wrappers = /(?:(?:sudo|command|time|nohup)\s+|env\s+(?:\w+=\S*\s+)*)*/.source
+  for (const m of cmd.matchAll(new RegExp(`(?:^|[;&|(]|\\n)\\s*${wrappers}git\\s+([^;&|)\\n]*)`, 'g'))) {
+    const words = m[1]!.trim().split(/\s+/).filter(Boolean)
+    let i = 0
+    while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
+    if (i < words.length) out.push({ sub: words[i]!, args: words.slice(i + 1) })
   }
-  return false
+  return out
+}
+
+// A git call that throws away work not yet committed: `reset --hard`, `clean` with -f (not a dry
+// run), and `checkout` or `restore` of the whole tree (a last path of `.`), but not
+// `restore --staged`, which only unstages.
+function discards(calls: { sub: string; args: string[] }[]): boolean {
+  return calls.some(({ sub, args }) => {
+    const whole = args.filter(a => !a.startsWith('-')).at(-1) === '.'
+    if (sub === 'reset') return args.includes('--hard')
+    if (sub === 'clean') return args.some(a => /^-[a-z]*f/i.test(a) || a === '--force') && !args.some(a => /^-[a-z]*n/i.test(a) || a === '--dry-run')
+    if (sub === 'checkout') return whole
+    if (sub === 'restore') return whole && !(args.includes('--staged') && !args.includes('--worktree'))
+    return false
+  })
 }
 
 // The command without the text of its heredocs: a script piped to python or a file written with
@@ -79,18 +100,18 @@ function withoutData(cmd: string): string {
   return kept.join('\n')
 }
 
-// The branch a force push lands on, when it is main or master: the push's own arguments up to the
-// next shell operator, its refspecs read for their destination (`src:dst`, `+dst`), so a word
-// inside another branch's name or a later command never counts.
-function forcedPush(cmd: string): string | undefined {
-  const m = /\bgit\s+push\b([^;&|]*)/.exec(cmd)
-  if (!m) return undefined
-  const args = m[1]!.trim().split(/\s+/).filter(Boolean)
-  const isForced = args.some(a => a === '-f' || a === '--force' || /^-[a-z]*f[a-z]*$/.test(a))
-  const refs = args.filter(a => !a.startsWith('-')).slice(1)
-  for (const ref of refs) {
-    const branch = ref.replace(/^\+/, '').split(':').pop()!.replace(/^refs\/heads\//, '')
-    if ((branch === 'main' || branch === 'master') && (isForced || ref.startsWith('+'))) return branch
+// The branch a force push lands on, when it is main or master: the push's own arguments, its
+// refspecs read for their destination (`src:dst`, `+dst`), so a word inside another branch's name
+// or a later command never counts.
+function forcedPush(calls: { sub: string; args: string[] }[]): string | undefined {
+  for (const { sub, args } of calls) {
+    if (sub !== 'push') continue
+    const isForced = args.some(a => a === '-f' || a === '--force' || /^-[a-z]*f[a-z]*$/.test(a))
+    const refs = args.filter(a => !a.startsWith('-')).slice(1)
+    for (const ref of refs) {
+      const branch = ref.replace(/^\+/, '').split(':').pop()!.replace(/^refs\/heads\//, '')
+      if ((branch === 'main' || branch === 'master') && (isForced || ref.startsWith('+'))) return branch
+    }
   }
   return undefined
 }

@@ -6,7 +6,7 @@ import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { GUARD_FAILED, GUARD_RULES, failClosed, riskOf } from './guard'
+import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
@@ -197,12 +197,14 @@ async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
   await $.store.set('prefs', next)
 }
 
-// The guard's catch for a call under one action: the risk when the guard is on and that rule is
-// set to `action`, or nothing.
+// The guard's catch for a call under one action: of the call's risks, the one whose rule is set
+// strictest (block, then ask), when that setting is `action` and the guard is on; or nothing.
+const STRICTNESS: Record<GuardAction, number> = { block: 2, ask: 1, off: 0 }
 async function riskFor($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }, action: GuardAction) {
   const p = await read($, prefs)
-  const risk = p.guard ? riskOf(tool, input) : undefined
-  return risk && p.guardRules[risk.rule] === action ? risk : undefined
+  if (!p.guard) return undefined
+  const strictest = risksOf(tool, input).sort((a, b) => STRICTNESS[p.guardRules[b.rule]] - STRICTNESS[p.guardRules[a.rule]])[0]
+  return strictest && p.guardRules[strictest.rule] === action ? strictest : undefined
 }
 
 // One more catch this session, stamped on the turn so Clawd startles.
@@ -554,9 +556,11 @@ export const register: Register = on => {
   }).catch(($, e, next) => failClosed(next, () => next(e)))
   // The guard's Ask: the permission decision becomes an ask with the guard's reason, which opens
   // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
+  // A deny decided beneath (a settings rule, a classic hook) stands: the guard only tightens.
   on('tool.check', async ($, e, next) => {
-    const risk = e.tool_use_id === undefined ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
-    if (!risk) return next(e)
+    const decided = await next(e)
+    const risk = e.tool_use_id === undefined || decided.decision === 'deny' ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
+    if (!risk) return decided
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
   }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GUARD_FAILED, failClosed, riskOf } from '../hooks/guard'
+import { GUARD_FAILED, failClosed, riskOf, risksOf } from '../hooks/guard'
 
 test('the guard names risky commands and lets ordinary ones through', () => {
   const bash = (command: string) => riskOf('Bash', { command })?.reason
@@ -80,4 +80,31 @@ test('the discard rule catches throwing away uncommitted work, and only that', (
   expect(bash('git restore --staged .')).toBeUndefined()
   expect(bash('echo git reset --hard')).toBeUndefined()
   expect(bash("cat > n.md <<'EOF'\ngit reset --hard\nEOF")).toBeUndefined()
+})
+
+test('every risk in a compound command is named, not only the first', () => {
+  expect(risksOf('Bash', { command: 'git reset --hard && cat .env' }).map(r => r.rule)).toEqual(['discard', 'env'])
+  expect(risksOf('Bash', { command: 'git push --force origin main; cat .env' }).map(r => r.rule)).toEqual(['force', 'env'])
+  expect(risksOf('Bash', { command: 'ls' })).toEqual([])
+})
+
+test('discards and force pushes are caught past git’s global options, subshells and wrappers', () => {
+  const rule = (command: string) => riskOf('Bash', { command })?.rule
+  for (const command of [
+    'git -C /repo reset --hard',
+    'git -C repo checkout .',
+    'git --no-pager reset --hard',
+    'git -c core.x=y clean -fd',
+    '(cd repo && git reset --hard)',
+    '(git checkout .)',
+    'env X=1 git clean -fdx',
+    'command git reset --hard',
+    'nohup git clean -fdx',
+    'git checkout HEAD -- .',
+    'git checkout HEAD .',
+  ])
+    expect([command, rule(command)]).toEqual([command, 'discard'])
+  expect(rule('git -C x push --force origin main')).toBe('force')
+  expect(rule('git -C repo checkout -- src/a.ts')).toBeUndefined()
+  expect(rule('(cd repo && git status)')).toBeUndefined()
 })
