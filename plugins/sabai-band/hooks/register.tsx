@@ -824,10 +824,10 @@ export const register: Register = on => {
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
 
-    // Common commands on the left as framed buttons, the mod's panels on the right as icons. The
-    // desktop draws a Button's `label` alone, its hotkey as a keycap, so the icon is the label; the
-    // terminal draws the children: a pixel tile of half blocks round the glyph on the skin's
-    // colour. Hotkeys work while the band holds the focus.
+    // Common commands on the left, the mod's panels on the right, all framed buttons. The desktop
+    // draws a Button's `label` alone, its hotkey as a keycap, so the glyph and the word are the
+    // label; the terminal draws the children: a pixel tile of half blocks round the glyph on the
+    // skin's colour, then the word. Hotkeys work while the band holds the focus.
     const tile = (glyph: string, color: string) => (
       <Text>
         <Text color={color}>▐</Text>
@@ -840,7 +840,7 @@ export const register: Register = on => {
     const toolbar = (
       // The terminal's rows are already a row apart; the desktop's band image sits flush on it.
       // Native buttons carry their own padding, so on the desktop they sit with no gap between.
-      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 0} marginTop={e.surface === 'terminal' ? 0 : 1}>
+      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1} marginTop={e.surface === 'terminal' ? 0 : 1}>
         <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1}>
           {quick.map(c => (
             // A press's own work ends with the press, so the command is queued from a timer.
@@ -848,12 +848,15 @@ export const register: Register = on => {
           ))}
         </Box>
         <Box flexGrow={1} />
-        <Button key="agents" label={working > 0 ? `✻ ${working}` : '✻'} hotkey="a" plain onPress={() => toggleAgents($)}>
+        {/* While agents work, the button counts them and stands out. */}
+        <Button key="agents" label={working > 0 ? `✻ Agents · ${working}` : '✻ Agents'} hotkey="a" variant={working > 0 ? 'primary' : 'secondary'} onPress={() => toggleAgents($)}>
           {tile('✻', look.clawd)}
-          {working > 0 ? <Text bold>{` ${working}`}</Text> : null}
+          <Text bold>{working > 0 ? ` Agents · ${working}` : ' Agents'}</Text>
         </Button>
-        <Button key="skins" label="⚙" hotkey="s" plain onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
+        {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
+        <Button key="skins" label={'⚙\uFE0E Settings'} hotkey="s" variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
           {tile('⚙', look.bar('session', 0))}
+          <Text bold> Settings</Text>
         </Button>
       </Box>
     )

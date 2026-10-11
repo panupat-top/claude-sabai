@@ -362,10 +362,11 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountBand($, surface)
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.slice(0, 2).every(b => b.props.plain === undefined)).toBe(true)
-    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌', '▐⚙▌'])
-    // What the desktop draws: the label alone.
-    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻', '⚙'])
+    expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
+    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
+    // What the desktop draws: the label alone, framed like the commands, the hotkey as a keycap.
+    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻ Agents', '⚙\uFE0E Settings'])
+    expect(buttons.slice(2).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', 'a'], ['secondary', 's']])
     await ui.unmount()
   }
   const ui = await mountBand($, 'desktop')
@@ -376,8 +377,9 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   expect([...open]).toEqual(['sabai-skins'])
   await spawn($, 'scan')
   await spawn($, 'read')
-  expect((await ui.find({ key: 'agents' }))?.text).toBe('▐✻▌ 2')
-  expect((await ui.find({ key: 'agents' }))?.props.label).toBe('✻ 2')
+  // While agents work the button says how many, and stands out.
+  const agents = await ui.find({ key: 'agents' })
+  expect([agents?.text, agents?.props.label, agents?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
 })
 
 test('the toolbar runs common commands, only those this surface offers', async ($, on) => {

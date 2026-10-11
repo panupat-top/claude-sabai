@@ -12,7 +12,7 @@ A small marketplace of [Claude Code](https://claude.com/claude-code) mods. Its o
 | Tasks | Clawd, a pixel Claude mascot, beside a progress bar of Claude's own task list: the task in progress, `done/total` and percent. Clawd walks while Claude works and blinks while it waits. The row leaves once every task is done. |
 | Crew | While subagents are around: a small Clawd per running agent in its type's hat, holding its tool, walking; the newest agent's task and progress; running ●, done ✓ and failed ✗ counts and the time. Once all are done the crew stands by with a summary for a minute, then leaves the band. |
 | Usage | Cards for **Context** (`434.5k / 1M (43%)`), the **5H Limit** and the **7D All** limit, each with a pixel bar and, for the limits, a reset countdown. Figures turn amber from 70% and red from 90%. |
-| Toolbar | Under the band: `/review`, `/compact`, `/rewind` and `/resume` on the left (those your surface offers; the cards above already show context and usage), and icon buttons on the right: `✻` **Agents** (with the number of running subagents) and `⚙` **Settings**. Each opens or hides its panel; `a` and `s` press them while the band has the focus (click the band, or press ctrl+x tab). |
+| Toolbar | Under the band: `/review`, `/compact`, `/rewind` and `/resume` on the left (those your surface offers; the cards above already show context and usage), and on the right `✻ Agents` (with the number of running subagents; it stands out while they work) and `⚙ Settings`. Each opens or hides its panel; `a` and `s` press them while the band has the focus (click the band, or press ctrl+x tab). |
 
 Every row can be hidden in **Settings**.
 
