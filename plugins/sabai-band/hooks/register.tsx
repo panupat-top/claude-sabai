@@ -825,9 +825,9 @@ export const register: Register = on => {
     const theirs = await next(e)
 
     // Common commands on the left, the mod's panels on the right, all framed buttons. The desktop
-    // draws a Button's `label` alone, its hotkey as a keycap, so the glyph and the word are the
-    // label; the terminal draws the children: a pixel tile of half blocks round the glyph on the
-    // skin's colour, then the word. Hotkeys work while the band holds the focus.
+    // draws a Button's `label` alone (and a hotkey as a keycap, so these take none), so the glyph
+    // and the word are the label; the terminal draws the children: a pixel tile of half blocks
+    // round the glyph on the skin's colour, then the word.
     const tile = (glyph: string, color: string) => (
       <Text>
         <Text color={color}>▐</Text>
@@ -849,12 +849,12 @@ export const register: Register = on => {
         </Box>
         <Box flexGrow={1} />
         {/* While agents work, the button counts them and stands out. */}
-        <Button key="agents" label={working > 0 ? `✻ Agents · ${working}` : '✻ Agents'} hotkey="a" variant={working > 0 ? 'primary' : 'secondary'} onPress={() => toggleAgents($)}>
+        <Button key="agents" label={working > 0 ? `✻ Agents · ${working}` : '✻ Agents'} variant={working > 0 ? 'primary' : 'secondary'} onPress={() => toggleAgents($)}>
           {tile('✻', look.clawd)}
           <Text bold>{working > 0 ? ` Agents · ${working}` : ' Agents'}</Text>
         </Button>
         {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
-        <Button key="skins" label={'⚙\uFE0E Settings'} hotkey="s" variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
+        <Button key="skins" label={'⚙\uFE0E Settings'} variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
           {tile('⚙', look.bar('session', 0))}
           <Text bold> Settings</Text>
         </Button>

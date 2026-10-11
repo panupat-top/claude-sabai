@@ -364,9 +364,9 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
     const buttons = await ui.findAll({ type: 'Button' })
     expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
     expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
-    // What the desktop draws: the label alone, framed like the commands, the hotkey as a keycap.
+    // What the desktop draws: the label alone, framed like the commands, with no keycap.
     expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻ Agents', '⚙\uFE0E Settings'])
-    expect(buttons.slice(2).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', 'a'], ['secondary', 's']])
+    expect(buttons.slice(2).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', undefined], ['secondary', undefined]])
     await ui.unmount()
   }
   const ui = await mountBand($, 'desktop')
