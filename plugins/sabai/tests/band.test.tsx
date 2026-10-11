@@ -1501,3 +1501,46 @@ test('settings are six bordered groups in order: band, conversation, agents, saf
     await pane.unmount()
   }
 })
+
+for (const bar of ['dither', 'blocks', 'solid'] as const) {
+  test(`the widest band, every row on, stays under the tree limit with ${bar} bars`, async ($, on) => {
+    const { clock } = engine(on, { store: { bar } })
+    panes(on)
+    turnStarts(on)
+    await start($)
+    for (let i = 0; i < 3; i++) await spawn($, `job ${i}`)
+    await $.turn.start({ turnId: 'wide' } as never)
+    for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
+    await clock.advance(1000)
+    const ui = await $.ui.mount({
+      plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
+      props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+    })
+    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('>LV ')
+    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+    await ui.unmount()
+  })
+}
+
+test('a 5H limit read every few seconds while work runs still gets its forecast', async ($, on) => {
+  const { clock } = engine(on)
+  await start($)
+  for (let i = 0; i <= 120; i++) {
+    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + Math.floor(i / 10), resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+    await clock.advance(5000)
+  }
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/5H Limit \d+%, (~\d+%|full) by reset/)
+})
+
+test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) => {
+  on('tool.call', { tool: 'Edit' }, () => Promise.reject(new Error('interrupted')))
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'cut' } as never)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toContain('Main waiting')
+})

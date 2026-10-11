@@ -179,10 +179,10 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
     run('e', { status: 'failed', endedAt: now - 2000 }),
   ]
   const r = raceOf({ ...log, doing: { main: 'edit' } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
-  expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['Explore', 'running'], ['General', 'tripped'], ['Plan', 'scored']])
+  expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['Plan', 'scored'], ['General', 'tripped'], ['Explore', 'running']])
   expect(r.more).toBe(2)
   expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', note: 'Editing svg.ts' })
-  expect(r.lanes[1]!.progress).toBe(0.6)
+  expect(r.lanes[3]!.progress).toBe(0.6)
   // No step reports and no task list: no progress, so the runner holds the middle.
   expect(r.lanes[2]!.progress).toBeUndefined()
   expect(r.elapsedMs).toBe(102_000)
@@ -202,4 +202,11 @@ test('a finished agent stays in the race for the crew’s linger minute, then le
   const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
   expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'Plan'])
   expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main'])
+})
+
+test('raceOf runs the newest running agents first, the oldest over the cap', () => {
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const r = raceOf(EMPTY_RACE, ['a1', 'a2', 'a3', 'a4'].map(run), undefined, 1000, true, 0)!
+  expect(r.lanes.map(l => l.id)).toEqual(['main', 'a4', 'a3', 'a2'])
+  expect(r.more).toBe(1)
 })

@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, RECENT_MS, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -259,8 +259,11 @@ async function sample($: EngineInterface, limits: readonly { kind: string; perce
     for (const l of limits) {
       if (l.kind !== 'five_hour' && l.kind !== 'seven_day') continue
       const was = next[l.kind]
-      const points = was && was.resetsAt === l.resetsAt ? was.points : []
-      next[l.kind] = { resetsAt: l.resetsAt, points: [...points, { at, percent: l.percentUsed }].slice(-60) }
+      const points = (was && was.resetsAt === l.resetsAt ? was.points : []).filter(p => at - p.at < RECENT_MS)
+      // About one reading a minute: measure fires on every response, and a busy turn would
+      // otherwise crowd the window into a few minutes, too short for a forecast.
+      const crowded = points.length > 1 && at - points[points.length - 2]!.at < 60_000
+      next[l.kind] = { resetsAt: l.resetsAt, points: [...(crowded ? points.slice(0, -1) : points), { at, percent: l.percentUsed }] }
     }
     return next
   })
@@ -655,16 +658,26 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Edit', e)
     await racing($, e.agentId, 'edit')
-    const called = await next(e).finally(() => unstep($, e.agentId))
-    await racing($, e.agentId, 'edit', called)
+    let called: Awaited<ReturnType<typeof next>> | undefined
+    try {
+      called = await next(e)
+    } finally {
+      await unstep($, e.agentId)
+      await racing($, e.agentId, 'edit', called ?? UNFINISHED)
+    }
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Write', e)
     await racing($, e.agentId, 'edit')
-    const called = await next(e).finally(() => unstep($, e.agentId))
-    await racing($, e.agentId, 'edit', called)
+    let called: Awaited<ReturnType<typeof next>> | undefined
+    try {
+      called = await next(e)
+    } finally {
+      await unstep($, e.agentId)
+      await racing($, e.agentId, 'edit', called ?? UNFINISHED)
+    }
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
     return called
   })

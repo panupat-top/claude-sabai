@@ -152,7 +152,7 @@ export function moodOf(s: { log: TurnLog; contextPercent?: number; now: number; 
 }
 
 export type Point = { at: number; percent: number }
-const RECENT_MS = 30 * 60_000
+export const RECENT_MS = 30 * 60_000
 // Where a limit is heading by its reset at the recent rate (a least-squares slope over the last
 // half hour), or nothing without two readings five minutes apart and a rising rate.
 export function forecastOf(points: readonly Point[], resetsInMs: number | undefined, now: number): number | undefined {

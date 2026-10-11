@@ -33,6 +33,7 @@ export const TEXT = {
   week: ['#8a5700', '#f0b44a'],
   warn: ['#a8490a', '#ff9d57'],
   alert: ['#c0262c', '#ff7377'],
+  ok: ['#1a7f37', '#56d364'],
 } as const
 // The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
 // a skin's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
@@ -118,7 +119,7 @@ export function lookOf(skin: string): Look {
   const ink = (c: string) => readable(c, card)
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}.c-ok{fill:${ink(TEXT.ok[1])}}${wink(t.accents.tasks)}`,
     bar: (kind, lvl) => (lvl === 'alert' ? t.alert : lvl === 'warn' ? t.warn : t.accents[kind]),
     pill: readable(t.accents.tasks, '#ffffff'),
     clawd: t.accents.tasks,
@@ -127,6 +128,8 @@ export function lookOf(skin: string): Look {
 
 const CELL = 3
 const DOT_COLS = 200
+// Blocks stop multiplying past this and grow wider instead, for the same reason as DOT_COLS.
+const MAX_BLOCKS = 80
 const MAX_TICKS = 12
 
 export const BAR_STYLES: Record<BarStyle, string> = { dither: 'Dither', blocks: 'Pixel blocks', solid: 'Solid' }
@@ -136,7 +139,7 @@ export const BAR_STYLES: Record<BarStyle, string> = { dither: 'Dither', blocks: 
 function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio: number, color: string, ticks = 0, style: BarStyle = 'dither', ghost?: { ratio: number; color: string }): string {
   const fillW = Math.round(w * Math.max(0, Math.min(1, ratio)))
   if (style === 'blocks') {
-    const count = Math.max(1, Math.floor((w + 2) / (h + 2)))
+    const count = Math.min(MAX_BLOCKS, Math.max(1, Math.floor((w + 2) / (h + 2))))
     const seg = (w - 2 * (count - 1)) / count
     const filled = Math.round(count * Math.max(0, Math.min(1, ratio)))
     const cells = Array.from({ length: count }, (_, i) => {
@@ -178,7 +181,8 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
 
 // Text drawn straight on the surface, with no card behind it, takes the OS's light or dark ink
 // whatever the skin: a skin's ink is only checked against its own card.
-const SURFACE_INK = `.st{fill:${TEXT.t[0]}}.sm{fill:${TEXT.m[0]}}.f-ok{fill:#2f8f46}@media (prefers-color-scheme: dark){.st{fill:${TEXT.t[1]}}.sm{fill:${TEXT.m[1]}}.f-ok{fill:#56d364}}`
+const surfaceCss = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.s${k.length > 1 ? `-${k}` : k}{fill:${v[i]}}`).join('')
+const SURFACE_INK = `${surfaceCss(0)}@media (prefers-color-scheme: dark){${surfaceCss(1)}}`
 
 // `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
 const svg = (look: Look, w: number, h: number, body: string, still = false) =>
@@ -433,18 +437,18 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // A kind's colour as attributes, merged with the element's own classes: two class attributes on
   // one element make the drawing invalid, and the desktop then draws nothing.
   const kindFill = (k: CallKind, ok: boolean, cls = '') => {
-    const paint = !ok ? { fill: look.bar('tasks', 'alert') } : k === 'read' ? { fill: look.bar('context') } : k === 'edit' ? { fill: look.bar('session') } : { cls: k === 'test' ? 'f-ok' : 'm' }
+    const paint = !ok ? { fill: look.bar('tasks', 'alert') } : k === 'read' ? { fill: look.bar('context') } : k === 'edit' ? { fill: look.bar('session') } : { cls: k === 'test' ? 'c-ok' : 'm' }
     const classes = [cls, paint.cls].filter(Boolean).join(' ')
     return `${classes ? `class="${classes}"` : ''}${paint.fill ? ` fill="${paint.fill}"` : ''}`
   }
   const time = mmss(race.elapsedMs)
   const head =
-    `<text class="st" x="10" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="800">LV ${race.lv}</text>` +
-    `<circle class="coin" cx="54" cy="${top + 11}" r="3.5" fill="#e0a030"/><text class="st" x="60" y="${top + 15}" font-family="${MONO}" font-size="9.5" font-weight="700">×${race.coins}</text>` +
+    `<text class="t" x="10" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="800">LV ${race.lv}</text>` +
+    `<circle class="coin" cx="54" cy="${top + 11}" r="3.5" fill="#e0a030"/><text class="t" x="60" y="${top + 15}" font-family="${MONO}" font-size="9.5" font-weight="700">×${race.coins}</text>` +
     [0, 1, 2].map(i => pixelHeart(86 + i * 13, top + 7, i < race.hearts, look)).join('') +
     (race.combo >= 2 ? `<text class="c-warn" x="${W / 2 + 46}" y="${top + 15}" text-anchor="middle" font-family="${MONO}" font-size="9.5" font-weight="800">×${race.combo} COMBO</text>` : '') +
-    (race.more ? `<text class="sm" x="${W - 46}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">+${race.more}</text>` : '') +
-    `<text class="sm" x="${W - 10}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="10">${time}</text>`
+    (race.more ? `<text class="m" x="${W - 46}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">+${race.more}</text>` : '') +
+    `<text class="m" x="${W - 10}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="10">${time}</text>`
   const laneX = 50
   const laneW = W - laneX - 20
   const lanes = race.lanes.map((l, i) => {
@@ -462,13 +466,13 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const dust = l.state === 'running' ? `<circle class="dust k" cx="${rx}" cy="${ground - 1}" r="1.5"/><circle class="dust dust2 k" cx="${rx + 3}" cy="${ground - 2}" r="1.2"/>` : ''
     const speed = l.state === 'running' && l.doing === 'command' ? `<g class="speed m"><rect x="${rx - 12}" y="${ground - 12}" width="6" height="1"/><rect x="${rx - 15}" y="${ground - 8}" width="8" height="1"/></g>` : ''
     const flagX = laneX + laneW + 3
-    const flag = `<rect class="m" x="${flagX}" y="${ground - 16}" width="1.2" height="17"/><path class="flag${l.state === 'finished' ? ' f-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 16}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    const flag = `<rect class="m" x="${flagX}" y="${ground - 16}" width="1.2" height="17"/><path class="flag${l.state === 'finished' ? ' c-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 16}h8l-2.5 3.5 2.5 3.5h-8z"/>`
     const marks =
       l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
       l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 10}" cy="${ground - 22}" r="3" fill="#e0a030"/>` :
-      l.state === 'finished' ? [0, 1, 2, 3].map(j => `<rect class="conf" style="animation-delay:-${j * 0.2}s" x="${flagX - 14 + j * 4}" y="${ground - 20 + (j % 2) * 4}" width="2" height="2" fill="${[`#e0a030`, look.bar('session'), look.bar('context'), look.bar('tasks', 'alert')][j]}"/>`).join('') + `<text class="f-ok" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="800">✓</text>` :
+      l.state === 'finished' ? [0, 1, 2, 3].map(j => `<rect class="conf" style="animation-delay:-${j * 0.2}s" x="${flagX - 14 + j * 4}" y="${ground - 20 + (j % 2) * 4}" width="2" height="2" fill="${[`#e0a030`, look.bar('session'), look.bar('context'), look.bar('tasks', 'alert')][j]}"/>`).join('') + `<text class="c-ok" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="800">✓</text>` :
       l.state === 'out' ? `<text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
-    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : l.state === 'finished' ? 'f-ok' : 'st'
+    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : l.state === 'finished' ? 'c-ok' : 't'
     const note = l.note.length > 7 ? `${l.note.slice(0, 6)}…` : l.note
     return (
       hills +
@@ -476,7 +480,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       `<g${moving ? ' class="scroll"' : ''}>${tiles}</g>` +
       flag + glow + dust + speed + runner + marks +
       `<text class="${nameClass}" x="10" y="${y + 13}" font-family="${MONO}" font-size="10" font-weight="800">${xml(l.who)}</text>` +
-      `<text class="sm" x="10" y="${y + 24}" font-family="${SANS}" font-size="9">${xml(note)}</text>`
+      `<text class="m" x="10" y="${y + 24}" font-family="${SANS}" font-size="9">${xml(note)}</text>`
     )
   })
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
@@ -511,11 +515,11 @@ function usageRows(look: Look, list: readonly Meter[], W: number, top: number, s
     const pct = `${m.percent}%`
     const right = W
     return (
-      `<text class="m" x="0" y="${y + 14}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+      `<text class="sm" x="0" y="${y + 14}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
       pixelBar(`sabai-${m.kind}`, labelW, y + 5.5, barW, 9, m.percent / 100, look.bar(m.kind, m.level), 0, style, ghostOf(look, m)) +
-      (ahead ? `<text class="m" x="${right}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
-      `<text class="c-${m.level ?? m.kind}" x="${right - monoWidth(ahead, 10.5)}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pct}</text>` +
-      (detail ? `<text class="${m.amount ? 't' : 'm'}" x="${detailX}" y="${y + 14}" font-family="${MONO}" font-size="11" font-weight="600">${xml(detail)}</text>` : '')
+      (ahead ? `<text class="sm" x="${right}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
+      `<text class="s-${m.level ?? m.kind}" x="${right - monoWidth(ahead, 10.5)}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pct}</text>` +
+      (detail ? `<text class="${m.amount ? 'st' : 'sm'}" x="${detailX}" y="${y + 14}" font-family="${MONO}" font-size="11" font-weight="600">${xml(detail)}</text>` : '')
     )
   })
   const alt = list

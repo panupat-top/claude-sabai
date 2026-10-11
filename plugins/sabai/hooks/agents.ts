@@ -147,7 +147,8 @@ const laneName = (type: string) => (type === 'general-purpose' ? 'General' : typ
 // The race as drawn: Main and the newest agents, each in its state, with the header's counts;
 // nothing while neither the main turn nor any agent is at work.
 export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainStep?: string): Race | undefined {
-  const running = agents.filter(a => a.status === 'running')
+  // Agents are kept oldest first; the race runs the newest.
+  const running = agents.filter(a => a.status === 'running').reverse()
   if (!mainWorking && running.length === 0) return undefined
   const timed = (id: string): LaneState | undefined =>
     now - (log.fellAt[id] ?? -Infinity) < TRIP_MS ? 'tripped' : now - (log.scoredAt[id] ?? -Infinity) < SCORE_MS ? 'scored' : undefined

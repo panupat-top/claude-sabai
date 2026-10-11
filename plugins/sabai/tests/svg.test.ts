@@ -410,3 +410,19 @@ test('no race element carries two class attributes, whatever its runner is doing
     expect([doing, twice]).toEqual([doing, null])
   }
 })
+
+test('in the comfortable band the race box’s words take the card’s ink, the usage rows’ the surface’s', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const race = {
+    lv: 1, coins: 1, hearts: 3, combo: 2, elapsedMs: 1000, more: 1,
+    lanes: [
+      { id: 'main', who: 'Main', note: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
+      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+    ],
+  }
+  const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
+  const [middle, box] = source.split('translate(600,0)')
+  expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
+  const rows = middle!.slice(middle!.indexOf('CONTEXT') - 200)
+  expect(rows.match(/<text class="(t|m|c-[a-z]+)"/g)).toBeNull()
+})
