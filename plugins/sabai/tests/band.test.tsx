@@ -859,6 +859,24 @@ test('each guard rule blocks, asks or passes as Settings say', async ($, on) => 
   expect((await bash($, 'rm -rf /')).deny).toBeUndefined()
 })
 
+test('a guard that fails after the decision beneath is reached asks no one and denies', async ($, on) => {
+  let broken = false
+  engine(on)
+  // The prefs come back unreadable once the decision beneath was already reached.
+  on('state.get', async (_$, e, next) => {
+    const got = await next(e)
+    // A read answers `{ value: { value, version } }`; the prefs' rules come back unreadable.
+    return broken && e.key === 'prefs' && got.value ? ({ value: { ...got.value, value: { guard: true, guardRules: null } } } as typeof got) : got
+  })
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await guardOn($)
+  broken = true
+  expect(await check($, 'git reset --hard')).toEqual({ decision: 'deny', reason: expect.stringMatching(/could not check/) })
+})
+
 test('a deny decided beneath stands over the guard’s ask; a compound command takes its strictest rule', async ($, on) => {
   engine(on)
   panes(on)

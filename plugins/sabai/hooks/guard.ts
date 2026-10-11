@@ -19,11 +19,12 @@ export const GUARD_FAILED = "sabai's guard could not check this call, so it refu
 // The guard's `.catch`: a guard that failed would be skipped and its call run, so a failure before
 // the call ran refuses it; once it ran, its own result stands.
 export const failClosed = <T>(next: { called: boolean }, run: () => T): T | { deny: string } => (next.called ? run() : { deny: GUARD_FAILED })
-// The same for a permission decision: a failure before the verdict beneath was reached denies.
-export const checkFailClosed = <T>(next: { called: boolean }, run: () => T): T | { decision: 'deny'; reason: string } =>
-  next.called ? run() : { decision: 'deny', reason: GUARD_FAILED }
 
-const ENV_FILE = /(^|[\s/'"])\.env(\.(?!example\b|sample\b|template\b)[\w.-]+)?(?=$|[\s'";|&)])/
+// A secrets file by its name: `.env` or `.env.<anything>`, but not an example, sample or template.
+const isEnvFile = (path: string) => {
+  const base = path.split('/').pop()!
+  return /^\.env(\.[\w.-]+)?$/.test(base) && !/\.(example|sample|template)(\.|$)/.test(base)
+}
 
 // The first risk of a call, or nothing.
 export const riskOf = (tool: string, input: { command?: unknown; file_path?: unknown }): Risk | undefined => risksOf(tool, input)[0]
@@ -31,41 +32,152 @@ export const riskOf = (tool: string, input: { command?: unknown; file_path?: unk
 // Every risk of a call, in rule order: a compound command can hold several, and the guard acts on
 // the strictest of them.
 export function risksOf(tool: string, input: { command?: unknown; file_path?: unknown }): Risk[] {
-  if (tool === 'Read') {
-    const path = typeof input.file_path === 'string' ? input.file_path : ''
-    return ENV_FILE.test(path) ? [{ rule: 'env', reason: 'reads a .env file' }] : []
-  }
+  if (tool === 'Read') return typeof input.file_path === 'string' && isEnvFile(input.file_path) ? [{ rule: 'env', reason: 'reads a .env file' }] : []
   if (tool !== 'Bash' || typeof input.command !== 'string') return []
-  const cmd = withoutData(input.command)
+  const cmds = commandsOf(withoutData(input.command))
   const risks: Risk[] = []
-  // rm with both -r and -f (in any order or spelling) aimed at the root or the home folder.
-  const rm = /\brm\s+(?:-\w*\s+)*-\w*(?:r\w*f|f\w*r)\w*(?:\s+-\w+)*\s+(\S+)/i.exec(cmd)
-  if (rm) {
-    const target = rm[1]!.replace(/\/\*?$/, '/')
-    if (target === '/' || target === '/*') risks.push({ rule: 'wipe', reason: 'deletes the whole disk' })
-    else if (['~', '~/', '$HOME', '$HOME/', '${HOME}', '${HOME}/'].includes(target)) risks.push({ rule: 'wipe', reason: 'deletes your home folder' })
-  }
-  const calls = gitCalls(cmd)
+  const wipe = cmds.map(wipes).find(Boolean)
+  if (wipe) risks.push({ rule: 'wipe', reason: wipe })
+  const calls = cmds.flatMap(gitCall)
   const force = forcedPush(calls)
   if (force) risks.push({ rule: 'force', reason: `force-pushes to ${force}` })
   if (discards(calls)) risks.push({ rule: 'discard', reason: 'throws away uncommitted work' })
-  if (/\b(cat|less|more|head|tail|bat|source|grep|rg)\b/.test(cmd) && ENV_FILE.test(cmd)) risks.push({ rule: 'env', reason: 'reads a .env file' })
+  if (cmds.some(readsEnv)) risks.push({ rule: 'env', reason: 'reads a .env file' })
   return risks
 }
 
-// Each git call in a command: its subcommand and arguments, up to the next shell operator or the
-// end of a subshell, past wrappers (`sudo`, `env X=1`, `command`, `time`, `nohup`) and git's own
-// global options (`-C <dir>`, `-c <key=value>`, `--no-pager`, …).
-function gitCalls(cmd: string): { sub: string; args: string[] }[] {
-  const out: { sub: string; args: string[] }[] = []
-  const wrappers = /(?:(?:sudo|command|time|nohup)\s+|env\s+(?:\w+=\S*\s+)*)*/.source
-  for (const m of cmd.matchAll(new RegExp(`(?:^|[;&|(]|\\n)\\s*${wrappers}git\\s+([^;&|)\\n]*)`, 'g'))) {
-    const words = m[1]!.trim().split(/\s+/).filter(Boolean)
-    let i = 0
-    while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
-    if (i < words.length) out.push({ sub: words[i]!, args: words.slice(i + 1) })
+type Command = { words: string[]; from: string[] }
+
+// The simple commands of a shell line, each as its words with quotes removed and the files it reads
+// with `<` apart: split at ; & | newlines ( ) { } ` and $(, past wrappers and leading assignments
+// (`FOO=1`, `sudo -u me`, `env`, `nice -n 5`, `then`, …), with `sh -c '…'` and `eval` read as the
+// commands they run. Redirections leave the words, so `cat<.env` and `"main"` read as typed.
+function commandsOf(line: string): Command[] {
+  const out: Command[] = []
+  let words: string[] = [], from: string[] = [], word = '', inWord = false, quote = '', redirect = ''
+  const endWord = () => {
+    if (inWord) {
+      if (redirect === '<') from.push(word)
+      else if (!redirect) words.push(word)
+      redirect = ''
+    }
+    word = ''
+    inWord = false
   }
+  const endCommand = () => {
+    endWord()
+    if (words.length || from.length) out.push(...unwrapped({ words, from }))
+    words = []
+    from = []
+    redirect = ''
+  }
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!
+    if (quote) {
+      if (c === quote) quote = ''
+      else if (c === '\\' && quote === '"' && i + 1 < line.length) word += line[++i]
+      else word += c
+    } else if (c === "'" || c === '"') {
+      quote = c
+      inWord = true
+    } else if (c === '\\' && i + 1 < line.length) {
+      word += line[++i]
+      inWord = true
+    } else if (c === '$' && line[i + 1] === '{') {
+      const close = line.indexOf('}', i)
+      word += close === -1 ? line.slice(i) : line.slice(i, close + 1)
+      inWord = true
+      i = close === -1 ? line.length : close
+    } else if (c === '$' && line[i + 1] === '(') {
+      endCommand()
+      i++
+    } else if (';&|\n(){}`'.includes(c)) endCommand()
+    else if (c === '<' || c === '>') {
+      // A file descriptor written before the operator (`2>`) belongs to it.
+      if (/^\d+$/.test(word)) {
+        word = ''
+        inWord = false
+      }
+      endWord()
+      let op = c
+      while ('<>&'.includes(line[i + 1] ?? '.')) op += line[++i]
+      redirect = op
+    } else if (/\s/.test(c)) endWord()
+    else {
+      word += c
+      inWord = true
+    }
+  }
+  endCommand()
   return out
+}
+
+const KEYWORDS = ['then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'exec', 'command', 'builtin', 'time', 'nohup']
+// The options of a wrapper that take a value, so the value is not read as the program.
+const VALUED: Record<string, string[]> = { sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-R', '-r', '-T', '-t'], doas: ['-u', '-C'], env: ['-u', '-S', '-C'], nice: ['-n'] }
+
+function unwrapped({ words, from }: Command): Command[] {
+  let i = 0
+  while (i < words.length) {
+    const w = words[i]!
+    if (/^[A-Za-z_]\w*=/.test(w) || KEYWORDS.includes(w)) i++
+    else if (w in VALUED) {
+      i++
+      while (words[i]?.startsWith('-')) i += VALUED[w]!.includes(words[i]!) ? 2 : 1
+    } else break
+  }
+  const rest = words.slice(i)
+  const name = rest[0]?.split('/').pop() ?? ''
+  if (/^(?:ba|z|da|k)?sh$/.test(name)) {
+    const c = rest.findIndex(a => /^-[a-z]*c$/.test(a))
+    if (c > 0 && rest[c + 1] !== undefined) return commandsOf(rest[c + 1]!)
+  }
+  if (name === 'eval') return commandsOf(rest.slice(1).join(' '))
+  return [{ words: rest, from }]
+}
+
+const programOf = (words: string[]) => words[0]?.split('/').pop() ?? ''
+
+// rm with both -r and -f (in any order or spelling) aimed at the root or the home folder: what it
+// deletes, or nothing.
+function wipes({ words }: Command): string | undefined {
+  if (programOf(words) !== 'rm') return undefined
+  const args = words.slice(1)
+  const dashes = args.indexOf('--')
+  const flags = (dashes === -1 ? args : args.slice(0, dashes)).filter(a => a.startsWith('-'))
+  const short = (letter: RegExp) => flags.some(a => !a.startsWith('--') && letter.test(a.slice(1)))
+  if (!((short(/[rR]/) || flags.includes('--recursive')) && (short(/f/) || flags.includes('--force')))) return undefined
+  const targets = dashes === -1 ? args.filter(a => !a.startsWith('-')) : [...args.slice(0, dashes).filter(a => !a.startsWith('-')), ...args.slice(dashes + 1)]
+  for (const t of targets) {
+    const bare = t.replace(/\/+\*?$/, '')
+    if (bare === '' && t.startsWith('/')) return 'deletes the whole disk'
+    if (['~', '$HOME', '${HOME}'].includes(bare)) return 'deletes your home folder'
+  }
+  return undefined
+}
+
+// The commands that print, copy or run a file's contents; for the pattern-first ones the first
+// word is the pattern or script, unless it came with -e or -f.
+const READERS = ['cat', 'tac', 'less', 'more', 'head', 'tail', 'bat', 'nl', 'source', '.', 'grep', 'egrep', 'rg', 'sed', 'awk', 'cp', 'xxd', 'od', 'strings', 'base64', 'sort', 'cut', 'diff']
+const PATTERN_FIRST = ['grep', 'egrep', 'rg', 'sed', 'awk']
+
+function readsEnv({ words, from }: Command): boolean {
+  if (from.some(isEnvFile)) return true
+  const name = programOf(words)
+  if (!READERS.includes(name)) return false
+  const args = words.slice(1)
+  const files = args.filter(a => !a.startsWith('-'))
+  if (PATTERN_FIRST.includes(name) && !args.some(a => /^(-[ef]|--regexp|--file|--expression)/.test(a))) files.shift()
+  return files.some(isEnvFile)
+}
+
+// A git call: its subcommand and arguments, past git's own global options (`-C <dir>`,
+// `-c <key=value>`, `--no-pager`, …).
+function gitCall({ words }: Command): { sub: string; args: string[] }[] {
+  if (programOf(words) !== 'git') return []
+  let i = 1
+  while (i < words.length && words[i]!.startsWith('-')) i += ['-C', '-c', '--git-dir', '--work-tree', '--namespace'].includes(words[i]!) ? 2 : 1
+  return i < words.length ? [{ sub: words[i]!, args: words.slice(i + 1) }] : []
 }
 
 // A git call that throws away work not yet committed: `reset --hard`, `clean` with -f (not a dry

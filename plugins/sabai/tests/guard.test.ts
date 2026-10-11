@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GUARD_FAILED, checkFailClosed, failClosed, riskOf, risksOf } from '../hooks/guard'
+import { GUARD_FAILED, failClosed, riskOf, risksOf } from '../hooks/guard'
 
 test('the guard names risky commands and lets ordinary ones through', () => {
   const bash = (command: string) => riskOf('Bash', { command })?.reason
@@ -116,7 +116,48 @@ test('git restore -S . only unstages and passes; -W . or plain . discards', () =
   expect(rule('git restore -W .')).toBe('discard')
 })
 
-test('a tool.check guard that failed denies unless the decision beneath was reached', () => {
-  expect(checkFailClosed({ called: false }, () => 'beneath')).toEqual({ decision: 'deny', reason: GUARD_FAILED })
-  expect(checkFailClosed({ called: true }, () => 'beneath')).toBe('beneath')
+test('rm is read word by word: every rm, every target, long and split flags, quotes and --', () => {
+  const bash = (command: string) => riskOf('Bash', { command })?.reason
+  const disk = 'deletes the whole disk'
+  expect(bash('rm -rf build && rm -rf /')).toBe(disk)
+  expect(bash('rm -rf build /')).toBe(disk)
+  expect(bash('rm -rf /tmp/x ~')).toBe('deletes your home folder')
+  expect(bash('rm -rf --no-preserve-root /')).toBe(disk)
+  expect(bash('rm -r -f /')).toBe(disk)
+  expect(bash('rm --recursive --force /')).toBe(disk)
+  expect(bash('rm -rf -- /')).toBe(disk)
+  expect(bash('rm -rf "/"')).toBe(disk)
+  expect(bash('rm -rf "$HOME"')).toBe('deletes your home folder')
+  expect(bash('rm -rf ${HOME}/*')).toBe('deletes your home folder')
+  expect(bash('/bin/rm -rf /')).toBe(disk)
+  // Not a wipe: a folder under the root, no -f, an rm inside an echoed string's words.
+  expect(bash('rm -rf /tmp/build')).toBeUndefined()
+  expect(bash('rm -r build')).toBeUndefined()
+  expect(bash('rm -rf ./build 2>/dev/null')).toBeUndefined()
+})
+
+test('git calls are found past assignments, sudo options, nice, shell keywords, braces, backticks and sh -c', () => {
+  const bash = (command: string) => riskOf('Bash', { command })?.rule
+  expect(bash('FOO=1 git push --force origin main')).toBe('force')
+  expect(bash('GIT_SSH_COMMAND=x git reset --hard')).toBe('discard')
+  expect(bash('sudo -u me git reset --hard')).toBe('discard')
+  expect(bash('nice -n 5 git reset --hard')).toBe('discard')
+  expect(bash('if true; then git reset --hard; fi')).toBe('discard')
+  expect(bash('{ git reset --hard; }')).toBe('discard')
+  expect(bash('echo `git reset --hard`')).toBe('discard')
+  expect(bash('echo $(git reset --hard)')).toBe('discard')
+  expect(bash('bash -c "git reset --hard"')).toBe('discard')
+  expect(bash("sh -lc 'rm -rf /'")).toBe('wipe')
+  expect(bash('git push --force origin "main"')).toBe('force')
+  // A quoted word that only mentions git is not a git call.
+  expect(bash('echo "git reset --hard"')).toBeUndefined()
+  expect(bash('git commit -m "reset --hard; push --force main"')).toBeUndefined()
+})
+
+test('the env rule catches a .env file a command reads, and not one it only names', () => {
+  const bash = (command: string) => riskOf('Bash', { command })?.rule
+  for (const c of ['sed -n 1,5p .env', 'awk 1 .env', 'cp .env /tmp/x', '. ./.env', 'xargs < .env', 'cat<.env', 'cat .env>out', 'grep -e KEY .env', 'tail -n 3 config/.env.production'])
+    expect([c, bash(c)]).toEqual([c, 'env'])
+  for (const c of ["grep -q '^.env$' .gitignore || echo '.env' >> .gitignore", 'cat README.md && ls -la .env', 'cat .env.local.example', 'cat .env.prod.example', 'rg .env src', 'echo KEY=1 > .env'])
+    expect([c, bash(c)]).toEqual([c, undefined])
 })

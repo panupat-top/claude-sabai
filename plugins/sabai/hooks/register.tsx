@@ -6,7 +6,7 @@ import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
+import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
@@ -633,7 +633,9 @@ export const register: Register = on => {
     if (!risk) return decided
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
-  }).catch(($, e, next) => checkFailClosed(next, () => next(e)))
+  // Nothing has run at a permission decision, so any failure, before or after the decision
+  // beneath, denies.
+  }).catch(() => ({ decision: 'deny' as const, reason: GUARD_FAILED }))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Read', e)
     await racing($, e.agentId, 'read')
