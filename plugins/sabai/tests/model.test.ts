@@ -75,11 +75,11 @@ test('info chips: directory, git user and branch on the left, node on the right'
     left: [
       { icon: 'folder', label: 'Directory', value: 'claude-skins' },
       { icon: 'git', label: 'Git user', value: 'Panupat' },
-      { icon: 'branch', label: 'Branch', value: 'main ↑2 ↓1 ±3' },
+      { icon: 'branch', label: 'Branch', value: 'main ↑2 ↓1 ±3', branch: 'main', ahead: 2, behind: 1, changes: 3 },
     ],
     right: [{ icon: 'node', label: 'Node', value: 'v24.1.0' }],
   })
-  expect(chips({ branch: 'main', ahead: 0, behind: 0, changes: 0 })).toEqual({ left: [{ icon: 'branch', label: 'Branch', value: 'main' }], right: [] })
+  expect(chips({ branch: 'main', ahead: 0, behind: 0, changes: 0 })).toEqual({ left: [{ icon: 'branch', label: 'Branch', value: 'main', branch: 'main', ahead: 0, behind: 0, changes: 0 }], right: [] })
   expect(chips({})).toEqual({ left: [], right: [] })
 })
 

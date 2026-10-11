@@ -68,7 +68,9 @@ export function countdown(ms: number): string {
   return h < 24 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`
 }
 
-export type Chip = { icon: IconKind; label: string; value: string }
+// The branch chip also carries its parts, so a drawing can lay them out apart; `value` stays the
+// one-line form the terminal and the alt read.
+export type Chip = { icon: IconKind; label: string; value: string; branch?: string; ahead?: number; behind?: number; changes?: number }
 
 // `main ↑2 ↓1 ±3`: each mark only when it is not zero.
 const branchLine = ({ branch, ahead, behind, changes }: Env) =>
@@ -78,13 +80,14 @@ const branchLine = ({ branch, ahead, behind, changes }: Env) =>
 // known. The branch carries commits ahead/behind its upstream and uncommitted files.
 // `label` is what the drawing says for a reader.
 export function chips(env: Env, show: Partial<Show> = {}): { left: Chip[]; right: Chip[] } {
-  const known = (list: { icon: IconKind; label: string; value?: string | false }[]) => list.filter((c): c is Chip => Boolean(c.value))
+  const known = (list: { icon: IconKind; label: string; value?: string | false; branch?: string; ahead?: number; behind?: number; changes?: number }[]) =>
+    list.filter(c => Boolean(c.value)).map(c => Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined)) as Chip)
   const on = (key: keyof Show) => show[key] !== false
   return {
     left: known([
       { icon: 'folder', label: 'Directory', value: on('folder') && env.dir },
       { icon: 'git', label: 'Git user', value: on('gitUser') && env.gitUser },
-      { icon: 'branch', label: 'Branch', value: on('branch') && env.branch && branchLine(env) },
+      { icon: 'branch', label: 'Branch', value: on('branch') && env.branch && branchLine(env), branch: env.branch, ahead: env.ahead, behind: env.behind, changes: env.changes },
     ]),
     right: known([{ icon: 'node', label: 'Node', value: on('node') && env.node }]),
   }

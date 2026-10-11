@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
+import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
 import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
@@ -514,3 +515,10 @@ for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) 
     }
   })
 }
+
+test('a mark can take a class in place of its own colour', () => {
+  expect(icon('git', 0, 0, 12)).toContain('fill="#F05032"')
+  const classed = icon('git', 0, 0, 12, 'sm')
+  expect(classed).toContain('class="sm"')
+  expect(classed).not.toContain('fill=')
+})
