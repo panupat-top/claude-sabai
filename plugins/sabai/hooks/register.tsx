@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -108,8 +108,9 @@ const SKIN_PANE = 'sabai-skins'
 // The toolbar's shortcuts, those of them this surface offers (the Code tab has no /rewind, say).
 // The band's own cards already show context and usage, and /clear is one click from losing the
 // conversation, so the toolbar keeps the commands that act: review and compact, then rewind
-// and resume to move through the conversation.
-const QUICK = ['review', 'compact', 'rewind', 'resume']
+// and resume to move through the conversation. Each label leads with a mark, as Agents and
+// Settings do.
+const QUICK: Record<string, string> = { review: '◎ Review', compact: '⇲ Compact', rewind: '↶ Rewind', resume: '↻ Resume' }
 
 const TICK_MS = 30_000
 const CREW_LINGER_MS = 60_000
@@ -353,7 +354,7 @@ export const register: Register = on => {
         .catch(() => undefined)
     await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
     const offered = new Set((await $.command.list().catch(() => [])).map(c => c.name))
-    quick = QUICK.filter(c => offered.has(c))
+    quick = Object.keys(QUICK).filter(c => offered.has(c))
     // The clock first, so no countdown is ever measured from zero.
     await tick($)
     // session.measure fires only on the next response, so a fresh load reads what is known now.
@@ -1139,6 +1140,13 @@ export const register: Register = on => {
     const running = active.length
     // The toolbar's count holds whether or not the crew row shows.
     const working = everyone.filter(a => a.status === 'running').length
+    // The commands say when they are worth a press: review counts the uncommitted files, and
+    // compact shows the context once it reaches the amber mark.
+    const changes = (await read($, env)).changes ?? 0
+    const ctx = measured?.contextPercent
+    const ctxHigh = ctx !== undefined && level(ctx, shownPrefs.warnAt, shownPrefs.alertAt) !== undefined
+    const quickLabel = (c: string) =>
+      c === 'review' && changes > 0 ? `${QUICK[c]} · ${changes} ${changes === 1 ? 'file' : 'files'}` : c === 'compact' && ctxHigh ? `${QUICK[c]} · ${Math.round(ctx)}%` : QUICK[c]!
     const lead = active[0]
     const leadLine = lead && progressOf(lead)
     const leadDetail = lead ? (leadLine ? `${leadLine.done}/${leadLine.total} · ${leadLine.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
@@ -1169,7 +1177,8 @@ export const register: Register = on => {
         <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1}>
           {quick.map(c => (
             // A press's own work ends with the press, so the command is queued from a timer.
-            <Button key={`run-${c}`} label={`/${c}`} variant="secondary" onPress={() => void $.clock.after(0, () => void $.command.run({ command: c }))} />
+            // One primary at a time: running agents outrank a full context.
+            <Button key={`run-${c}`} label={quickLabel(c)} variant={c === 'compact' && ctxHigh && working === 0 ? 'primary' : 'secondary'} onPress={() => void $.clock.after(0, () => void $.command.run({ command: c }))} />
           ))}
         </Box>
         <Box flexGrow={1} />

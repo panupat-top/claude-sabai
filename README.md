@@ -68,7 +68,7 @@ In the comfortable density (the default) the band is three panels:
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
 
-Under it, the toolbar: `/review`, `/compact`, `/rewind`, `/resume`, and the `✻ Agents` and `⚙ Settings` buttons.
+Under it, the toolbar: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
 
 ### The agents panel
 
