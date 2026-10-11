@@ -56,6 +56,19 @@ export type Prefs = {
 // What the band shows: each info chip, each usage card, and Clawd.
 export type Show = { folder: boolean; gitUser: boolean; branch: boolean; node: boolean; context: boolean; session: boolean; week: boolean; clawd: boolean }
 
+// The race: what kind a call is, and each member's calls ('main' or an agentId).
+export type CallKind = 'read' | 'edit' | 'command' | 'test'
+export type RaceLog = {
+  calls: Record<string, { kind: CallKind; ok: boolean }[]>
+  doing: Record<string, CallKind>
+  fellAt: Record<string, number>
+  scoredAt: Record<string, number>
+  combo: number
+  coins: number
+  mainFails: number
+  total: number
+}
+
 export type GuardRule = 'wipe' | 'force' | 'env' | 'discard'
 export type GuardAction = 'block' | 'ask' | 'off'
 
@@ -92,6 +105,7 @@ declare module 'claude-code' {
       lastTurnAt: number
       receipts: Record<string, TurnLog>
       turnStartedAt: number
+      race: RaceLog
       liveStep: { icon: string; title: string } | null
       usageSamples: Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>
     }

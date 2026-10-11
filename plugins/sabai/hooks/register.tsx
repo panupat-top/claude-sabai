@@ -1,13 +1,13 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { CELEBRATE_MS, STARTLE_MS, accessoryOf, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -61,6 +61,8 @@ const RECEIPTS_KEPT = 40
 // The main turn as it runs, for the live strip: when it began, and the step in flight.
 const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
 const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string } | null)
+// Each member's calls for the race: its tiles, its call in flight, its last fall and score.
+const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
 let mainWorking = false
 // Each plan limit's readings in its current window, for its forecast.
@@ -270,6 +272,24 @@ async function stepping($: EngineInterface, agentId: string | undefined, tool: s
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   await update($, liveStep, () => (s ? { icon: s.icon, title: s.title } : null))
+}
+
+// A call that never came back (it threw): only its in-flight mark is cleared.
+const UNFINISHED = { deny: 'unfinished' }
+
+// A member's call for the race: in flight before it runs, then its tile once it finished; a
+// refused or unfinished call leaves only the in-flight mark cleared.
+async function racing($: EngineInterface, agentId: string | undefined, kind: CallKind, called?: { deny?: string; isError?: boolean }, ok?: boolean) {
+  const member = agentId ?? 'main'
+  if (called === undefined && ok === undefined) {
+    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: kind } }))
+    return
+  }
+  const at = await $.clock.now()
+  await update($, race, r => {
+    const { [member]: _, ...doing } = r.doing
+    return !called || called.deny !== undefined ? { ...r, doing } : raced({ ...r, doing }, member, { kind, ok: ok ?? !called.isError }, at)
+  })
 }
 
 async function unstep($: EngineInterface, agentId: string | undefined) {
@@ -622,21 +642,29 @@ export const register: Register = on => {
   }).catch(($, e, next) => checkFailClosed(next, () => next(e)))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Read', e)
+    await racing($, e.agentId, 'read')
+    let called: { deny?: string; isError?: boolean } | undefined
     try {
-      return await next(e)
+      called = await next(e)
+      return called as never
     } finally {
       await unstep($, e.agentId)
+      await racing($, e.agentId, 'read', called ?? UNFINISHED)
     }
   })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Edit', e)
+    await racing($, e.agentId, 'edit')
     const called = await next(e).finally(() => unstep($, e.agentId))
+    await racing($, e.agentId, 'edit', called)
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     await stepping($, e.agentId, 'Write', e)
+    await racing($, e.agentId, 'edit')
     const called = await next(e).finally(() => unstep($, e.agentId))
+    await racing($, e.agentId, 'edit', called)
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
     return called
   })
@@ -647,6 +675,9 @@ export const register: Register = on => {
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
     await stepping($, e.agentId, 'Bash', e)
+    const kind: CallKind = isTestCommand(e.command) ? 'test' : 'command'
+    await racing($, e.agentId, kind)
+    let raceDone = false
     try {
       const called = await next(e)
       if (id && !asked.has(id)) {
@@ -657,6 +688,9 @@ export const register: Register = on => {
       const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
       const at = await $.clock.now()
       await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at, readOnly: isReadOnly(e.command) })
+      // A test run scores only when no test failed.
+      await racing($, e.agentId, kind, called, !called.isError && (kind !== 'test' || (testResult(output)?.failed ?? 0) === 0))
+      raceDone = true
       // This call just set the turn's test result: redraw now, and again when the celebration ends.
       if (e.agentId === undefined && (await read($, turnLog)).test?.at === at) {
         await update($, now, () => at)
@@ -669,6 +703,7 @@ export const register: Register = on => {
         asked.delete(id)
       }
       await unstep($, e.agentId)
+      if (!raceDone) await racing($, e.agentId, kind, UNFINISHED)
     }
   })
 
@@ -981,6 +1016,8 @@ export const register: Register = on => {
     turnSeed = seedOf(e.turnId)
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
+    // Main's lane and the turn's counts start over; agents' lanes carry on.
+    await update($, race, r => ({ ...EMPTY_RACE, calls: Object.fromEntries(Object.entries(r.calls).filter(([k]) => k !== 'main')), doing: r.doing, fellAt: r.fellAt, scoredAt: r.scoredAt }))
     mainWorking = true
     const began = await $.clock.now()
     await update($, turnStartedAt, () => began)

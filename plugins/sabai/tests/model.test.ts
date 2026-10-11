@@ -1,7 +1,9 @@
 import { expect, test } from 'claude-code/testing'
+import type { AgentRun } from '../types'
+import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, accessoryOf, forecastOf, moodOf } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, forecastOf, moodOf, raced } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -145,4 +147,52 @@ test('Clawd’s accessory follows the local date and hour, holidays first', () =
   expect(at('2026-10-12T22:00:00')).toBe('nightcap')
   expect(at('2026-10-13T04:59:00')).toBe('nightcap')
   expect(at('2026-10-13T05:00:00')).toBeUndefined()
+})
+
+test('raced keeps each member’s last tiles, the combo, coins and Main’s fails', () => {
+  let log = EMPTY_RACE
+  for (let i = 0; i < 20; i++) log = raced(log, 'main', { kind: 'read', ok: true }, i)
+  expect(log.calls.main!.length).toBe(16)
+  expect(log.combo).toBe(20)
+  log = raced(log, 'agent-a', { kind: 'command', ok: false }, 30)
+  expect(log.combo).toBe(0)
+  expect(log.mainFails).toBe(0)
+  expect(log.fellAt['agent-a']).toBe(30)
+  log = raced(log, 'main', { kind: 'command', ok: false }, 31)
+  expect(log.mainFails).toBe(1)
+  log = raced(log, 'main', { kind: 'test', ok: true }, 32)
+  expect([log.coins, log.scoredAt.main]).toEqual([1, 32])
+  expect(log.total).toBe(23)
+})
+
+test('raceOf lays out Main and up to three agents, each in its state, and stays away when idle', () => {
+  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  const now = 100_000
+  expect(raceOf(EMPTY_RACE, [], undefined, now, false, 0)).toBeUndefined()
+  let log = raced(EMPTY_RACE, 'b', { kind: 'command', ok: false }, now - 1000)
+  log = raced(log, 'c', { kind: 'test', ok: true }, now - 1000)
+  const agents = [
+    run('a', { progress: { done: 3, total: 5 } }),
+    run('b', { type: 'general-purpose' }),
+    run('c', { type: 'Plan' }),
+    run('d', { type: 'plugin:helper', status: 'done', endedAt: now - 2000 }),
+    run('e', { status: 'failed', endedAt: now - 2000 }),
+  ]
+  const r = raceOf({ ...log, doing: { main: 'edit' } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
+  expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['Explore', 'running'], ['General', 'tripped'], ['Plan', 'scored']])
+  expect(r.more).toBe(2)
+  expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', note: 'Editing svg.ts' })
+  expect(r.lanes[1]!.progress).toBe(0.6)
+  // No step reports and no task list: no progress, so the runner holds the middle.
+  expect(r.lanes[2]!.progress).toBeUndefined()
+  expect(r.elapsedMs).toBe(102_000)
+  // A trip ends after 4 s.
+  expect(raceOf(log, [run('b', { type: 'general-purpose' })], undefined, now + 4000, true, now - 1)!.lanes[1]!.state).toBe('running')
+  // Main idle, an agent still running: the race stays, Main waits; time counts from the agent.
+  const solo = raceOf(EMPTY_RACE, [run('a', { startedAt: now - 5000 })], undefined, now, false, 0)!
+  expect([solo.lanes[0]!.state, solo.elapsedMs]).toEqual(['waiting', 5000])
+  // Finished and out agents show their states while the race runs.
+  const ends = raceOf(EMPTY_RACE, [run('d', { status: 'done', endedAt: now - 2000 }), run('e', { status: 'failed', endedAt: now - 2000 })], undefined, now, true, now - 10)!
+  expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
+  expect(ends.hearts).toBe(3)
 })

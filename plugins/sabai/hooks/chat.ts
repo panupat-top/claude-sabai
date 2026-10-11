@@ -176,6 +176,8 @@ const bare = (command: string) => command.replace(/^(?:cd\s+(?:"[^"]*"|'[^']*'|\
 const errorLine = (text: string) =>
   firstLine(text.replace(/<\/?tool_use_error>/g, '').split('\n').filter(l => !/^Exit code \d+$/.test(l.trim())).join('\n'))
 // Commands that run tests: only their output is read for counts.
+// Whether a command runs tests.
+export const isTestCommand = (command: string) => TEST_COMMAND.test(command)
 const TEST_COMMAND = /(?:^|[\s;&|(])(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?test\b|bunx?\s+test\b|(?:npx\s+|bunx\s+)?(?:jest|vitest)\b|(?:python3?\s+-m\s+)?pytest\b|cargo\s+(?:nextest\s+)?test\b|go\s+test\b|claude\s+plugin\s+test\b)/
 
 type Call = { tool: string; input: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; durationMs?: number; tests?: boolean }

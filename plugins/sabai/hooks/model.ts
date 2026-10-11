@@ -1,4 +1,4 @@
-import type { Env, Show, Task, TurnLog, Usage } from '../types'
+import type { CallKind, Env, RaceLog, Show, Task, TurnLog, Usage } from '../types'
 import type { IconKind } from './icons'
 
 export const WARN_AT = 70
@@ -182,4 +182,25 @@ export function accessoryOf(d: Date): Accessory | undefined {
   if (h >= 6 && h < 11) return 'coffee'
   if (h >= 22 || h < 5) return 'nightcap'
   return undefined
+}
+
+export const EMPTY_RACE: RaceLog = { calls: {}, doing: {}, fellAt: {}, scoredAt: {}, combo: 0, coins: 0, mainFails: 0, total: 0 }
+export const TRIP_MS = 4000
+export const SCORE_MS = 3000
+export const RACE_TILES = 16
+export const RACE_LANES = 3
+
+// One finished call of a member folded into the race: its tile, the shared combo and coins, and
+// Main's lost hearts.
+export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: boolean }, at: number): RaceLog {
+  return {
+    ...log,
+    calls: { ...log.calls, [member]: [...(log.calls[member] ?? []), call].slice(-RACE_TILES) },
+    combo: call.ok ? log.combo + 1 : 0,
+    coins: log.coins + (call.kind === 'test' && call.ok ? 1 : 0),
+    mainFails: log.mainFails + (member === 'main' && !call.ok ? 1 : 0),
+    fellAt: call.ok ? log.fellAt : { ...log.fellAt, [member]: at },
+    scoredAt: call.kind === 'test' && call.ok ? { ...log.scoredAt, [member]: at } : log.scoredAt,
+    total: log.total + 1,
+  }
 }
