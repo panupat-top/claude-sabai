@@ -964,6 +964,27 @@ test('a receipt that falls back to the notice keeps text another plugin left the
   expect((await turn($, () => bash($, 'npm run build'), '')).text).toBe('from beneath\n› 1 command')
 })
 
+test('settings choose the band’s chips, cards, thresholds and Clawd; old prefs keep everything', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Git user Panupat')
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-show-gitUser' })
+  await pane.press({ key: 'pref-show-week' })
+  await pane.press({ key: 'warn-60' })
+  const after = (await shown($, 'desktop')).words
+  expect(after).not.toContain('Git user')
+  expect(after).not.toContain('7D All')
+  for (const key of ['pref-show-folder', 'pref-show-node', 'pref-show-context', 'pref-show-session', 'pref-show-clawd', 'alert-95']) expect([key, await pane.find({ key })]).not.toEqual([key, undefined])
+})
+
+test('with every chip and Clawd hidden and nothing else to show, the band is left to the engine', async ($, on) => {
+  engine(on, { hasLimits: false, store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: false, toolbar: false }, show: { folder: false, gitUser: false, branch: false, node: false, clawd: false } } } })
+  await start($)
+  for (const surface of SURFACES) expect((await shown($, surface)).words).toBe('stock row')
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'

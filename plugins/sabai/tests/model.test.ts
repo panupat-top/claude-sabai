@@ -59,7 +59,7 @@ test('countdowns read in minutes, hours or days', () => {
 })
 
 test('levels warn at 70 and alert at 90', () => {
-  expect([69, 70, 89, 90].map(level)).toEqual([undefined, 'warn', 'warn', 'alert'])
+  expect([69, 70, 89, 90].map(p => level(p))).toEqual([undefined, 'warn', 'warn', 'alert'])
 })
 
 test('blocks fill in proportion and stay in range', () => {
@@ -98,4 +98,16 @@ test('Clawd’s mood follows the session, the most pressing first', () => {
   expect(moodOf({ ...base, log: failed, contextPercent: 95 })).toBe('sad')
   expect(moodOf({ ...base, log: { ...failed, caught: base.now - 100 } })).toBe('startled')
   expect(moodOf({ ...base, log: { ...log, caught: base.now - STARTLE_MS } })).toBe('idle')
+})
+
+test('chips and meters follow what the person chose to show, and thresholds set the levels', () => {
+  const env = { dir: 'work', gitUser: 'P', branch: 'main', node: 'v24' }
+  const show = { folder: true, gitUser: false, branch: true, node: false, context: true, session: false, week: true, clawd: true }
+  expect(chips(env, show).left.map(c => c.icon)).toEqual(['folder', 'branch'])
+  expect(chips(env, show).right).toEqual([])
+  const usage = { contextPercent: 65, contextTokens: 650, contextWindow: 1000, rateLimits: [{ kind: 'five_hour', percentUsed: 50 }, { kind: 'seven_day', percentUsed: 86 }] }
+  const list = meters(usage, 0, { show, warnAt: 60, alertAt: 85 })
+  expect(list.map(m => [m.kind, m.level])).toEqual([['context', 'warn'], ['week', 'alert']])
+  expect(meters(usage, 0).map(m => m.level)).toEqual([undefined, undefined, 'warn'])
+  expect(level(84, 60, 85)).toBe('warn')
 })

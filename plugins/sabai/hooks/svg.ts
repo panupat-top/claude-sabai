@@ -98,13 +98,13 @@ export function fillColor(percent: number, base: string): string {
 
 // How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
 // and Clawd's tint. No skin paints a background: the band sits on the surface's own, as `auto` does.
-export type Look = { css: string; bar: (kind: MeterKind | 'tasks', percent: number) => string; pill: string; clawd: string }
+export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' | 'alert') => string; pill: string; clawd: string }
 
 const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
 
 const AUTO: Look = {
   css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
-  bar: (kind, percent) => fillColor(percent, ICON_COLORS[kind]),
+  bar: (kind, lvl) => (lvl === 'alert' ? ALERT : lvl === 'warn' ? WARN : ICON_COLORS[kind]),
   pill: PILL,
   clawd: ICON_COLORS.tasks,
 }
@@ -118,10 +118,7 @@ export function lookOf(skin: string): Look {
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
     css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
-    bar: (kind, percent) => {
-      const l = level(percent)
-      return l === 'alert' ? t.alert : l === 'warn' ? t.warn : t.accents[kind]
-    },
+    bar: (kind, lvl) => (lvl === 'alert' ? t.alert : lvl === 'warn' ? t.warn : t.accents[kind]),
     pill: readable(t.accents.tasks, '#ffffff'),
     clawd: t.accents.tasks,
   }
@@ -206,18 +203,18 @@ const BAND_CONFETTI = [
 function clawdAt(look: Look, x: number, y: number, mood: Mood): string {
   const confetti =
     mood === 'celebrating'
-      ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
   return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd) + confetti
 }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd shows the session's mood: walking while the turn works, blinking while it waits.
-function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle): Part {
+function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
-  const titleX = clawd.width + 10
+  const titleX = withClawd ? clawd.width + 10 : 0
   const title = fit(p.title, 13, Math.max(60, W * 0.35))
   const barX = Math.round(titleX + textWidth(title, 13) + 14)
   const barH = 14
@@ -228,13 +225,13 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood) +
+    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood) : '') +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
-    pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
+    pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks'), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
     `<text class="sm" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
-  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}${moodSaid(mood)}` }
+  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}${withClawd ? moodSaid(mood) : ''}` }
 }
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
@@ -250,7 +247,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
     const top = y + 14
     const bottom = y + 31
     const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
-    const color = look.bar(m.kind, m.percent)
+    const color = look.bar(m.kind, m.level)
     const detail = m.amount
       ? `<text class="t" x="${right}" y="${top + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${m.amount}</text>`
       : m.resetsInMs === undefined
@@ -262,7 +259,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
       `<text class="m" x="${labelX}" y="${top + 3.5}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(m.label.toUpperCase())}</text>` +
       detail +
       pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
-      `<text class="${textClass(m.percent, m.kind)}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
+      `<text class="c-${m.level ?? m.kind}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
     )
   })
   const alt = list
@@ -384,6 +381,7 @@ export function bandSvg(
   skin = 'auto',
   style: BarStyle = 'dither',
   crew?: { runs: readonly AgentRun[]; now: number },
+  clawd = true,
 ): Drawing | undefined {
   const look = lookOf(skin)
   const parts: Part[] = []
@@ -393,9 +391,9 @@ export function bandSvg(
     y += part.height + GAP
   }
   // Clawd stands in the info row when there is no tasks row to hold him.
-  const clawdInInfo = !p && Boolean(info.show)
+  const clawdInInfo = !p && Boolean(info.show) && clawd
   if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
-  if (p) add(progressPart(look, p, W, mood, y, style))
+  if (p) add(progressPart(look, p, W, mood, y, style, clawd))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style))
   if (parts.length === 0) return undefined
@@ -424,7 +422,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
     .map((kind, i) =>
       Array.from({ length: SEGMENTS }, (_, j) => {
         const x = (cardX + PAD + i * (barW + GAP) + j * segW).toFixed(1)
-        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind, 0)}"` : 'class="k"'
+        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind)}"` : 'class="k"'
         return `<rect ${paint} x="${x}" y="${SWATCH_H / 2 - 3}" width="${(segW - 2).toFixed(1)}" height="6" rx="1"/>`
       }).join(''),
     )
@@ -441,7 +439,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
 export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
-  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks', 0), 5, style)
+  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
   return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`)
 }
 
@@ -464,7 +462,7 @@ const drawing = (look: Look, W: number, height: number, body: string, alt: strin
 // takes the deeper pill clay.
 function hatOf(look: Look, type: string) {
   const { hat, accent } = typeStyle(type)
-  const color = accent ? look.bar(accent, 0) : look.bar('session', 0)
+  const color = accent ? look.bar(accent) : look.bar('session')
   return { hat, accent, color, hatColor: accent === 'tasks' ? look.pill : accent ? color : undefined }
 }
 
@@ -474,8 +472,8 @@ function statusMark(look: Look, status: AgentRun['status'], x: number, y: number
   if (status === 'running')
     return `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}"/><circle class="ripple" cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${color}" stroke-width="1.2"/>`
   if (status === 'done')
-    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context', 0)}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
-  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 100)}" stroke-width="1.8" stroke-linecap="round"/></g>`
+    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context')}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 'alert')}" stroke-width="1.8" stroke-linecap="round"/></g>`
 }
 
 const AGENT_H = 52
@@ -571,7 +569,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const barY = 38
   const barW = right - textX
   const uid = a.id.replace(/\W/g, '_')
-  const failedColor = look.bar('tasks', 100)
+  const failedColor = look.bar('tasks', 'alert')
   // A failed run's bar takes the alert colour, so a full bar never reads as success.
   const barColor = a.status === 'failed' ? failedColor : color
   const bar = line
@@ -586,7 +584,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
       : cardBar(look, uid, textX, barY, barW, 1, barColor, style)
   const confetti =
     a.status === 'done' && fresh
-      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
   const body =
     `<rect class="p" width="${W}" height="${H}" rx="8"/>` +

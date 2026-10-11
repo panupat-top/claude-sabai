@@ -6,7 +6,7 @@ import { THEMES, contrast } from '../hooks/themes'
 import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
-  { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
+  { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
   { kind: 'session', label: '5H Limit', percent: 7, resetsInMs: 2 * 3600_000 },
   { kind: 'week', label: '7D All', percent: 3, resetsInMs: 3 * 86_400_000 },
 ] as const

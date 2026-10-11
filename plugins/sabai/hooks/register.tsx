@@ -30,6 +30,9 @@ const DEFAULT_PREFS: Prefs = {
   steps: true,
   chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
   guardRules: DEFAULT_GUARD_RULES,
+  show: { folder: true, gitUser: true, branch: true, node: true, context: true, session: true, week: true, clawd: true },
+  warnAt: 70,
+  alertAt: 90,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -41,6 +44,7 @@ const withDefaults = (v: unknown): Prefs => {
     rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
+    show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -434,7 +438,7 @@ export const register: Register = on => {
     // ink follows the OS theme, which a fixed skin colour behind them could not.
     const reportColor = (a: AgentRun) => {
       const { accent } = typeStyle(a.type)
-      return a.status === 'failed' ? look.bar('tasks', 100) : look.bar(accent ?? 'session', 0)
+      return a.status === 'failed' ? look.bar('tasks', 'alert') : look.bar(accent ?? 'session')
     }
     const drawings = new Map<string, ReturnType<typeof agentCardSvg>>()
     const drawnOf = (a: AgentRun) => {
@@ -695,6 +699,18 @@ export const register: Register = on => {
     const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
       toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const showToggle = (key: keyof Prefs['show'], name: string, note: string) =>
+      toggle(`show-${key}`, name, note, p.show[key], x => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }))
+    const thresholdRow = (key: 'warn' | 'alert', name: string, values: number[], current: number) => (
+      <Box key={`row-${key}`} flexDirection="row" alignItems="center" columnGap={2}>
+        {named(name, key === 'warn' ? 'Amber from this percent' : 'Red from this percent')}
+        <Box flexDirection="row" columnGap={1}>
+          {values.map(v => (
+            <Button key={`${key}-${v}`} label={`${v}%`} variant={v === current ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, [key === 'warn' ? 'warnAt' : 'alertAt']: v }))} />
+          ))}
+        </Box>
+      </Box>
+    )
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
@@ -721,7 +737,7 @@ export const register: Register = on => {
                 ) : (
                   <Text>
                     {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
-                      <Text key={kind} color={kLook.bar(kind, 0)}>{'▰▰▰ '}</Text>
+                      <Text key={kind} color={kLook.bar(kind)}>{'▰▰▰ '}</Text>
                     ))}
                   </Text>
                 )}
@@ -742,6 +758,19 @@ export const register: Register = on => {
             {rowToggle('crew', 'Crew', 'Subagents at work')}
             {rowToggle('usage', 'Usage', 'Context and plan limits')}
             {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
+            {subheading('Info chips', 'What the first row names')}
+            {showToggle('folder', 'Folder', 'The project folder')}
+            {showToggle('gitUser', 'Git user', 'Your git name')}
+            {showToggle('branch', 'Branch', 'Branch, ahead/behind and changes')}
+            {showToggle('node', 'Node', 'The Node version')}
+            {subheading('Usage cards', 'Which limits show, and when they turn amber and red')}
+            {showToggle('context', 'Context', 'How full the conversation is')}
+            {showToggle('session', '5H limit', 'The five-hour plan limit')}
+            {showToggle('week', '7D limit', 'The seven-day plan limit')}
+            {thresholdRow('warn', 'Warn at', [60, 70, 80], p.warnAt)}
+            {thresholdRow('alert', 'Alert at', [85, 90, 95], p.alertAt)}
+            {subheading('Clawd', 'The pixel crab')}
+            {showToggle('clawd', 'Clawd', 'His moods in the band')}
           </>,
         )}
         {group(
@@ -808,7 +837,7 @@ export const register: Register = on => {
                 <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
               ))}
             </Box>
-            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks')}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
             {subheading('Color theme', 'Ten looks')}
             <Box flexDirection="column" rowGap={1}>{themes}</Box>
           </>,
@@ -923,8 +952,8 @@ export const register: Register = on => {
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const list = rows.usage ? meters(measured, at) : []
-    const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
+    const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
+    const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
     if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
@@ -984,7 +1013,7 @@ export const register: Register = on => {
         </Button>
         {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
         <Button key="skins" label={'⚙\uFE0E Settings'} variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
-          {tile('⚙', look.bar('session', 0))}
+          {tile('⚙', look.bar('session'))}
           <Text bold> Settings</Text>
         </Button>
       </Box>
@@ -996,7 +1025,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at }, shownPrefs.show.clawd)
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -1009,9 +1038,9 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {(info.left.length + info.right.length > 0 || (rows.info && !p && MOOD_GLYPH[mood])) && (
+        {(info.left.length + info.right.length > 0 || (rows.info && shownPrefs.show.clawd && !p && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
-            {!p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
+            {shownPrefs.show.clawd && !p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>
@@ -1027,10 +1056,10 @@ export const register: Register = on => {
         {p && (
           <Box flexDirection="row" columnGap={2}>
             <Text wrap="truncate-end">
-              <Text color={look.bar('tasks', 0)}>{`${MOOD_GLYPH[mood] ?? '●'} `}</Text>
+              <Text color={look.bar('tasks')}>{`${(shownPrefs.show.clawd && MOOD_GLYPH[mood]) || '●'} `}</Text>
               {p.title}
             </Text>
-            <Text color={look.bar('tasks', 0)}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
+            <Text color={look.bar('tasks')}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
             <Text bold>{`${p.done}/${p.total}`}</Text>
             <Text dimColor>{`${Math.round((p.done / p.total) * 100)}%`}</Text>
           </Box>
@@ -1049,7 +1078,7 @@ export const register: Register = on => {
             {list.map(m => (
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
-                <Text color={look.bar(m.kind, m.percent)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
+                <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

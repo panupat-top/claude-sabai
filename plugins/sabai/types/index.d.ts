@@ -47,7 +47,13 @@ export type Prefs = {
   steps: boolean
   chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
   guardRules: Record<GuardRule, GuardAction>
+  show: Show
+  warnAt: number
+  alertAt: number
 }
+
+// What the band shows: each info chip, each usage card, and Clawd.
+export type Show = { folder: boolean; gitUser: boolean; branch: boolean; node: boolean; context: boolean; session: boolean; week: boolean; clawd: boolean }
 
 export type GuardRule = 'wipe' | 'force' | 'env' | 'discard'
 export type GuardAction = 'block' | 'ask' | 'off'

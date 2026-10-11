@@ -1,4 +1,4 @@
-import type { Env, Task, TurnLog, Usage } from '../types'
+import type { Env, Show, Task, TurnLog, Usage } from '../types'
 import type { IconKind } from './icons'
 
 export const WARN_AT = 70
@@ -6,7 +6,7 @@ export const ALERT_AT = 90
 
 export type MeterKind = 'context' | 'session' | 'week'
 // `amount` is the context's fill in tokens (`434.5k / 1M`); the limits have none.
-export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number }
+export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -25,17 +25,20 @@ const resetsIn = (resetsAt: string | undefined, now: number) => {
   return Number.isNaN(at) ? undefined : Math.max(0, at - now)
 }
 
-// Context, 5H and 7D, all from the engine, each only once it has a reading.
-export function meters(usage: Usage | null, now: number): Meter[] {
+// Context, 5H and 7D, all from the engine, each only once it has a reading and when shown, with
+// its warning level at the person's thresholds.
+export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number } = {}): Meter[] {
   const out: Meter[] = []
+  const shown = (kind: MeterKind) => opts.show?.[kind] !== false
+  const leveled = (m: Meter): Meter => ({ ...m, level: level(m.percent, opts.warnAt, opts.alertAt) })
   const add = (kind: MeterKind, label: string, window: string) => {
     const l = usage?.rateLimits.find(r => r.kind === window)
-    if (l) out.push({ kind, label, percent: clamp(l.percentUsed), resetsInMs: resetsIn(l.resetsAt, now) })
+    if (l && shown(kind)) out.push(leveled({ kind, label, percent: clamp(l.percentUsed), resetsInMs: resetsIn(l.resetsAt, now) }))
   }
-  if (usage?.contextPercent !== undefined) {
+  if (usage?.contextPercent !== undefined && shown('context')) {
     const { contextTokens: used, contextWindow: size } = usage
     const amount = used !== undefined && size ? `${tokens(used)} / ${tokens(size)}` : undefined
-    out.push({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount })
+    out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount }))
   }
   add('session', '5H Limit', 'five_hour')
   add('week', '7D All', 'seven_day')
@@ -51,8 +54,8 @@ export function tokens(n: number): string {
 // What a meter reads as: `434.5k / 1M (43%)` for the context, `43%` for a limit.
 export const value = (m: Meter): string => (m.amount ? `${m.amount} (${m.percent}%)` : `${m.percent}%`)
 
-export const level = (percent: number): 'alert' | 'warn' | undefined =>
-  percent >= ALERT_AT ? 'alert' : percent >= WARN_AT ? 'warn' : undefined
+export const level = (percent: number, warnAt = WARN_AT, alertAt = ALERT_AT): 'alert' | 'warn' | undefined =>
+  percent >= alertAt ? 'alert' : percent >= warnAt ? 'warn' : undefined
 
 export function countdown(ms: number): string {
   const m = Math.ceil(ms / 60_000)
@@ -70,15 +73,16 @@ const branchLine = ({ branch, ahead, behind, changes }: Env) =>
 // The info row: directory, git user and branch on the left, node on the right; each only when
 // known. The branch carries commits ahead/behind its upstream and uncommitted files.
 // `label` is what the drawing says for a reader.
-export function chips(env: Env): { left: Chip[]; right: Chip[] } {
-  const known = (list: { icon: IconKind; label: string; value?: string }[]) => list.filter((c): c is Chip => Boolean(c.value))
+export function chips(env: Env, show: Partial<Show> = {}): { left: Chip[]; right: Chip[] } {
+  const known = (list: { icon: IconKind; label: string; value?: string | false }[]) => list.filter((c): c is Chip => Boolean(c.value))
+  const on = (key: keyof Show) => show[key] !== false
   return {
     left: known([
-      { icon: 'folder', label: 'Directory', value: env.dir },
-      { icon: 'git', label: 'Git user', value: env.gitUser },
-      { icon: 'branch', label: 'Branch', value: env.branch && branchLine(env) },
+      { icon: 'folder', label: 'Directory', value: on('folder') && env.dir },
+      { icon: 'git', label: 'Git user', value: on('gitUser') && env.gitUser },
+      { icon: 'branch', label: 'Branch', value: on('branch') && env.branch && branchLine(env) },
     ]),
-    right: known([{ icon: 'node', label: 'Node', value: env.node }]),
+    right: known([{ icon: 'node', label: 'Node', value: on('node') && env.node }]),
   }
 }
 
