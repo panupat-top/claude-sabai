@@ -53,6 +53,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | R1 | ปรับการแสดงผลของ lane ในกล่อง race | M | ต่อจาก 2.3 |
 | R2 | Agent pane ให้สอดคล้องกับกล่อง race และแสดงข้อมูลมากขึ้น เพราะแยกเป็น pane ของตัวเองแล้ว (เช่น tile ของทุก call, เวลาและ token ต่อ agent, ไฟล์ที่แตะ, ผลลัพธ์) | M–L | |
 | R3 | Live strip: ต่อยอดการทำงานและการแสดงผล | M | |
+| U1 | ปรับปรุงสไตล์ usage แต่ละแบบ (Tiles, Rings, Columns, Rows) ให้เหมาะกับ comfortable และ compact | M | 2.3 ทำแบบ comfortable ก่อน · compact ยังใช้การ์ดบรรทัดเดียว |
 | K1 | Clawd redesign แบบมืออาชีพ ทีละตัว (sprite, ท่าทาง, ของประดับ) และเพิ่มตัวใหม่ในอนาคต | L | ทำเป็นรอบ ทีละตัว |
 | M22 | Minor จาก final review ของ 2.2 | S | `isReadOnly` จัดบางคำสั่งผิด · terminal วาด Clawd สองตัว · `mainWorking` หายเมื่อ reload กลางเทิร์น · `race.calls` ไม่ถูกลบ · out ยังไม่หลับตา, confetti วนทั้งนาที · หัวใจลดทุก call ที่ fail (spec ว่า command) · `replace_all` นับ hunk · ชื่อ lane ยาวทับ tiles · README เรื่อง Live ปิดแล้ว race หาย · `textClass`/`fillColor` ไม่มีใครใช้ · call ขนานใช้ช่อง `doing` ร่วมกัน |
 | S-C | Custom skin (hex), export/import JSON, skin ต่อ project | L | |
