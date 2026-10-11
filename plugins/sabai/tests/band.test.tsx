@@ -109,7 +109,7 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd is \w+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -118,7 +118,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^Directory work; Context/)
+  expect(words).toMatch(/^(Clawd is \w+; )?Directory work; Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -1061,6 +1061,22 @@ test('every row on, nine agents, a forecast, the live strip and a hat stay under
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
+})
+
+test('the comfortable band draws the Clawd panel; compact keeps the stacked band', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const source = async () => {
+    const ui = await mountBand($, 'desktop')
+    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    await ui.unmount()
+    return s
+  }
+  expect(await source()).toMatch(/scale\(3\)/)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'density-compact' })
+  expect(await source()).not.toMatch(/scale\(3\)/)
 })
 
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {

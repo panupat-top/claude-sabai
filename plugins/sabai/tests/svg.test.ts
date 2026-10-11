@@ -346,3 +346,21 @@ test('on the narrowest band the live strip keeps the step and lets the tallies g
   // Wide enough, both show.
   expect(bandSvg(undefined, info, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
 })
+
+test('the comfortable band puts Clawd large in his own panel, with his mood and the turn’s time', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, files: 0, commands: 0 }
+  const d = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live })!
+  expect(d.source).toMatch(/scale\(3\)/)
+  expect(d.source).toContain('>working<')
+  expect(d.source).toContain('>1m 42s<')
+  expect(d.alt.startsWith('Clawd is working, 1m 42s')).toBe(true)
+  // The usage limits are rows whose bars share one length.
+  const widths = [...d.source.matchAll(/clipPath id="sabai-(context|session|week)"><rect width="(\d+)"/g)].map(m => m[2])
+  expect(widths.length).toBe(3)
+  expect(new Set(widths).size).toBe(1)
+  // Under 480 px, or compact, or Clawd hidden: not this layout.
+  expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, info, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
+})

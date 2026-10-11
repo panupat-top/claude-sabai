@@ -404,6 +404,84 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
+const HERO_MIN_W = 480
+const HERO_PANEL_W = 108
+const ROW_GAP = 6
+// What Clawd's panel says under him for each mood.
+const MOOD_WORDS: Record<Mood, string> = { idle: 'idle', working: 'working', startled: 'caught one!', sad: 'tests failed', celebrating: 'all green', sweating: 'context full', sleeping: 'sleeping' }
+
+// The usage limits as rows: label, a long bar with its forecast ghost, the amount or countdown,
+// the percent and where it is heading.
+function usageRows(look: Look, list: readonly Meter[], W: number, top: number, style: BarStyle): Part {
+  const labelW = 64
+  // One bar length for every row, so the bars line up: room after the widest tail.
+  const tailOf = (m: Meter) => {
+    const detail = m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
+    const ahead = m.forecast === undefined ? '' : ` → ${forecastWords(m.forecast)}`
+    return { detail, ahead, w: monoWidth(detail, 11) + 14 + monoWidth(`${m.percent}%`, 11.5) + monoWidth(ahead, 10.5) }
+  }
+  const tails = list.map(tailOf)
+  const barW = Math.max(40, Math.floor(W - labelW - Math.max(...tails.map(t => t.w)) - 12))
+  const detailX = labelW + barW + 10
+  const rows = list.map((m, i) => {
+    const y = top + i * (ROW_H + ROW_GAP)
+    const label = m.kind === 'context' ? 'CONTEXT' : m.label.split(' ')[0]!.toUpperCase()
+    const { detail, ahead } = tails[i]!
+    const pct = `${m.percent}%`
+    const right = W
+    return (
+      `<text class="m" x="0" y="${y + 14}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+      pixelBar(`sabai-${m.kind}`, labelW, y + 5.5, barW, 9, m.percent / 100, look.bar(m.kind, m.level), 0, style, ghostOf(look, m)) +
+      (ahead ? `<text class="m" x="${right}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
+      `<text class="c-${m.level ?? m.kind}" x="${right - monoWidth(ahead, 10.5)}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pct}</text>` +
+      (detail ? `<text class="${m.amount ? 't' : 'm'}" x="${detailX}" y="${y + 14}" font-family="${MONO}" font-size="11" font-weight="600">${xml(detail)}</text>` : '')
+    )
+  })
+  const alt = list
+    .map(m => `${m.label} ${value(m)}${m.forecast === undefined ? '' : `, ${forecastWords(m.forecast)} by reset`}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
+    .join('; ')
+  return { body: rows.join(''), height: list.length * ROW_H + (list.length - 1) * ROW_GAP, alt }
+}
+
+// The comfortable band: Clawd large in his own panel at the left, with his mood and the turn's
+// time under him; at the right the info row, then the live strip, tasks and crew when present,
+// then the usage limits as rows.
+function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[] }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory } = opts
+  const look = lookOf(skin)
+  const x0 = HERO_PANEL_W + GAP
+  const rw = W - x0
+  const parts: Part[] = []
+  let y = 0
+  const add = (part: Part) => {
+    parts.push(part)
+    y += part.height + GAP
+  }
+  if (info.left.length + info.right.length > 0) add(chipsPart(info, rw, y))
+  if (live) add(livePart(look, live, rw, y))
+  if (p) add(progressPart(look, p, rw, mood, y, style, false))
+  if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, rw, y))
+  if (list.length > 0) add(usageRows(look, list, rw, y + 2, style))
+  const H = Math.max(96, y - GAP + 2)
+  const scale = 3
+  const hat = accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap' ? HAT_H * scale : 0
+  const cw = spriteSize('tasks').width * scale
+  const ch = spriteSize('tasks').height * scale
+  const words = live ? clock(live.elapsedMs) : ''
+  const block = hat + ch + 8 + 14 + (words ? 13 : 0)
+  const cy = Math.max(6, (H - block) / 2) + hat
+  const cx = (HERO_PANEL_W - cw) / 2 - (accessory === 'coffee' || accessory === 'halloween' || accessory === 'songkran' ? PROP_W : 0)
+  const panel =
+    `<rect class="p" width="${HERO_PANEL_W}" height="${H}" rx="10"/>` +
+    `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory)}</g>` +
+    `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
+    (words ? `<text class="m" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${words}</text>` : '')
+  // Shorter than the panel, the right side sits in its middle.
+  const dy = Math.max(0, Math.round((H - (y - GAP)) / 2))
+  const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>`
+  return drawing(look, W, H, body, [`Clawd is ${mood}${words ? `, ${words}` : ''}`, ...parts.map(part => part.alt)].join('; '))
+}
+
 // How the band is drawn, past its rows' content.
 export type BandOpts = {
   mood?: Mood
@@ -414,6 +492,7 @@ export type BandOpts = {
   clawd?: boolean
   live?: LiveStrip
   accessory?: Accessory
+  hero?: boolean
 }
 
 // The turn as it runs, for the live strip.
@@ -453,6 +532,7 @@ export function bandSvg(
 ): Drawing | undefined {
   const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live, accessory } = opts
   const compact = opts.density === 'compact'
+  if (opts.hero && !compact && clawd && W >= HERO_MIN_W) return heroBand(p, info, list, W, opts)
   const gap = compact ? 4 : GAP
   const look = lookOf(skin)
   const parts: Part[] = []
