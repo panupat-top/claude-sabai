@@ -444,7 +444,8 @@ test('a subagent’s own task list goes to its card, never the band; the band ke
   await $.tool.call(sub)
   const band = await shown($, 'desktop')
   expect(band.words).toContain('main work')
-  expect(band.words).not.toContain('Summing up')
+  // The band's tasks row keeps the main list; the agent's own step shows only in its race lane.
+  expect(band.words).not.toMatch(/main work: [^;]*Summing up/)
   const ui = await mountPane($, 'desktop')
   const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
   expect(cards.some(c => c.props.source.includes('>Summing up<') && c.props.source.includes('>1/2<'))).toBe(true)
@@ -1056,7 +1057,7 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
   const ui = await mountBand($, 'desktop', true)
   // The race is in it, and Main's lane keeps only its last 16 tiles.
   const svg = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
-  expect(svg).toContain('>LV 13<')
+  expect(svg).toMatch(/>\d+ running/)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1078,7 +1079,7 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   expect(await source()).not.toMatch(/scale\(3\)/)
 })
 
-test('each member’s calls land in its own lane; a failed Main command costs a heart; a passing test is a coin', async ($, on) => {
+test('each member’s calls land in its own lane; the header counts the turn’s calls and failures', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
       ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
@@ -1096,9 +1097,9 @@ test('each member’s calls land in its own lane; a failed Main command costs a 
   await bash($, 'bun test')
   await bash($, 'false')
   const words = (await shown($, 'desktop', true)).words
-  expect(words).toMatch(/Race: LV 1, 1 coin, 2 hearts, combo 0/)
+  expect(words).toMatch(/Race: 2 running, 2 ok, 1 failed/)
   expect(words).toMatch(/Main (tripped|running|waiting)/)
-  expect(words).toContain('Explore running')
+  expect(words).toContain('x running')
 })
 
 test('the race leaves when the turn ends and no agent runs', async ($, on) => {
@@ -1510,7 +1511,7 @@ for (const bar of ['dither', 'blocks', 'solid'] as const) {
       plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
       props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
     })
-    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('>LV ')
+    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toMatch(/>\d+ running/)
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
     await ui.unmount()
   })

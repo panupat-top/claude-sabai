@@ -367,28 +367,31 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
 
 test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
   const race = {
-    lv: 5, coins: 2, hearts: 2, combo: 4, elapsedMs: 102_000, more: 1,
+    running: 3, done: 1, ok: 12, fails: 1, elapsedMs: 102_000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', note: 'Editing svg.ts', progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
-      { id: 'a', who: 'Explore', type: 'Explore', note: '3/5', progress: 0.6, calls: [{ kind: 'test', ok: true }], state: 'scored' },
-      { id: 'b', who: 'General', type: 'general-purpose', note: 'build failed', calls: [{ kind: 'command', ok: false }], state: 'tripped' },
-      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
+      { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, calls: [{ kind: 'test', ok: true }], state: 'scored' },
+      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, calls: [], state: 'finished' },
     ],
   } as const
   const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(22 + 4 * 28 + 6)
-  for (const s of ['>LV 5<', '>×4 COMBO<', '>1:42<', '>+1<', '>OUCH<', 'class="coin', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  expect(part.alt).toBe('Race: LV 5, 2 coins, 2 hearts, combo 4, 1:42; Main running: Editing svg.ts; Explore scored: 3/5; General tripped: build failed; Plan finished: Done; 1 more')
+  expect(part.height).toBe(24 + 4 * 42 + 6)
+  for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
+    expect([s, part.body.includes(s)]).toEqual([s, true])
+  for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(3)
+  expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
 })
 
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
-  const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
   const wide = bandSvg(undefined, info, LIST, 900, opts)!
-  expect(wide.alt).toContain('Race: LV 1')
+  expect(wide.alt).toContain('Race: 1 running')
   expect(wide.alt).not.toContain('Working 1m 42s:')
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, info, LIST, 600, opts)!
@@ -399,12 +402,12 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   // Clawd hidden: no panel, the race stays.
   const noClawd = bandSvg(undefined, info, LIST, 900, { ...opts, clawd: false })!
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
-  expect(noClawd.alt).toContain('Race: LV 1')
+  expect(noClawd.alt).toContain('Race: 1 running')
 })
 
 test('no race element carries two class attributes, whatever its runner is doing', () => {
   for (const doing of ['read', 'edit', 'command', 'test'] as const) {
-    const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
     const body = racePart(lookOf('auto'), race as never, 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
@@ -414,10 +417,10 @@ test('no race element carries two class attributes, whatever its runner is doing
 test('in the comfortable band the race box’s words take the card’s ink, the usage rows’ the surface’s', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const race = {
-    lv: 1, coins: 1, hearts: 3, combo: 2, elapsedMs: 1000, more: 1,
+    running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', note: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
-      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
+      { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, calls: [], state: 'finished' },
     ],
   }
   const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source

@@ -65,9 +65,8 @@ export type RaceLog = {
   doing: Record<string, CallKind>
   fellAt: Record<string, number>
   scoredAt: Record<string, number>
-  combo: number
-  coins: number
-  mainFails: number
+  // The turn's finished calls, and how many of them failed.
+  fails: number
   total: number
 }
 

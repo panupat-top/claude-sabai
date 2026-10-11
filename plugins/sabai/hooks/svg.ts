@@ -401,30 +401,25 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
-// The race's motion, carried only by the race box: the ground scrolls, far hills drift, dust and
-// speed lines trail, coins spin and rise, flags flutter, confetti pops, the glow pulses.
+// The race's motion, carried only by the race box: the ground scrolls, coins spin and rise, flags
+// flutter, the glow pulses.
 const RACE_MOTION =
   '.scroll{animation:rsc 1s linear infinite}@keyframes rsc{to{transform:translateX(-10px)}}' +
-  '.far{animation:rfar 1s linear infinite}@keyframes rfar{to{transform:translateX(-3px)}}' +
-  '.dust{animation:rdu .5s ease-out infinite}.dust2{animation-delay:-.25s}@keyframes rdu{0%{opacity:.7}100%{opacity:0;transform:translate(-5px,-2px)}}' +
-  '.speed{animation:rsp .4s linear infinite}@keyframes rsp{0%{opacity:.8}100%{opacity:0;transform:translateX(-8px)}}' +
   '.coin{transform-box:fill-box;transform-origin:center;animation:rcn .6s steps(2) infinite}@keyframes rcn{50%{transform:scaleX(.35)}}' +
   '.rise{animation:rrs 1s ease-out infinite}@keyframes rrs{70%{transform:translateY(-6px);opacity:.25}}' +
   '.flag{transform-box:fill-box;transform-origin:0 50%;animation:rfl .5s steps(2) infinite}@keyframes rfl{50%{transform:scaleY(.8)}}' +
-  '.conf{animation:rcf .8s ease-out infinite}@keyframes rcf{60%{transform:translateY(-5px);opacity:.3}}' +
   '.glow{animation:rgl 1s ease-in-out infinite}@keyframes rgl{50%{opacity:.35}}' +
-  '@media (prefers-reduced-motion: reduce){.scroll,.far,.dust,.speed,.coin,.rise,.flag,.conf,.glow{animation:none}}'
+  '@media (prefers-reduced-motion: reduce){.scroll,.coin,.rise,.flag,.glow{animation:none}}'
 const RACE_W = 300
-const RACE_HEAD = 22
-const LANE_H = 28
+const RACE_HEAD = 24
+const LANE_H = 42
 const RACE_BODY = '#b9b9b4'
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
-const pixelHeart = (x: number, y: number, full: boolean, look: Look) =>
-  `<g transform="translate(${x},${y})" ${full ? `fill="${look.bar('tasks', 'alert')}"` : 'class="k"'}><rect x="1" y="0" width="3" height="2"/><rect x="6" y="0" width="3" height="2"/><rect x="0" y="2" width="10" height="3"/><rect x="1" y="5" width="8" height="2"/><rect x="3" y="7" width="4" height="2"/></g>`
 
-// The race: a header (level, coins, hearts, combo, more, time), then a lane per member: its name
-// and note at the left, its call tiles on the ground, its runner at its progress (the middle when
-// unknown) holding the tool of its call in flight over a glow, and its flag at the right.
+// The race: a header (how many run and are done, the turn's calls that worked and failed, the
+// time), then a lane per member: its name, step and time on a line above its ground, its call
+// tiles, its runner at its progress (the middle when unknown) holding the tool of its call in
+// flight over a glow, and its flag. A lane shared by agents of one type draws three runners.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // A kind's colour as attributes, merged with the element's own classes: two class attributes on
   // one element make the drawing invalid, and the desktop then draws nothing.
@@ -435,48 +430,51 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   }
   const time = mmss(race.elapsedMs)
   const head =
-    `<text class="t" x="10" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="800">LV ${race.lv}</text>` +
-    `<circle class="coin" cx="54" cy="${top + 11}" r="3.5" fill="#e0a030"/><text class="t" x="60" y="${top + 15}" font-family="${MONO}" font-size="9.5" font-weight="700">×${race.coins}</text>` +
-    [0, 1, 2].map(i => pixelHeart(86 + i * 13, top + 7, i < race.hearts, look)).join('') +
-    (race.combo >= 2 ? `<text class="c-warn" x="${W / 2 + 46}" y="${top + 15}" text-anchor="middle" font-family="${MONO}" font-size="9.5" font-weight="800">×${race.combo} COMBO</text>` : '') +
-    (race.more ? `<text class="m" x="${W - 46}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">+${race.more}</text>` : '') +
-    `<text class="m" x="${W - 10}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="10">${time}</text>`
-  const laneX = 50
-  const laneW = W - laneX - 20
+    `<text class="t" x="12" y="${top + 16}" font-family="${SANS}" font-size="11" font-weight="700">${race.running} running${race.done ? ` · ${race.done} done` : ''}</text>` +
+    (race.more ? `<text class="m" x="${W - 128}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10" font-weight="700">+${race.more}</text>` : '') +
+    (race.fails ? `<text class="c-alert" x="${W - 90}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✗ ${race.fails}</text>` : '') +
+    `<text class="c-ok" x="${W - 50}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✓ ${race.ok}</text>` +
+    `<text class="m" x="${W - 12}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5">${time}</text>`
+  const laneX = 12
+  const laneW = W - laneX - 26
   const lanes = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * LANE_H
-    const ground = y + LANE_H - 5
+    const ground = y + LANE_H - 8
     const moving = l.state === 'running' || l.state === 'scored'
     const tiles = (l.calls.length ? [...l.calls, ...(moving ? l.calls : [])] : []).map((c, j) => `<rect x="${laneX + j * 10}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
-    const hills = moving ? `<g class="far" opacity=".5">${Array.from({ length: Math.ceil(laneW / 10) + 1 }, (_, j) => `<rect class="k" x="${laneX + j * 10}" y="${ground - 3 - ((j * 7) % 4)}" width="10" height="${3 + ((j * 7) % 4)}"/>`).join('')}</g>` : ''
     const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? 0.5))
-    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : 'idle'
+    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
-    const runner = `<g transform="translate(${rx},${ground - 18}) scale(.85)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'waiting' ? l.doing : undefined)}</g>`
+    const one = (dx: number) => `<g transform="translate(${rx + dx},${ground - 16}) scale(.8)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'waiting' ? l.doing : undefined)}</g>`
+    const runners = l.many ? `<g opacity=".45">${one(-14)}</g><g opacity=".7">${one(-7)}</g>${one(0)}` : one(0)
     const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
-    const dust = l.state === 'running' ? `<circle class="dust k" cx="${rx}" cy="${ground - 1}" r="1.5"/><circle class="dust dust2 k" cx="${rx + 3}" cy="${ground - 2}" r="1.2"/>` : ''
-    const speed = l.state === 'running' && l.doing === 'command' ? `<g class="speed m"><rect x="${rx - 12}" y="${ground - 12}" width="6" height="1"/><rect x="${rx - 15}" y="${ground - 8}" width="8" height="1"/></g>` : ''
-    const flagX = laneX + laneW + 3
-    const flag = `<rect class="m" x="${flagX}" y="${ground - 16}" width="1.2" height="17"/><path class="flag${l.state === 'finished' ? ' c-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 16}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    const flagX = laneX + laneW + 6
+    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag${l.state === 'finished' ? ' c-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    // Marks sit beside the runner, clear of the line above.
     const marks =
-      l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
-      l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 10}" cy="${ground - 22}" r="3" fill="#e0a030"/>` :
-      l.state === 'finished' ? [0, 1, 2, 3].map(j => `<rect class="conf" style="animation-delay:-${j * 0.2}s" x="${flagX - 14 + j * 4}" y="${ground - 20 + (j % 2) * 4}" width="2" height="2" fill="${[`#e0a030`, look.bar('session'), look.bar('context'), look.bar('tasks', 'alert')][j]}"/>`).join('') + `<text class="c-ok" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="800">✓</text>` :
-      l.state === 'out' ? `<text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
+      l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 30}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
+      l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 26}" cy="${ground - 10}" r="3" fill="#e0a030"/>` :
+      l.state === 'finished' ? `<text class="c-ok" x="${rx - 10}" y="${ground - 4}" text-anchor="middle" font-family="${SANS}" font-size="10" font-weight="800">✓</text>` :
+      l.state === 'out' ? `<text class="c-alert" x="${rx + 26}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
     const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : l.state === 'finished' ? 'c-ok' : 't'
-    const note = l.note.length > 7 ? `${l.note.slice(0, 6)}…` : l.note
-    return (
-      hills +
-      `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>` +
-      `<g${moving ? ' class="scroll"' : ''}>${tiles}</g>` +
-      flag + glow + dust + speed + runner + marks +
-      `<text class="${nameClass}" x="10" y="${y + 13}" font-family="${MONO}" font-size="10" font-weight="800">${xml(l.who)}</text>` +
-      `<text class="m" x="10" y="${y + 24}" font-family="${SANS}" font-size="9">${xml(note)}</text>`
-    )
+    const name = fit(l.who, 10.5, 150)
+    const nameW = textWidth(name, 10.5)
+    const badge = l.many ? `<rect class="k" x="${laneX + nameW + 4}" y="${y + 1.5}" width="20" height="11" rx="5.5"/><text class="t" x="${laneX + nameW + 14}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>` : ''
+    const stepX = laneX + nameW + (l.many ? 30 : 8)
+    const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
+    const line =
+      `<text class="${nameClass}" x="${laneX}" y="${y + 10}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` +
+      badge +
+      `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - stepX - 46)))}</text>` +
+      (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
+    return line + `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>` + `<g${moving ? ' class="scroll"' : ''}>${tiles}</g>` + flag + glow + runners + marks
   })
-  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
-  const alt = [`Race: LV ${race.lv}, ${plural(race.coins, 'coin')}, ${plural(race.hearts, 'heart')}, combo ${race.combo}, ${time}`, ...race.lanes.map(l => `${l.who} ${l.state}: ${l.note}`), ...(race.more ? [`${race.more} more`] : [])].join('; ')
+  const alt = [
+    `Race: ${race.running} running${race.done ? `, ${race.done} done` : ''}, ${race.ok} ok${race.fails ? `, ${race.fails} failed` : ''}, ${time}`,
+    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${l.step}`),
+    ...(race.more ? [`${race.more} more`] : []),
+  ].join('; ')
   return { body: `<style>${RACE_MOTION}</style>` + head + lanes.join(''), height: RACE_HEAD + race.lanes.length * LANE_H + 6, alt }
 }
 
