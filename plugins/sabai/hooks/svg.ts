@@ -1,6 +1,6 @@
 import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
-import type { Chip, Meter, Mood, Progress } from './model'
+import type { Accessory, Chip, Meter, Mood, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
@@ -253,17 +253,17 @@ const BAND_CONFETTI = [
 ] as const
 
 // Clawd in his mood, in the skin's colour, with confetti while he celebrates.
-function clawdAt(look: Look, x: number, y: number, mood: Mood): string {
+function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Accessory): string {
   const confetti =
     mood === 'celebrating'
       ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
-  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd) + confetti
+  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd, undefined, accessory) + confetti
 }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd shows the session's mood: walking while the turn works, blinking while it waits.
-function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true): Part {
+function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true, accessory?: Accessory): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
@@ -278,7 +278,7 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood) : '') +
+    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood, accessory) : '') +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
     pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks'), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
@@ -342,7 +342,7 @@ const fitMono = (s: string, size: number, maxW: number) => {
 // The info row: one chip per fact, its mark then its value. The left group runs from the
 // left edge (after Clawd, when the band has no tasks row to hold him), the right group ends at
 // the right edge; left chips that would meet it are left out.
-function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood }): Part {
+function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood; accessory?: Accessory }): Part {
   const width = (c: Chip) => Math.ceil(CHIP_PAD * 2 + ICON + 6 + monoWidth(c.value, 11.5))
   const chip = (c: Chip, x: number) =>
     `<rect class="p" x="${x}" y="${y}" width="${width(c)}" height="${CHIP_H}" rx="6"/>` +
@@ -350,7 +350,7 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
     `<text class="t" x="${x + CHIP_PAD + ICON + 6}" y="${y + CHIP_H / 2 + 4}" font-family="${MONO}" font-size="11.5" font-weight="600">${xml(c.value)}</text>`
   let right = W
   const rightBody = [...info.right].reverse().map(c => chip(c, (right -= width(c) + GAP) + GAP)).join('')
-  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood) : ''
+  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory) : ''
   let x = clawd ? spriteSize('tasks').width + GAP : 0
   const drawn: Chip[] = []
   const leftBody = info.left
@@ -438,6 +438,7 @@ export type BandOpts = {
   density?: 'comfortable' | 'compact'
   clawd?: boolean
   live?: LiveStrip
+  accessory?: Accessory
 }
 
 // The turn as it runs, for the live strip.
@@ -446,15 +447,16 @@ const LIVE_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '⚗', pe
 
 // The live strip: Clawd (when he stands here), the turn's elapsed time, the step in flight, and
 // the turn's tallies so far at the right.
-function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood): Part {
-  const lead = mood ? spriteSize('tasks').width + 8 : 0
+function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood, accessory?: Accessory): Part {
+  // Room for Clawd and anything he holds to his right.
+  const lead = mood ? spriteSize('tasks').width + PROP_W + 6 : 0
   const time = clock(live.elapsedMs)
   const tallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
   const stepX = lead + monoWidth(time, 11.5) + 12
   const room = W - stepX - monoWidth(tallies, 11) - 16
   const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
   const body =
-    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood) : '') +
+    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory) : '') +
     `<text class="st" x="${lead}" y="${top + 14}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` +
     (title ? `<text class="sm" x="${stepX}" y="${top + 14}" font-family="${SANS}" font-size="12">${xml(title)}</text>` : '') +
     (tallies ? `<text class="sm" x="${W}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11">${xml(tallies)}</text>` : '')
@@ -472,7 +474,7 @@ export function bandSvg(
   W: number,
   opts: BandOpts = {},
 ): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live } = opts
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live, accessory } = opts
   const compact = opts.density === 'compact'
   const gap = compact ? 4 : GAP
   const look = lookOf(skin)
@@ -485,9 +487,13 @@ export function bandSvg(
   // One Clawd: the tasks row holds him, else the live strip, else the info row.
   const clawdInLive = !p && Boolean(live) && clawd
   const clawdInInfo = !p && !live && Boolean(info.show) && clawd
-  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
-  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined))
-  if (p) add(progressPart(look, p, W, mood, y, style, clawd))
+  // A hat rises above Clawd: when he stands in the first row, the band starts lower to show it.
+  const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
+  const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && (clawdInLive || (!live && Boolean(p))))
+  if (hatted && firstHoldsClawd) y = HAT_H
+  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood, accessory } : undefined))
+  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory))
+  if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
   if (parts.length === 0) return undefined

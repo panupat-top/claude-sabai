@@ -168,3 +168,18 @@ export function forecastOf(points: readonly Point[], resetsInMs: number | undefi
   const ahead = Math.min(100, Math.round(last + rate * resetsInMs))
   return ahead >= last + 1 ? ahead : undefined
 }
+
+export type Accessory = 'newyear' | 'xmas' | 'halloween' | 'songkran' | 'coffee' | 'nightcap'
+// What Clawd wears for the local date and hour: a holiday first, else the time of day.
+export function accessoryOf(d: Date): Accessory | undefined {
+  const m = d.getMonth() + 1
+  const day = d.getDate()
+  const h = d.getHours()
+  if ((m === 12 && day === 31) || (m === 1 && day === 1)) return 'newyear'
+  if (m === 12 && (day === 24 || day === 25)) return 'xmas'
+  if (m === 10 && day === 31) return 'halloween'
+  if (m === 4 && day >= 13 && day <= 15) return 'songkran'
+  if (h >= 6 && h < 11) return 'coffee'
+  if (h >= 22 || h < 5) return 'nightcap'
+  return undefined
+}

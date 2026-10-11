@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, forecastOf, moodOf } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, accessoryOf, forecastOf, moodOf } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -127,4 +127,22 @@ test('the forecast extends the recent rate to the reset, and stays quiet without
   // Only the last 30 minutes count: an old steep climb is ignored.
   expect(forecastOf([{ at: now - 90 * min, percent: 0 }, { at: now - 60 * min, percent: 20 }, { at: now - 20 * min, percent: 20 }, { at: now, percent: 21 }], 20 * min, now)).toBe(22)
   expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 30 }], undefined, now)).toBeUndefined()
+})
+
+test('Clawd’s accessory follows the local date and hour, holidays first', () => {
+  const at = (iso: string) => accessoryOf(new Date(iso))
+  expect(at('2026-12-31T23:30:00')).toBe('newyear')
+  expect(at('2027-01-01T08:00:00')).toBe('newyear')
+  expect(at('2026-12-24T07:00:00')).toBe('xmas')
+  expect(at('2026-10-31T12:00:00')).toBe('halloween')
+  expect(at('2026-10-30T12:00:00')).toBeUndefined()
+  expect(at('2027-04-13T07:00:00')).toBe('songkran')
+  expect(at('2027-04-16T12:00:00')).toBeUndefined()
+  expect(at('2026-10-12T06:00:00')).toBe('coffee')
+  expect(at('2026-10-12T10:59:00')).toBe('coffee')
+  expect(at('2026-10-12T11:00:00')).toBeUndefined()
+  expect(at('2026-10-12T21:59:00')).toBeUndefined()
+  expect(at('2026-10-12T22:00:00')).toBe('nightcap')
+  expect(at('2026-10-13T04:59:00')).toBe('nightcap')
+  expect(at('2026-10-13T05:00:00')).toBeUndefined()
 })

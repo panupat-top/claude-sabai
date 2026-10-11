@@ -1057,6 +1057,33 @@ test('while the main turn works the band shows the live strip with the step in f
   expect((await shown($, 'desktop', false)).words).not.toContain('Working')
 })
 
+test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
+  const { clock } = engine(on)
+  await clock.set(new Date('2026-10-31T12:00:00').getTime())
+  await start($)
+  await clock.advance(30_000)
+  const ui = await mountBand($, 'desktop')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('#f28c28')
+  await ui.unmount()
+})
+
+test('every row on, nine agents, a forecast, the live strip, a hat and a skin pair stay under the tree limit', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await clock.set(new Date('2026-12-24T12:00:00').getTime())
+  await start($)
+  for (let i = 0; i < 9; i++) await spawn($, `job ${i}`)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'use-catppuccin-latte' })
+  await pane.press({ key: 'dark-catppuccin-mocha' })
+  await $.turn.start({ turnId: 'big' } as never)
+  const ui = await mountBand($, 'desktop', true)
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
+  await ui.unmount()
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'

@@ -1,4 +1,4 @@
-import type { MeterKind } from './model'
+import type { Accessory, MeterKind } from './model'
 
 // Pixel sprites, one character per pixel ('.' is empty). Each colour key may carry a class
 // that the band's stylesheet animates. Drawn at `px` (default PX) css pixels per sprite pixel.
@@ -130,6 +130,22 @@ const SCROLL = {
   colors: { d: '#d6c7a1', p: '#f8f6f1', k: '#9aa0c0' } as Record<string, string>,
   classes: { d: 'pr-wave', p: 'pr-wave', k: 'pr-wave' } as Record<string, string>,
 }
+// The band's Clawd dressed for the hour or a holiday: hats in the hat slot, 24 wide and HAT_H tall,
+// and held things in the prop slot, PROP_W wide. Trims are a warm grey, not white, so they read on
+// a light surface too.
+const ACCESSORY_HATS: Partial<Record<Accessory, { rows: string[]; colors: Record<string, string> }>> = {
+  nightcap: { rows: ['....................ww..', '.........nnnnnnnnnnnn...', '.......nnnnnnnnnnn......', '......wwwwwwwwwwww......'], colors: { n: '#3b4a8c', w: '#d6d0c4' } },
+  xmas: { rows: ['.....................ww.', '.........rrrrrrrrrrrr...', '.......rrrrrrrrrrrr.....', '......wwwwwwwwwwww......'], colors: { r: '#d33a3a', w: '#d6d0c4' } },
+  newyear: { rows: ['...........yy...........', '..........pyyp..........', '.........yppyyy.........', '........pyyppyyp........'], colors: { p: '#e5484d', y: '#f5c542' } },
+}
+const ACCESSORY_PROPS: Partial<Record<Accessory, { rows: string[]; colors: Record<string, string>; classes: Record<string, string> }>> = {
+  halloween: { rows: ['...g...', '.ooooo.', 'okoook.', 'ooooooo', 'okkkko.', '.ooooo.'], colors: { o: '#f28c28', g: '#3f8f3f', k: '#3a2a1a' }, classes: {} },
+  songkran: { rows: ['.......', 'bbbbbb.', 'bbbbbb.', '..bb...', '..b.w.w', '.....w.'], colors: { b: '#3aa0e8', w: '#9fd8ff' }, classes: { w: 'pr-steam' } },
+}
+// Songkran's flower shirt across the body rows.
+ACCESSORY_PROPS.coffee = PROPS.beanie
+const SHIRT = { rows: ['....f..r..f..r..f..r....', '.....r..f..r..f..r..f...'], colors: { f: '#f5c542', r: '#e5484d' } as Record<string, string>, y: 9 }
+
 // A failed one wears a sticking plaster across the cheek.
 const BANDAGE = ['.ww...', 'wwwwww', '.ww...']
 
@@ -158,15 +174,19 @@ function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { f
 // eyes (a failed one); for the band's moods, `startle` jolts under a `!`, `sweat` drips a drop
 // and `sleep` shuts the eyes under a rising `z`. `tint` repaints Clawd's body; `hat` sits on top and moves with the body,
 // and with `prop` its type's tool is held to his right.
-export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }): string {
+export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }, accessory?: Accessory): string {
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   // Shut eyes: the lower of the two eye rows is painted as body.
   const body = (mode === 'dizzy' || mode === 'sleep') && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
-  const held = hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : undefined
+  const worn = kind === 'tasks' && !hat && accessory ? accessory : undefined
+  const held = hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : worn ? ACCESSORY_PROPS[worn] : undefined
+  const cap = worn ? ACCESSORY_HATS[worn] : undefined
   const art =
     (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
+    (cap ? draw(cap.rows, px, -HAT_H, ch => (cap.colors[ch] ? { fill: cap.colors[ch], group: 'bd' } : undefined)) : '') +
     draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined)) +
+    (worn === 'songkran' ? draw(SHIRT.rows, px, SHIRT.y, ch => (SHIRT.colors[ch] ? { fill: SHIRT.colors[ch], group: 'bd' } : undefined)) : '') +
     (held ? draw(held.rows, px, 3, ch => (held.colors[ch] ? { fill: held.colors[ch], group: held.classes[ch] } : undefined), 24) : '') +
     (mode === 'dizzy' && kind === 'tasks' ? draw(BANDAGE, px, 4, ch => (ch === 'w' ? { fill: '#f8f6f1', group: 'bd' } : undefined), 10) : '') +
     (kind === 'tasks' ? (MOOD_MARKS[mode] ?? '') : '')
