@@ -482,7 +482,7 @@ const RACE_MIN_W = 760
 const HERO_PANEL_W = 108
 const ROW_GAP = 6
 // What Clawd's panel says under him for each mood.
-const MOOD_WORDS: Record<Mood, string> = { idle: 'idle', working: 'working', startled: 'caught one!', sad: 'tests failed', celebrating: 'all green', sweating: 'context full', sleeping: 'sleeping' }
+const MOOD_WORDS: Record<Mood, string> = { idle: 'ready', working: 'working', startled: 'blocked', sad: 'tests failing', celebrating: 'all green', sweating: 'context full', sleeping: 'napping' }
 
 // The usage limits as rows: label, a long bar, the amount or countdown,
 // the percent and where it is heading.
@@ -519,7 +519,7 @@ function usageRows(look: Look, list: readonly Meter[], W: number, top: number, s
 // time under him; at the right the info row, then the live strip, tasks and crew when present,
 // then the usage limits as rows.
 function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[] }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true } = opts
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine } = opts
   // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
   const race = W >= RACE_MIN_W ? opts.race : undefined
   const look = lookOf(skin)
@@ -538,10 +538,11 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
   if (list.length > 0) add(usageRows(look, list, rw, y + 2, style))
   const middleH = Math.max(0, y - GAP + 2)
   const raced = race ? racePart(look, race, RACE_W, 0) : undefined
-  const H = Math.max(clawd ? 96 : 0, middleH, raced?.height ?? 0)
+  const H = Math.max(clawd ? 112 : 0, middleH, raced?.height ?? 0)
   if (H === 0) return undefined
   let panel = ''
-  const words = live ? clock(live.elapsedMs) : ''
+  const words = mood === 'working' && live ? clock(live.elapsedMs) : (clawdLine ?? '')
+  const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
   if (clawd) {
     const scale = 3
     const hat = accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap' ? HAT_H * scale : 0
@@ -554,13 +555,13 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
       `<rect class="p" width="${HERO_PANEL_W}" height="${H}" rx="10"/>` +
       `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory)}</g>` +
       `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
-      (words ? `<text class="m" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${words}</text>` : '')
+      (words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
   }
   // Shorter than the band, the middle sits in its middle.
   const dy = Math.max(0, Math.round((H - middleH) / 2))
   const box = raced ? `<g transform="translate(${W - RACE_W},0)"><rect class="p" width="${RACE_W}" height="${H}" rx="10"/>${raced.body}</g>` : ''
   const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>` + box
-  const alt = [...(clawd ? [`Clawd is ${mood}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
+  const alt = [...(clawd ? [`Clawd: ${MOOD_WORDS[mood]}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
   return drawing(look, W, H, body, alt.join('; '))
 }
 
@@ -576,6 +577,8 @@ export type BandOpts = {
   accessory?: Accessory
   hero?: boolean
   race?: Race
+  // Clawd's second line under his headline (moodLine); working shows the turn's time instead.
+  clawdLine?: string
 }
 
 // The turn as it runs, for the live strip.

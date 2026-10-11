@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodOf, raced } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -192,4 +192,18 @@ test('raceOf runs the newest running agents first, the oldest over the cap', () 
   const r = raceOf(EMPTY_RACE, ['a1', 'a2', 'a3', 'a4'].map(run), undefined, 1000, true, 0)!
   expect(r.lanes.map(l => l.id)).toEqual(['main', 'a4', 'a3', 'a2'])
   expect(r.more).toBe(1)
+})
+
+test('moodLine says why Clawd feels as he does, and nothing when the fact is missing', () => {
+  expect(moodLine('idle', {})).toBe('your turn')
+  expect(moodLine('startled', { caught: 1 })).toBe('guard stopped 1')
+  expect(moodLine('sad', { failed: 2 })).toBe('2 failed')
+  expect(moodLine('celebrating', { passed: 12 })).toBe('12 passed')
+  expect(moodLine('sweating', { contextPercent: 84 })).toBe('84% · compact?')
+  expect(moodLine('sleeping', { idleMs: 20 * 60_000 })).toBe('idle 20m')
+  expect(moodLine('sleeping', { idleMs: 135 * 60_000 })).toBe('idle 2h')
+  // Review Focus 1: a missing fact leaves the line out.
+  for (const mood of ['startled', 'sad', 'celebrating', 'sweating', 'sleeping'] as const) expect([mood, moodLine(mood, {})]).toEqual([mood, undefined])
+  expect(moodLine('sleeping', { idleMs: Number.NaN })).toBeUndefined()
+  expect(moodLine('working', { idleMs: 1 })).toBeUndefined()
 })

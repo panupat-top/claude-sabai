@@ -354,7 +354,7 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   expect(d.source).toMatch(/scale\(3\)/)
   expect(d.source).toContain('>working<')
   expect(d.source).toContain('>1m 42s<')
-  expect(d.alt.startsWith('Clawd is working, 1m 42s')).toBe(true)
+  expect(d.alt.startsWith('Clawd: working, 1m 42s')).toBe(true)
   // The usage limits are rows whose bars share one length.
   const widths = [...d.source.matchAll(/clipPath id="sabai-(context|session|week)"><rect width="(\d+)"/g)].map(m => m[2])
   expect(widths.length).toBe(3)
@@ -425,4 +425,15 @@ test('in the comfortable band the race box’s words take the card’s ink, the 
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
   const rows = middle!.slice(middle!.indexOf('CONTEXT') - 200)
   expect(rows.match(/<text class="(t|m|c-[a-z]+)"/g)).toBeNull()
+})
+
+test('the Clawd panel shows his headline and why, the failing count in alert ink', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const sad = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'sad', clawdLine: '2 failed' })!
+  expect(sad.source).toContain('>tests failing<')
+  expect(sad.source).toMatch(/class="c-alert"[^>]*>2 failed</)
+  expect(sad.alt.startsWith('Clawd: tests failing, 2 failed')).toBe(true)
+  const idle = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
+  expect(idle.source).toContain('>ready<')
+  expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
 })

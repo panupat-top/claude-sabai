@@ -109,7 +109,7 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd is \w+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd: [^;]+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -118,7 +118,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^(Clawd is \w+; )?Directory work; Context/)
+  expect(words).toMatch(/^(Clawd: [^;]+; )?Directory work; Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -1122,11 +1122,11 @@ test('Clawd’s mood shows in the band: sad after failing tests, startled by the
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await turn($, () => bash($, 'bun test'))
-  expect((await shown($, 'desktop')).words).toContain('Clawd is sad')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: tests failing')
   expect((await shown($, 'terminal')).words).toContain('✗')
   await guardOn($)
   await bash($, 'rm -rf /')
-  expect((await shown($, 'desktop')).words).toContain('Clawd is startled')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: blocked, guard stopped 1')
 })
 
 test('the band with every row, a full crew and Clawd in the info row stays under the tree limit', async ($, on) => {

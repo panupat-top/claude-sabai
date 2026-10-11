@@ -146,6 +146,33 @@ export function moodOf(s: { log: TurnLog; contextPercent?: number; now: number; 
   return 'idle'
 }
 
+// The facts Clawd's second line is made of; any may be missing.
+export type MoodFacts = { caught?: number; passed?: number; failed?: number; contextPercent?: number; idleMs?: number }
+const known = (n: number | undefined): n is number => n !== undefined && Number.isFinite(n)
+// Why Clawd feels as he does, in a few words, or nothing when the fact behind it is missing.
+// Working says nothing here: the panel shows the turn's time.
+export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
+  switch (mood) {
+    case 'idle':
+      return 'your turn'
+    case 'startled':
+      return known(f.caught) && f.caught > 0 ? `guard stopped ${f.caught}` : undefined
+    case 'sad':
+      return known(f.failed) && f.failed > 0 ? `${f.failed} failed` : undefined
+    case 'celebrating':
+      return known(f.passed) ? `${f.passed} passed` : undefined
+    case 'sweating':
+      return known(f.contextPercent) ? `${Math.round(f.contextPercent)}% · compact?` : undefined
+    case 'sleeping': {
+      if (!known(f.idleMs)) return undefined
+      const m = Math.floor(f.idleMs / 60_000)
+      return m >= 60 ? `idle ${Math.floor(m / 60)}h` : `idle ${m}m`
+    }
+    default:
+      return undefined
+  }
+}
+
 export type Accessory = 'newyear' | 'xmas' | 'halloween' | 'songkran' | 'coffee' | 'nightcap'
 // What Clawd wears for the local date and hour: a holiday first, else the time of day.
 export function accessoryOf(d: Date): Accessory | undefined {
