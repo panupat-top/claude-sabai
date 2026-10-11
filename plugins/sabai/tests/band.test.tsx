@@ -1053,6 +1053,18 @@ test('while the main turn works the band shows the live strip with the step in f
   expect((await shown($, 'desktop', false)).words).not.toContain('Working')
 })
 
+test('a turn that outlived a reload still counts by the second: its state, not the module, says it works', async ($, on) => {
+  const { clock } = engine(on)
+  // State survives a hot reload; the module starts over and never saw this turn start.
+  on('state.get', async (_$, e, next) => {
+    const got = await next(e)
+    return e.key === 'turnStartedAt' && got.value ? ({ value: { ...got.value, value: NOW } } as typeof got) : got
+  })
+  await start($)
+  await clock.advance(3000)
+  expect((await shown($, 'desktop', true)).words).toContain('3s')
+})
+
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   const { clock } = engine(on)
   await clock.set(new Date('2026-10-31T12:00:00').getTime())

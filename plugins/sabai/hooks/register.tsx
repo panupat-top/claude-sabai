@@ -67,8 +67,6 @@ const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0
 const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string } | null)
 // Each member's calls for the race: its tiles, its call in flight, its last fall and score.
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
-// Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
-let mainWorking = false
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -127,8 +125,6 @@ const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pe
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
-// The spinner's word is picked once per turn, so it does not change on every redraw.
-let turnSeed = 0
 let lastBranch: string | undefined
 let reading: Promise<void> | undefined
 let quick: string[] = []
@@ -366,6 +362,8 @@ export const register: Register = on => {
     // Running subagents' clocks count by the second; quiet when none runs.
     $.clock.every(1000, () => {
       void (async () => {
+        // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
+        const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
         if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
       })()
     })
@@ -431,7 +429,6 @@ export const register: Register = on => {
       await update($, lastTurnAt, () => ended)
       // Clawd waves for WAVE_MS; redraw when the wave ends.
       $.clock.after(WAVE_MS + 100, () => void tick($))
-      mainWorking = false
       await update($, liveStep, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
       // gets it as the notice under it instead.
@@ -1047,12 +1044,10 @@ export const register: Register = on => {
   })
 
   on('turn.start', async ($, e, next) => {
-    turnSeed = seedOf(e.turnId)
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
     // Main's lane and the turn's counts start over; agents' lanes carry on.
     await update($, race, r => ({ ...EMPTY_RACE, calls: Object.fromEntries(Object.entries(r.calls).filter(([k]) => k !== 'main')), doing: r.doing, fellAt: r.fellAt, scoredAt: r.scoredAt }))
-    mainWorking = true
     const began = await $.clock.now()
     await update($, turnStartedAt, () => began)
     return next(e)
@@ -1062,7 +1057,8 @@ export const register: Register = on => {
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     if (!(await read($, prefs)).chat.spinner) return next(e)
     if (e.surface !== 'terminal' && !isGenericWord(e.props.word)) return next(e)
-    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, turnSeed) } })
+    // The spinner's word is picked once per turn, from its start, so redraws and reloads keep it.
+    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, seedOf(String(await read($, turnStartedAt)))) } })
   })
 
   on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
