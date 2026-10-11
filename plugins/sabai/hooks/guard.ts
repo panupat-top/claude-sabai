@@ -34,7 +34,7 @@ export const riskOf = (tool: string, input: { command?: unknown; file_path?: unk
 export function risksOf(tool: string, input: { command?: unknown; file_path?: unknown }): Risk[] {
   if (tool === 'Read') return typeof input.file_path === 'string' && isEnvFile(input.file_path) ? [{ rule: 'env', reason: 'reads a .env file' }] : []
   if (tool !== 'Bash' || typeof input.command !== 'string') return []
-  const cmds = commandsOf(withoutData(input.command))
+  const cmds = programsOf(withoutData(input.command), 0)
   const risks: Risk[] = []
   const wipe = cmds.map(wipes).find(Boolean)
   if (wipe) risks.push({ rule: 'wipe', reason: wipe })
@@ -48,12 +48,51 @@ export function risksOf(tool: string, input: { command?: unknown; file_path?: un
 
 type Command = { words: string[]; from: string[] }
 
-// The simple commands of a shell line, each as its words with quotes removed and the files it reads
-// with `<` apart: split at ; & | newlines ( ) { } ` and $(, past wrappers and leading assignments
-// (`FOO=1`, `sudo -u me`, `env`, `nice -n 5`, `then`, …), with `sh -c '…'` and `eval` read as the
-// commands they run. Redirections leave the words, so `cat<.env` and `"main"` read as typed.
-function commandsOf(line: string): Command[] {
-  const out: Command[] = []
+// The commands that print, copy or run a file's contents; for the pattern-first ones the first
+// word is the pattern or script, unless it came with -e or -f.
+const READERS = ['cat', 'tac', 'less', 'more', 'head', 'tail', 'bat', 'nl', 'source', '.', 'grep', 'egrep', 'rg', 'sed', 'awk', 'cp', 'xxd', 'od', 'strings', 'base64', 'sort', 'cut', 'diff']
+const PATTERN_FIRST = ['grep', 'egrep', 'rg', 'sed', 'awk']
+const PROGRAMS = new Set(['rm', 'git', ...READERS])
+const SHELL = /^(?:ba|z|da|k)?sh$/
+// Commands that only print their words, so a program named among them does not run.
+const PRINTERS = ['echo', 'printf']
+// How deep `sh -c` and `eval` may nest before the guard refuses: no real script comes near it,
+// and a crafted one would otherwise take seconds.
+const MAX_DEPTH = 8
+
+// Every command the guard knows that a line runs, as its words from the program on, with the
+// files read with `<`. Each simple command but echo or printf is searched for its first known
+// program at any word, so wrappers (`sudo -u me`, `timeout 30`, `xargs`, `FOO=1`, `then`) need no list; `sh -c '…'`
+// and `eval` are read as the commands they run.
+function programsOf(line: string, depth: number): Command[] {
+  if (depth > MAX_DEPTH) throw new Error('nested too deep to check')
+  const { commands, nested } = simpleCommands(line)
+  const out = nested.flatMap(n => programsOf(n, depth + 1))
+  for (const { words, from } of commands) {
+    if (from.length) out.push({ words: [], from })
+    if (PRINTERS.includes(words[0]?.split('/').pop() ?? '')) continue
+    const inner = (text: string) => programsOf(text, depth + 1).map(c => ({ ...c, from: [...c.from, ...from] }))
+    for (let i = 0; i < words.length; i++) {
+      const name = words[i]!.split('/').pop()!
+      const rest = words.slice(i)
+      const c = SHELL.test(name) ? rest.findIndex(a => /^-[a-z]*c$/.test(a)) : -1
+      if (c > 0 && rest[c + 1] !== undefined) out.push(...inner(rest[c + 1]!))
+      else if (name === 'eval') out.push(...inner(rest.slice(1).join(' ')))
+      else if (PROGRAMS.has(name)) out.push({ words: rest, from })
+      else continue
+      break
+    }
+  }
+  return out
+}
+
+// A line's simple commands, each as its words with quotes removed and the files it reads with
+// `<` apart, split at ; & | newlines ( ) ` $( and a { or } standing alone; and the text of each
+// $( ) or backtick inside double quotes, which runs too. Comments are skipped and redirections
+// leave the words, so `cat<.env` and `"main"` read as typed.
+function simpleCommands(line: string): { commands: Command[]; nested: string[] } {
+  const commands: Command[] = []
+  const nested: string[] = []
   let words: string[] = [], from: string[] = [], word = '', inWord = false, quote = '', redirect = ''
   const endWord = () => {
     if (inWord) {
@@ -66,32 +105,58 @@ function commandsOf(line: string): Command[] {
   }
   const endCommand = () => {
     endWord()
-    if (words.length || from.length) out.push(...unwrapped({ words, from }))
+    if (words.length || from.length) commands.push({ words, from })
     words = []
     from = []
     redirect = ''
   }
+  const standsAlone = (i: number) => !inWord && /^(\s|;|$)/.test(line[i + 1] ?? '')
   for (let i = 0; i < line.length; i++) {
     const c = line[i]!
-    if (quote) {
-      if (c === quote) quote = ''
-      else if (c === '\\' && quote === '"' && i + 1 < line.length) word += line[++i]
+    const next = line[i + 1]
+    if (c === '\\' && next === '\n' && quote !== "'") i++
+    else if (quote === "'") {
+      if (c === "'") quote = ''
       else word += c
+    } else if (quote === '$') {
+      if (c === "'") quote = ''
+      else word += c === '\\' && next !== undefined ? line[++i] : c
+    } else if (quote === '"') {
+      if (c === '"') quote = ''
+      else if (c === '\\' && next !== undefined) word += line[++i]
+      else if ((c === '$' && next === '(') || c === '`') {
+        const close = c === '`' ? line.indexOf('`', i + 1) : closingParen(line, i + 1)
+        const end = close === -1 ? line.length : close
+        nested.push(line.slice(i + (c === '`' ? 1 : 2), end))
+        word += line.slice(i, end + 1)
+        i = end
+      } else word += c
     } else if (c === "'" || c === '"') {
       quote = c
       inWord = true
-    } else if (c === '\\' && i + 1 < line.length) {
+    } else if (c === '$' && next === "'") {
+      quote = '$'
+      inWord = true
+      i++
+    } else if (c === '$' && next === '$') {
+      word += '$$'
+      inWord = true
+      i++
+    } else if (c === '\\' && next !== undefined) {
       word += line[++i]
       inWord = true
-    } else if (c === '$' && line[i + 1] === '{') {
+    } else if (c === '#' && !inWord) {
+      const newline = line.indexOf('\n', i)
+      i = newline === -1 ? line.length : newline - 1
+    } else if (c === '$' && next === '{') {
       const close = line.indexOf('}', i)
       word += close === -1 ? line.slice(i) : line.slice(i, close + 1)
       inWord = true
       i = close === -1 ? line.length : close
-    } else if (c === '$' && line[i + 1] === '(') {
+    } else if (c === '$' && next === '(') {
       endCommand()
       i++
-    } else if (';&|\n(){}`'.includes(c)) endCommand()
+    } else if (';&|\n()`'.includes(c) || ((c === '{' || c === '}') && standsAlone(i))) endCommand()
     else if (c === '<' || c === '>') {
       // A file descriptor written before the operator (`2>`) belongs to it.
       if (/^\d+$/.test(word)) {
@@ -109,31 +174,17 @@ function commandsOf(line: string): Command[] {
     }
   }
   endCommand()
-  return out
+  return { commands, nested }
 }
 
-const KEYWORDS = ['then', 'do', 'else', 'elif', 'if', 'while', 'until', '!', 'exec', 'command', 'builtin', 'time', 'nohup']
-// The options of a wrapper that take a value, so the value is not read as the program.
-const VALUED: Record<string, string[]> = { sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-R', '-r', '-T', '-t'], doas: ['-u', '-C'], env: ['-u', '-S', '-C'], nice: ['-n'] }
-
-function unwrapped({ words, from }: Command): Command[] {
-  let i = 0
-  while (i < words.length) {
-    const w = words[i]!
-    if (/^[A-Za-z_]\w*=/.test(w) || KEYWORDS.includes(w)) i++
-    else if (w in VALUED) {
-      i++
-      while (words[i]?.startsWith('-')) i += VALUED[w]!.includes(words[i]!) ? 2 : 1
-    } else break
+// The index of the ) that closes a ( just before `from`, or -1.
+function closingParen(line: string, from: number): number {
+  let depth = 1
+  for (let i = from + 1; i < line.length; i++) {
+    if (line[i] === '(') depth++
+    else if (line[i] === ')' && --depth === 0) return i
   }
-  const rest = words.slice(i)
-  const name = rest[0]?.split('/').pop() ?? ''
-  if (/^(?:ba|z|da|k)?sh$/.test(name)) {
-    const c = rest.findIndex(a => /^-[a-z]*c$/.test(a))
-    if (c > 0 && rest[c + 1] !== undefined) return commandsOf(rest[c + 1]!)
-  }
-  if (name === 'eval') return commandsOf(rest.slice(1).join(' '))
-  return [{ words: rest, from }]
+  return -1
 }
 
 const programOf = (words: string[]) => words[0]?.split('/').pop() ?? ''
@@ -156,11 +207,6 @@ function wipes({ words }: Command): string | undefined {
   return undefined
 }
 
-// The commands that print, copy or run a file's contents; for the pattern-first ones the first
-// word is the pattern or script, unless it came with -e or -f.
-const READERS = ['cat', 'tac', 'less', 'more', 'head', 'tail', 'bat', 'nl', 'source', '.', 'grep', 'egrep', 'rg', 'sed', 'awk', 'cp', 'xxd', 'od', 'strings', 'base64', 'sort', 'cut', 'diff']
-const PATTERN_FIRST = ['grep', 'egrep', 'rg', 'sed', 'awk']
-
 function readsEnv({ words, from }: Command): boolean {
   if (from.some(isEnvFile)) return true
   const name = programOf(words)
@@ -168,6 +214,8 @@ function readsEnv({ words, from }: Command): boolean {
   const args = words.slice(1)
   const files = args.filter(a => !a.startsWith('-'))
   if (PATTERN_FIRST.includes(name) && !args.some(a => /^(-[ef]|--regexp|--file|--expression)/.test(a))) files.shift()
+  // cp reads its sources, not where it writes.
+  if (name === 'cp') files.pop()
   return files.some(isEnvFile)
 }
 
