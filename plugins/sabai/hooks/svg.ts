@@ -742,74 +742,38 @@ export function stepSvg(step: Step): Drawing {
   }
 }
 
-const RECEIPT_H = 36
 const RECEIPT_ICON: Record<Tone, StrokeKind> = { ok: 'party-popper', bad: 'circle-x', warn: 'triangle-alert', edit: 'circle-check', text: 'circle-check', muted: 'circle-check', read: 'circle-check' }
-// A few bits of confetti round the icon of an all-green turn: they rise and fade once, from where
-// they are drawn.
-const RECEIPT_CONFETTI: [number, number, Tone][] = [[6, 6, 'ok'], [26, 4, 'edit'], [28, 26, 'warn'], [4, 27, 'read']]
-const RECEIPT_MOTION = '.rc{animation:rc .9s ease-out 2}@keyframes rc{60%{transform:translateY(-3px);opacity:.4}}@media (prefers-reduced-motion: reduce){.rc{animation:none}}'
 
-// A turn's receipt under its answer: a card in the colour of how the turn went, its icon (party
-// popper for all green), a headline, and a chip each for files, tests and commands, each with its
-// own small meter.
+// A turn's receipt under its answer, as one minimal line like a step's: an icon and headline in
+// the colour of how the turn went, then its files, tests and commands, muted, with colour only on
+// what changed or failed. Parts that would not fit are left off the end.
 export function receiptSvg(r: Receipt): Drawing {
-  type Pill = { icon: StrokeKind; parts: { text: string; tone: Tone }[]; meter?: { good: number; bad: number } }
-  const chips: Pill[] = []
-  if (r.files) chips.push({ icon: 'square-pen', parts: [{ text: `${r.files.count} file${r.files.count === 1 ? '' : 's'} `, tone: 'text' }, { text: `+${r.files.added}`, tone: 'ok' }, { text: ` −${r.files.removed}`, tone: 'bad' }], meter: { good: r.files.added, bad: r.files.removed } })
-  if (r.test) chips.push({ icon: 'flask-conical', parts: [r.test.failed ? { text: `${r.test.failed} of ${r.test.passed + r.test.failed} failed`, tone: 'bad' } : { text: `${r.test.passed} passed`, tone: 'ok' }], meter: { good: r.test.passed, bad: r.test.failed } })
-  if (r.commands) chips.push({ icon: 'terminal', parts: [{ text: `${r.commands.count} command${r.commands.count === 1 ? '' : 's'}`, tone: 'text' }, ...(r.commands.failed ? [{ text: ` · ${r.commands.failed} failed`, tone: 'bad' as Tone }] : [])] })
-  const headline = r.headline
-  const headX = 36
-  const headW = sansWidth(headline, 12.5)
-  const meterW = 5 * 4 + 4
-  const chipW = (c: Pill, withMeter: boolean) => 7 + 12 + 5 + c.parts.reduce((n, p) => n + monoWidth(p.text, 10.5), 0) + (withMeter && c.meter ? meterW : 0) + 7
-  const room = STEP_W - 10 - (headX + headW + 14)
-  const withMeters = chips.reduce((n, c) => n + chipW(c, true) + 6, 0) <= room
-  let x = headX + headW + 14
-  const drawn = chips
-    .map(c => {
-      const w = chipW(c, withMeters)
-      if (x + w > STEP_W - 8) return ''
-      const at = x
-      x += w + 6
-      let tx = at + 7 + 12 + 5
-      const words = c.parts
-        .map(p => {
-          const t = `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="22" font-family="${MONO}" font-size="10.5" xml:space="preserve">${xml(p.text)}</text>`
-          tx += monoWidth(p.text, 10.5)
-          return t
-        })
-        .join('')
-      let meter = ''
-      if (withMeters && c.meter) {
-        const n = c.meter.good + c.meter.bad
-        let good = n ? Math.round((5 * c.meter.good) / n) : 0
-        if (c.meter.good > 0 && good === 0) good = 1
-        if (c.meter.bad > 0 && good === 5) good = 4
-        meter = Array.from({ length: 5 }, (_, i) => `<rect class="k-${i < good ? 'ok' : 'bad'}" x="${(tx + 4 + i * 4).toFixed(1)}" y="13" width="2.5" height="9" rx="1"/>`).join('')
-      }
-      return (
-        `<rect class="k-muted" opacity="${PILL_TINT}" x="${at.toFixed(1)}" y="7" width="${w.toFixed(1)}" height="22" rx="11"/>` +
-        stroke(c.icon, 's-muted', at + 7, 12, 12) +
-        words +
-        meter
-      )
-    })
-    .join('')
+  const groups: { text: string; tone: Tone }[][] = []
+  if (r.files) groups.push([{ text: `${r.files.count} file${r.files.count === 1 ? '' : 's'} `, tone: 'muted' }, { text: `+${r.files.added}`, tone: 'ok' }, { text: ` −${r.files.removed}`, tone: 'bad' }])
+  if (r.test) groups.push([r.test.failed ? { text: `${r.test.failed} of ${r.test.passed + r.test.failed} failed`, tone: 'bad' } : { text: `${r.test.passed} passed`, tone: 'ok' }])
+  if (r.commands) groups.push([{ text: `${r.commands.count} command${r.commands.count === 1 ? '' : 's'}`, tone: 'muted' }, ...(r.commands.failed ? [{ text: ` · ${r.commands.failed} failed`, tone: 'bad' as Tone }] : [])])
+  const headW = sansWidth(r.headline, 12)
+  let x = 20 + headW
+  let words = ''
+  for (const g of groups) {
+    const parts = [{ text: '  ·  ', tone: 'muted' as Tone }, ...g]
+    const w = parts.reduce((n, p) => n + monoWidth(p.text, 10.5), 0)
+    if (x + w > STEP_W - 2) break
+    for (const p of parts) {
+      words += `<text class="k-${p.tone}" x="${x.toFixed(1)}" y="15.5" font-family="${MONO}" font-size="10.5" xml:space="preserve">${xml(p.text)}</text>`
+      x += monoWidth(p.text, 10.5)
+    }
+  }
   const motion = r.tone === 'ok' ? ' an-pop' : r.tone === 'bad' ? ' an-shake' : ''
-  const confetti = r.tone === 'ok' ? RECEIPT_CONFETTI.map(([cx, cy, tone], i) => `<rect class="k-${tone} rc" style="animation-delay:${i * 0.12}s" x="${cx}" y="${cy}" width="2.5" height="2.5" rx=".5"/>`).join('') : ''
   const body =
-    `<rect class="k-${r.tone}" opacity=".07" x=".5" y=".5" width="${STEP_W - 1}" height="${RECEIPT_H - 1}" rx="10"/>` +
-    `<rect class="s-${r.tone}" fill="none" stroke-width="1" opacity=".45" x=".5" y=".5" width="${STEP_W - 1}" height="${RECEIPT_H - 1}" rx="10"/>` +
-    confetti +
-    stroke(RECEIPT_ICON[r.tone], `s-${r.tone}${motion}`, 10, 9, 18) +
-    `<text class="k-${r.tone}" x="${headX}" y="22.5" font-family="${SANS}" font-size="12.5" font-weight="700">${xml(headline)}</text>` +
-    drawn
-  const said = [headline, ...chips.map(c => c.parts.map(p => p.text).join(''))].join('; ')
+    stroke(RECEIPT_ICON[r.tone], `s-${r.tone}${motion}`, 1, 5.5, 13) +
+    `<text class="k-${r.tone}" x="20" y="16" font-family="${SANS}" font-size="12" font-weight="600">${xml(r.headline)}</text>` +
+    words
+  const said = [r.headline, ...groups.map(g => g.map(p => p.text).join(''))].join('; ')
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${STEP_W}" height="${RECEIPT_H}" viewBox="0 0 ${STEP_W} ${RECEIPT_H}"><style>${CHAT_CSS}${CHAT_MOTION}${RECEIPT_MOTION}</style>${body}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${STEP_W}" height="${STEP_H}" viewBox="0 0 ${STEP_W} ${STEP_H}"><style>${CHAT_CSS}${CHAT_MOTION}</style>${body}</svg>`,
     width: STEP_W,
-    height: RECEIPT_H,
+    height: STEP_H,
     alt: `Turn receipt: ${said}`,
   }
 }
