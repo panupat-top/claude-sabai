@@ -10,7 +10,7 @@ export function riskOf(tool: string, input: { command?: unknown; file_path?: unk
     return ENV_FILE.test(path) ? 'reads a .env file' : undefined
   }
   if (tool !== 'Bash' || typeof input.command !== 'string') return undefined
-  const cmd = input.command
+  const cmd = withoutData(input.command)
   // rm with both -r and -f (in any order or spelling) aimed at the root or the home folder.
   const rm = /\brm\s+(?:-\w*\s+)*-\w*(?:r\w*f|f\w*r)\w*(?:\s+-\w+)*\s+(\S+)/i.exec(cmd)
   if (rm) {
@@ -22,6 +22,27 @@ export function riskOf(tool: string, input: { command?: unknown; file_path?: unk
   if (force) return `force-pushes to ${force}`
   if (/\b(cat|less|more|head|tail|bat|source|grep|rg)\b/.test(cmd) && ENV_FILE.test(cmd)) return 'reads a .env file'
   return undefined
+}
+
+// The command without the text of its heredocs: a script piped to python or a file written with
+// cat is data, whatever words it holds. A heredoc a shell reads is commands and is kept, and so
+// is one never closed, rather than skip text on a guess.
+function withoutData(cmd: string): string {
+  const lines = cmd.split('\n')
+  const kept: string[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!
+    kept.push(line)
+    for (const m of line.matchAll(/(^|[^<])<<(-?)\s*(['"]?)([A-Za-z_][\w-]*)\3/g)) {
+      const runner = line.slice(0, m.index! + m[1]!.length).split(/&&|\|\||[;|]/).pop()!
+      const isShell = /^\s*(?:sudo\s+)?(?:ba|z|da|k)?sh\b/.test(runner)
+      const end = lines.findIndex((l, j) => j > i && (m[2] ? l.replace(/^\t+/, '') : l) === m[4])
+      if (end === -1) return cmd
+      if (isShell) kept.push(...lines.slice(i + 1, end))
+      i = end
+    }
+  }
+  return kept.join('\n')
 }
 
 // The branch a force push lands on, when it is main or master: the push's own arguments up to the

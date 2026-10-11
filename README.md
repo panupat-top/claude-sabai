@@ -70,7 +70,7 @@ Everything applies at once and is kept for new sessions:
 | Alerts | **Turn notifications**: a notification when a turn of a minute or more ends, or when an agent fails. **Limit warnings**: a toast, once per window, when 5H or 7D passes 90%. Both on by default. |
 | Chat | **Spinner words**, **Tool summaries**, **Test results** and **Callouts** (adds one line to Claude's system prompt; a change takes effect from the next request). All on by default. |
 | Agents | **Step reports**: agents can send their progress (`2/4 · reading the docs`) to their card in the agents panel. Each model request then carries one small extra tool. On by default; a change takes effect from the next session. Some agent types (such as claude-code-guide) are not given the tool, and their cards show a step count instead. |
-| Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. Off by default. |
+| Safety | **Guard**: refuse `rm -rf /` or `~`, force-pushing to `main` or `master`, and reading `.env` files (except `.env.example`, `.sample`, `.template`), with a toast saying why. The text of a heredoc given to a script or written to a file is not read as commands (one a shell runs is). While on, a shield shows in the band. Off by default. |
 | Color theme | Ten looks for the band and the panels, each with a swatch: `auto` (the default, follows your OS light or dark mode), `catppuccin-latte`, `catppuccin-frappe`, `catppuccin-macchiato`, `catppuccin-mocha`, `dracula`, `tokyo-night`, `nord`, `gruvbox` and `rose-pine`. |
 
 ## Requirements
