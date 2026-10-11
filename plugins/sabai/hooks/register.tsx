@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, RECENT_MS, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -65,8 +65,6 @@ const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { i
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
 let mainWorking = false
-// Each plan limit's readings in its current window, for its forecast.
-const usageSamples = atom({ plugin: 'sabai', key: 'usageSamples' } as const, {} as Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -251,24 +249,6 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
-// Each limit's readings in its current window, for the forecast; a new window starts over.
-async function sample($: EngineInterface, limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]) {
-  const at = await $.clock.now()
-  await update($, usageSamples, all => {
-    const next = { ...all }
-    for (const l of limits) {
-      if (l.kind !== 'five_hour' && l.kind !== 'seven_day') continue
-      const was = next[l.kind]
-      const points = (was && was.resetsAt === l.resetsAt ? was.points : []).filter(p => at - p.at < RECENT_MS)
-      // About one reading a minute: measure fires on every response, and a busy turn would
-      // otherwise crowd the window into a few minutes, too short for a forecast.
-      const crowded = points.length > 1 && at - points[points.length - 2]!.at < 60_000
-      next[l.kind] = { resetsAt: l.resetsAt, points: [...(crowded ? points.slice(0, -1) : points), { at, percent: l.percentUsed }] }
-    }
-    return next
-  })
-}
-
 // The main turn's step in flight, for the live strip: the step's running title; a subagent's
 // calls leave it alone.
 async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
@@ -369,8 +349,7 @@ export const register: Register = on => {
     const known = await $.session.usage().catch(() => undefined)
     if (known) {
       await update($, usage, () => toUsage(known))
-      await sample($, known.rateLimits)
-    }
+      }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -609,7 +588,6 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
-    await sample($, e.rateLimits)
     if ((await read($, prefs)).limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
@@ -1065,12 +1043,7 @@ export const register: Register = on => {
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const samples = await read($, usageSamples)
-    // The latest reading may be newer than the band's clock tick.
-    const latest = Math.max(at, ...Object.values(samples).flatMap(s => s.points.map(p => p.at)))
-    const list = rows.usage
-      ? meters(measured, latest, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt, samples: Object.fromEntries(Object.entries(samples).map(([k, v]) => [k, v.points])) })
-      : []
+    const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
     const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
@@ -1216,7 +1189,6 @@ export const register: Register = on => {
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
                 <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
-                {m.forecast === undefined ? null : <Text dimColor>{` → ${m.forecast >= 100 ? 'full' : `~${m.forecast}%`}`}</Text>}
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

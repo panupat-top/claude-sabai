@@ -1002,23 +1002,16 @@ test('the density setting switches the band to compact', async ($, on) => {
   expect(await height()).toBeLessThan(roomy)
 })
 
-test('a rising 5H limit gets a ghost to where it is heading and words for it; a reset starts it over', async ($, on) => {
+test('a rising 5H limit shows no forecast on either surface', async ($, on) => {
   const { clock } = engine(on)
   await start($)
-  const at = (percent: number, resetsAt = '2026-10-10T05:00:00Z') =>
-    $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: percent, resetsAt }], changed: ['rateLimits'] })
-  await at(20)
-  await clock.advance(5 * 60_000)
-  await at(25)
-  await clock.advance(5 * 60_000)
-  await at(30)
-  await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/5H Limit 30%, (~\d+%|full) by reset/)
-  expect((await shown($, 'terminal')).words).toMatch(/→ (~\d+%|full)/)
-  // A new window: one reading, no forecast.
-  await at(2, '2026-10-10T10:00:00Z')
+  for (let i = 0; i <= 20; i++) {
+    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + i, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+    await clock.advance(60_000)
+  }
   await settle()
   expect((await shown($, 'desktop')).words).not.toContain('by reset')
+  expect((await shown($, 'terminal')).words).not.toContain('→')
 })
 
 test('while the main turn works the band shows the live strip with the step in flight; a subagent’s calls do not', async ($, on) => {
@@ -1050,7 +1043,7 @@ test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   await ui.unmount()
 })
 
-test('every row on, nine agents, the race with 60 calls, a forecast and a hat stay under the tree limit', async ($, on) => {
+test('every row on, nine agents, the race with 60 calls and a hat stay under the tree limit', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
   turnStarts(on)
@@ -1521,17 +1514,6 @@ for (const bar of ['dither', 'blocks', 'solid'] as const) {
     await ui.unmount()
   })
 }
-
-test('a 5H limit read every few seconds while work runs still gets its forecast', async ($, on) => {
-  const { clock } = engine(on)
-  await start($)
-  for (let i = 0; i <= 120; i++) {
-    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + Math.floor(i / 10), resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
-    await clock.advance(5000)
-  }
-  await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/5H Limit \d+%, (~\d+%|full) by reset/)
-})
 
 test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) => {
   on('tool.call', { tool: 'Edit' }, () => Promise.reject(new Error('interrupted')))

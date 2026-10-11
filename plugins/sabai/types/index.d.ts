@@ -107,7 +107,6 @@ declare module 'claude-code' {
       turnStartedAt: number
       race: RaceLog
       liveStep: { icon: string; title: string } | null
-      usageSamples: Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>
     }
   }
 }
