@@ -109,7 +109,7 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd is \w+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd: [^;]+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -118,7 +118,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^(Clawd is \w+; )?Directory work; Context/)
+  expect(words).toMatch(/^(Clawd: [^;]+; )?Directory work; Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -231,7 +231,8 @@ test('Clawd takes the skin colour and walks only while the turn works', async ($
     return svg?.props.source ?? ''
   }
   expect(await source(false)).toContain('shape-rendering="crispEdges" class="idle"')
-  expect(await source(true)).toContain('shape-rendering="crispEdges" class="run"')
+  // While working beside the race he also looks at it: the run motion stays.
+  expect(await source(true)).toMatch(/shape-rendering="crispEdges" class="run( look-[a-z]+)?"/)
   expect(await source(true)).toContain('fill="#ffb86c"')
 })
 
@@ -443,7 +444,8 @@ test('a subagent’s own task list goes to its card, never the band; the band ke
   await $.tool.call(sub)
   const band = await shown($, 'desktop')
   expect(band.words).toContain('main work')
-  expect(band.words).not.toContain('Summing up')
+  // The band's tasks row keeps the main list; the agent's own step shows only in its race lane.
+  expect(band.words).not.toMatch(/main work: [^;]*Summing up/)
   const ui = await mountPane($, 'desktop')
   const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
   expect(cards.some(c => c.props.source.includes('>Summing up<') && c.props.source.includes('>1/2<'))).toBe(true)
@@ -772,10 +774,10 @@ test('settings: each band row can be hidden, and the choice is kept', async ($, 
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   for (const key of ['info', 'tasks', 'crew', 'usage', 'toolbar', 'notify', 'limits', 'guard', 'steps']) expect([key, await pane.find({ key: `pref-${key}` })]).not.toEqual([key, undefined])
-  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('● On')
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('● Usage')
   await pane.press({ key: 'pref-usage' })
   await pane.press({ key: 'pref-toolbar' })
-  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('○ Off')
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('○ Usage')
   const band = await shown($, 'desktop')
   expect(band.words).not.toContain('Context 24.5k')
   expect(band.buttons).toBe(0)
@@ -1002,23 +1004,16 @@ test('the density setting switches the band to compact', async ($, on) => {
   expect(await height()).toBeLessThan(roomy)
 })
 
-test('a rising 5H limit gets a ghost to where it is heading and words for it; a reset starts it over', async ($, on) => {
+test('a rising 5H limit shows no forecast on either surface', async ($, on) => {
   const { clock } = engine(on)
   await start($)
-  const at = (percent: number, resetsAt = '2026-10-10T05:00:00Z') =>
-    $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: percent, resetsAt }], changed: ['rateLimits'] })
-  await at(20)
-  await clock.advance(5 * 60_000)
-  await at(25)
-  await clock.advance(5 * 60_000)
-  await at(30)
-  await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/5H Limit 30%, (~\d+%|full) by reset/)
-  expect((await shown($, 'terminal')).words).toMatch(/→ (~\d+%|full)/)
-  // A new window: one reading, no forecast.
-  await at(2, '2026-10-10T10:00:00Z')
+  for (let i = 0; i <= 20; i++) {
+    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + i, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+    await clock.advance(60_000)
+  }
   await settle()
   expect((await shown($, 'desktop')).words).not.toContain('by reset')
+  expect((await shown($, 'terminal')).words).not.toContain('→')
 })
 
 test('while the main turn works the band shows the live strip with the step in flight; a subagent’s calls do not', async ($, on) => {
@@ -1050,7 +1045,7 @@ test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   await ui.unmount()
 })
 
-test('every row on, nine agents, the race with 60 calls, a forecast and a hat stay under the tree limit', async ($, on) => {
+test('every row on, nine agents, the race with 60 calls and a hat stay under the tree limit', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
   turnStarts(on)
@@ -1062,7 +1057,7 @@ test('every row on, nine agents, the race with 60 calls, a forecast and a hat st
   const ui = await mountBand($, 'desktop', true)
   // The race is in it, and Main's lane keeps only its last 16 tiles.
   const svg = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
-  expect(svg).toContain('>LV 13<')
+  expect(svg).toMatch(/>\d+ running/)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1084,7 +1079,7 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   expect(await source()).not.toMatch(/scale\(3\)/)
 })
 
-test('each member’s calls land in its own lane; a failed Main command costs a heart; a passing test is a coin', async ($, on) => {
+test('each member’s calls land in its own lane; the header counts the turn’s calls and failures', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
       ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
@@ -1102,9 +1097,9 @@ test('each member’s calls land in its own lane; a failed Main command costs a 
   await bash($, 'bun test')
   await bash($, 'false')
   const words = (await shown($, 'desktop', true)).words
-  expect(words).toMatch(/Race: LV 1, 1 coin, 2 hearts, combo 0/)
+  expect(words).toMatch(/Race: 2 running, 2 ok, 1 failed/)
   expect(words).toMatch(/Main (tripped|running|waiting)/)
-  expect(words).toContain('Explore running')
+  expect(words).toContain('x running')
 })
 
 test('the race leaves when the turn ends and no agent runs', async ($, on) => {
@@ -1129,11 +1124,11 @@ test('Clawd’s mood shows in the band: sad after failing tests, startled by the
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await turn($, () => bash($, 'bun test'))
-  expect((await shown($, 'desktop')).words).toContain('Clawd is sad')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: tests failing')
   expect((await shown($, 'terminal')).words).toContain('✗')
   await guardOn($)
   await bash($, 'rm -rf /')
-  expect((await shown($, 'desktop')).words).toContain('Clawd is startled')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: blocked, guard stopped 1')
 })
 
 test('the band with every row, a full crew and Clawd in the info row stays under the tree limit', async ($, on) => {
@@ -1486,52 +1481,45 @@ test('on the terminal a step is one line: its glyph, title, what it did, result 
   expect(await lineWords(ui, 'terminal')).toMatch(/^✎ Edited a\.ts.*src\/.*\+1 −0/)
 })
 
-test('settings are six bordered groups in order: band, conversation, agents, safety, alerts, appearance', async ($, on) => {
+test('settings are nine bordered groups in order: layout, info, usage, Clawd, agents, conversation, safety, notifications, look', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
   for (const surface of SURFACES) {
     const pane = await mountPane($, surface, 'sabai-skins')
     const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-    expect([surface, cards.length]).toEqual([surface, 6])
+    expect([surface, cards.length]).toEqual([surface, 9])
     const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
-    const order = ['Band', 'Conversation', 'Agents', 'Safety', 'Alerts', 'Appearance'].map(t => words.indexOf(`${t}`))
+    const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(t => words.indexOf(`  ${t}`))
     expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
     for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
     await pane.unmount()
   }
 })
 
-for (const bar of ['dither', 'blocks', 'solid'] as const) {
-  test(`the widest band, every row on, stays under the tree limit with ${bar} bars`, async ($, on) => {
-    const { clock } = engine(on, { store: { bar } })
-    panes(on)
-    turnStarts(on)
-    await start($)
-    for (let i = 0; i < 3; i++) await spawn($, `job ${i}`)
-    await $.turn.start({ turnId: 'wide' } as never)
-    for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
-    await clock.advance(1000)
-    const ui = await $.ui.mount({
-      plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
-      props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+for (const bar of ['dither', 'blocks', 'solid'] as const)
+  for (const usageStyle of ['tiles', 'rings', 'columns', 'rows'] as const)
+    test(`the widest band, every row on, stays under the limits with ${bar} bars and ${usageStyle}`, async ($, on) => {
+      const { clock } = engine(on, { store: { bar, prefs: { usageStyle } } })
+      panes(on)
+      turnStarts(on)
+      await clock.set(new Date('2026-12-24T12:00:00').getTime())
+      await start($)
+      for (let i = 0; i < 5; i++) await spawn($, `job ${i}`)
+      await $.turn.start({ turnId: 'wide' } as never)
+      for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
+      await clock.advance(1000)
+      const ui = await $.ui.mount({
+        plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
+        props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+      })
+      const source = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+      expect(source).toContain('class="usage"')
+      expect(source).toMatch(/×\d/)
+      expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+      expect(source.length).toBeLessThanOrEqual(131_072)
+      await ui.unmount()
     })
-    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('>LV ')
-    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-    await ui.unmount()
-  })
-}
-
-test('a 5H limit read every few seconds while work runs still gets its forecast', async ($, on) => {
-  const { clock } = engine(on)
-  await start($)
-  for (let i = 0; i <= 120; i++) {
-    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + Math.floor(i / 10), resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
-    await clock.advance(5000)
-  }
-  await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/5H Limit \d+%, (~\d+%|full) by reset/)
-})
 
 test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) => {
   on('tool.call', { tool: 'Edit' }, () => Promise.reject(new Error('interrupted')))
@@ -1543,4 +1531,89 @@ test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) =
   await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
   const words = (await shown($, 'desktop', true)).words
   expect(words).toContain('Main waiting')
+})
+
+test('Clawd waves when a turn ends and stops after the wave', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  const source = async () => {
+    const ui = await mountBand($, 'desktop')
+    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    await ui.unmount()
+    return s
+  }
+  await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await clock.advance(100)
+  expect(await source()).toContain('class="wave"')
+  await clock.advance(3100)
+  expect(await source()).not.toContain('class="wave"')
+})
+
+test('with tricks off Clawd does not wave', async ($, on) => {
+  const { clock } = engine(on, { store: { prefs: { extras: { accessories: true, tricks: false } } } })
+  panes(on)
+  await start($)
+  await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await clock.advance(100)
+  const ui = await mountBand($, 'desktop')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('class="wave"')
+  await ui.unmount()
+})
+
+test('a race computed under 760 px is not drawn, so Clawd does not look right', async ($, on) => {
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'n' } as never)
+  const ui = await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 80, rows: 30 }, props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 80, scroll: { offset: 0, bodyRows: 8 }, view: {} } })
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('look-right')
+  await ui.unmount()
+})
+
+test('settings: groups in order, pill toggles, the usage style, extras and reset', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  const labels = async () => (await pane.findAll({ type: 'Button' })).map(b => String(b.props.label))
+  const all = await labels()
+  for (const l of ['● Info', '● Activity', '● Agents', '● Folder', '● Context', '● Accessories', '● Tricks', 'Tiles', 'Rings', 'Columns', 'Rows', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
+  const text = JSON.stringify(await pane.drawn())
+  const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(g => text.indexOf(`  ${g}`))
+  expect(order.every(i => i >= 0)).toBe(true)
+  expect(order).toEqual([...order].sort((a, b) => a - b))
+  await pane.press({ key: 'pref-show-folder' })
+  expect(await labels()).toContain('○ Folder')
+  await pane.press({ key: 'usage-rings' })
+  const svg = async () => {
+    const band = await mountBand($, 'desktop')
+    const s = String((await band.findAll({ type: 'Svg' }))[0]?.props.source)
+    await band.unmount()
+    return s
+  }
+  expect(await svg()).toContain('stroke-dasharray')
+  await pane.press({ key: 'pref-extras-tricks' })
+  expect(await labels()).toContain('○ Tricks')
+  await pane.press({ key: 'use-dracula' })
+  expect(await svg()).toContain('#282a36')
+  await pane.press({ key: 'reset-defaults' })
+  await clock.advance(1)
+  const after = await labels()
+  expect(after).toContain('● Folder')
+  expect(after).toContain('● Tricks')
+  const reset = await svg()
+  expect(reset).not.toContain('#282a36')
+  expect(reset).not.toContain('stroke-dasharray')
+  await pane.unmount()
+})
+
+test('prefs saved by 2.2 load with extras and the usage style filled in', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true, live: true } } } })
+  panes(on)
+  await start($)
+  const band = await mountBand($, 'desktop')
+  expect(String((await band.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('class="usage"')
+  await band.unmount()
 })

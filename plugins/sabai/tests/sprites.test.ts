@@ -91,3 +91,16 @@ test('a runner holds the tool of its call in flight, in place of its type’s pr
   // The explorer's magnifier (#8e929a glass, #a0703f handle) is gone when a tool is held.
   expect(sprite('tasks', 0, 0, 'run', '#ff0000', { kind: 'explorer', prop: true }, undefined, 'edit')).not.toContain('#a0703f')
 })
+
+test('trick modes move the eyes, open the mouth or raise a claw; look modes keep the base mode', () => {
+  // draw() merges a run of one colour into one rect: each eye row is a 2-wide rect.
+  const eyes = (s: string) => [...s.matchAll(/<rect x="(\d+)" y="2" width="2" height="1" fill="#1F1E1D"/g)].map(m => Number(m[1]))
+  const plain = sprite('tasks', 0, 0, 'idle')
+  expect(eyes(plain)).toHaveLength(2)
+  expect(eyes(sprite('tasks', 0, 0, 'run look-right'))).toEqual(eyes(plain).map(x => x + 1))
+  expect(sprite('tasks', 0, 0, 'run look-right')).toContain('class="run look-right"')
+  expect(sprite('tasks', 0, 0, 'idle look-up')).toMatch(/y="1" width="2" height="1" fill="#1F1E1D"/)
+  expect(sprite('tasks', 0, 0, 'yawn')).toMatch(/x="11" y="5" width="2" height="1" fill="#1F1E1D"/)
+  expect(sprite('tasks', 0, 0, 'wave')).toContain('class="wv-up"')
+  expect(sprite('tasks', 0, 0, 'out')).not.toMatch(/y="3" width="2" height="1" fill="#1F1E1D"/)
+})

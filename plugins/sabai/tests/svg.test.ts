@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -354,11 +354,7 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   expect(d.source).toMatch(/scale\(3\)/)
   expect(d.source).toContain('>working<')
   expect(d.source).toContain('>1m 42s<')
-  expect(d.alt.startsWith('Clawd is working, 1m 42s')).toBe(true)
-  // The usage limits are rows whose bars share one length.
-  const widths = [...d.source.matchAll(/clipPath id="sabai-(context|session|week)"><rect width="(\d+)"/g)].map(m => m[2])
-  expect(widths.length).toBe(3)
-  expect(new Set(widths).size).toBe(1)
+  expect(d.alt.startsWith('Clawd: working, 1m 42s')).toBe(true)
   // Under 480 px, or compact, or Clawd hidden: not this layout.
   expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
   expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
@@ -367,28 +363,31 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
 
 test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
   const race = {
-    lv: 5, coins: 2, hearts: 2, combo: 4, elapsedMs: 102_000, more: 1,
+    running: 3, done: 1, ok: 12, fails: 1, elapsedMs: 102_000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', note: 'Editing svg.ts', progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
-      { id: 'a', who: 'Explore', type: 'Explore', note: '3/5', progress: 0.6, calls: [{ kind: 'test', ok: true }], state: 'scored' },
-      { id: 'b', who: 'General', type: 'general-purpose', note: 'build failed', calls: [{ kind: 'command', ok: false }], state: 'tripped' },
-      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
+      { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, calls: [{ kind: 'test', ok: true }], state: 'scored' },
+      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, calls: [], state: 'finished' },
     ],
   } as const
   const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(22 + 4 * 28 + 6)
-  for (const s of ['>LV 5<', '>×4 COMBO<', '>1:42<', '>+1<', '>OUCH<', 'class="coin', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  expect(part.alt).toBe('Race: LV 5, 2 coins, 2 hearts, combo 4, 1:42; Main running: Editing svg.ts; Explore scored: 3/5; General tripped: build failed; Plan finished: Done; 1 more')
+  expect(part.height).toBe(24 + 4 * 42 + 6)
+  for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
+    expect([s, part.body.includes(s)]).toEqual([s, true])
+  for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(3)
+  expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
 })
 
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
-  const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
   const wide = bandSvg(undefined, info, LIST, 900, opts)!
-  expect(wide.alt).toContain('Race: LV 1')
+  expect(wide.alt).toContain('Race: 1 running')
   expect(wide.alt).not.toContain('Working 1m 42s:')
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, info, LIST, 600, opts)!
@@ -399,30 +398,119 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   // Clawd hidden: no panel, the race stays.
   const noClawd = bandSvg(undefined, info, LIST, 900, { ...opts, clawd: false })!
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
-  expect(noClawd.alt).toContain('Race: LV 1')
+  expect(noClawd.alt).toContain('Race: 1 running')
 })
 
 test('no race element carries two class attributes, whatever its runner is doing', () => {
   for (const doing of ['read', 'edit', 'command', 'test'] as const) {
-    const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
     const body = racePart(lookOf('auto'), race as never, 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
   }
 })
 
-test('in the comfortable band the race box’s words take the card’s ink, the usage rows’ the surface’s', () => {
+test('in the comfortable band the race box’s words take the card’s ink', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const race = {
-    lv: 1, coins: 1, hearts: 3, combo: 2, elapsedMs: 1000, more: 1,
+    running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', note: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
-      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
+      { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, calls: [], state: 'finished' },
     ],
   }
   const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
-  const rows = middle!.slice(middle!.indexOf('CONTEXT') - 200)
-  expect(rows.match(/<text class="(t|m|c-[a-z]+)"/g)).toBeNull()
+  expect(middle).toContain('class="usage"')
 })
+
+test('the Clawd panel shows his headline and why, the failing count in alert ink', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const sad = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'sad', clawdLine: '2 failed' })!
+  expect(sad.source).toContain('>tests failing<')
+  expect(sad.source).toMatch(/class="c-alert"[^>]*>2 failed</)
+  expect(sad.alt.startsWith('Clawd: tests failing, 2 failed')).toBe(true)
+  const idle = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
+  expect(idle.source).toContain('>ready<')
+  expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
+})
+
+const USAGE_LIST = [
+  { kind: 'context', label: 'Context', percent: 74, amount: '743.5k / 1M', left: '256.5k left', level: 'warn' },
+  { kind: 'session', label: '5H Limit', percent: 27, resetsInMs: 1_140_000 },
+  { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
+] as const
+const INFO = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', calls: [], state: 'running' })) }
+// Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
+function usageTexts(source: string, x0: number) {
+  const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
+  return [...g.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+    const x = x0 + Number(m[1]), w = monoWidth(m[4]!.replace(/&amp;/g, '&'), Number(m[2]))
+    const anchor = m[3]!.match(/text-anchor="(middle|end)"/)?.[1]
+    return anchor === 'end' ? [x - w, x] : anchor === 'middle' ? [x - w / 2, x + w / 2] : [x, x + w]
+  })
+}
+
+for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
+  test(`usage style ${style}: fills the height, colours the percent by level, and keeps its words inside at 760 px with the race`, () => {
+    const now = new Date('2026-10-11T13:00:00').getTime()
+    const idle = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now })!
+    const working = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now, race: RACE4 as never })!
+    expect(Number(working.source.match(/height="(\d+)"/)![1])).toBeGreaterThan(Number(idle.source.match(/height="(\d+)"/)![1]))
+    expect(idle.source).toMatch(/class="c-warn"[^>]*>74%</)
+    const group = idle.source.slice(idle.source.indexOf('<g class="usage"'), idle.source.indexOf('</g><!--usage-->'))
+    expect(group).not.toMatch(/class="(st|sm)"/)
+    expect(working.alt).toMatch(/Context [^;]*74%/)
+    const narrow = bandSvg(undefined, INFO, USAGE_LIST as never, 760, { hero: true, usageStyle: style, now, race: RACE4 as never })!.source
+    const left = 116, right = 760 - 300 - 8
+    // The percent is never cut, however narrow the cell.
+    for (const pct of ['>74%<', '>27%<', '>18%<']) expect([style, pct, narrow.includes(pct)]).toEqual([style, pct, true])
+    const texts = usageTexts(narrow, left)
+    expect(texts.length).toBeGreaterThan(5)
+    for (const [a, b] of texts) expect([style, a! >= left - 1 && b! <= right + 1]).toEqual([style, true])
+  })
+}
+
+test('the usage gets its floor with Clawd hidden and no race, and no part without limits', () => {
+  // Review Focus 2.
+  const d = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, clawd: false, usageStyle: 'tiles' })!
+  expect(Number(d.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(28 + 50)
+  expect(d.source).not.toMatch(/height="(0|-)/)
+  expect(bandSvg(undefined, INFO, [], 900, { hero: true, usageStyle: 'tiles' })!.source).not.toContain('class="usage"')
+})
+
+// Every usage text as a box: [x0, x1, top, baseline], in the usage group's coordinates.
+function usageBoxes(source: string) {
+  const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
+  return [...g.matchAll(/<text[^>]*? x="([\d.]+)" y="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+    const x = Number(m[1]), y = Number(m[2]), size = Number(m[3]), w = monoWidth(m[5]!.replace(/&amp;/g, '&'), size)
+    const anchor = m[4]!.match(/text-anchor="(middle|end)"/)?.[1]
+    const [a, b] = anchor === 'end' ? [x - w, x] : anchor === 'middle' ? [x - w / 2, x + w / 2] : [x, x + w]
+    return { a, b, top: y - size * 0.72, y, text: m[5]! }
+  })
+}
+
+for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
+  test(`usage style ${style} lays out in the short heights a working band gives it, words inside and apart`, () => {
+    const now = new Date('2026-10-11T13:00:00').getTime()
+    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+    const tasks = { title: 'Ship it', done: 1, total: 3 }
+    // Clawd shown: about 56 px of usage in 107 px cells; Clawd hidden: about 50 px.
+    for (const clawd of [true, false]) {
+      const d = bandSvg(tasks, INFO, USAGE_LIST as never, 760, { hero: true, clawd, usageStyle: style, now, race: race1 as never })!
+      const top = Number(d.source.match(/<g class="usage" transform="translate\(0,(\d+)\)"/)![1])
+      const h = Number(d.source.match(/height="(\d+)"/)![1]) - top
+      expect([style, clawd, h < 80]).toEqual([style, clawd, true])
+      const boxes = usageBoxes(d.source)
+      for (const t of boxes) expect([style, clawd, t.text, t.top >= 0 && t.y <= h]).toEqual([style, clawd, t.text, true])
+      for (const [i, p] of boxes.entries())
+        for (const q of boxes.slice(i + 1)) {
+          const overlap = p.a < q.b && q.a < p.b && p.top < q.y && q.top < p.y
+          expect([style, clawd, p.text, q.text, overlap]).toEqual([style, clawd, p.text, q.text, false])
+        }
+      for (const pct of ['>74%<', '>27%<', '>18%<']) expect([style, pct, d.source.includes(pct)]).toEqual([style, pct, true])
+    }
+  })
+}

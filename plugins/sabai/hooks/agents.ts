@@ -139,8 +139,8 @@ export function groups(list: AgentRun[]): { running: AgentRun[]; finished: Agent
 }
 
 export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'waiting'
-export type Lane = { id: string; who: string; type?: string; note: string; progress?: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
-export type Race = { lv: number; coins: number; hearts: number; combo: number; elapsedMs: number; more: number; lanes: Lane[] }
+export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
+export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
 
@@ -155,29 +155,66 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
   const main: Lane = {
     id: 'main',
     who: 'Main',
-    note: mainStep ?? (mainWorking ? 'Working' : 'Waiting'),
+    step: mainStep ?? (mainWorking ? 'Working' : 'Waiting'),
+    ...(mainWorking ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { progress: tasks.done / tasks.total } : {}),
     calls: log.calls.main ?? [],
     ...(log.doing.main ? { doing: log.doing.main } : {}),
     state: timed('main') ?? (mainWorking && log.doing.main ? 'running' : 'waiting'),
   }
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
-  const shown = [...running, ...ended]
-  const lanes = shown.slice(0, RACE_LANES).map((a): Lane => {
+  // More running than lanes: agents of one type share a lane, the most numerous type first.
+  let units: AgentRun[][] = running.map(a => [a])
+  const counts = new Map<string, number>()
+  for (const a of running) counts.set(a.type, (counts.get(a.type) ?? 0) + 1)
+  for (const [type] of [...counts].filter(([, n]) => n > 1).sort((a, b) => b[1] - a[1])) {
+    if (units.length <= RACE_LANES) break
+    const group = units.filter(u => u[0]!.type === type).flat()
+    const first = units.findIndex(u => u[0]!.type === type)
+    units = units.filter(u => u[0]!.type !== type)
+    units.splice(first, 0, group)
+  }
+  const shown = [...units, ...ended.map(a => [a])]
+  const time = (r: AgentRun) => Math.max(0, (r.endedAt ?? now) - r.startedAt)
+  const lane = (u: AgentRun[]): Lane => {
+    const a = u[0]!
     const id = a.agentId ?? a.id
+    if (u.length > 1) {
+      const ids = u.map(r => r.agentId ?? r.id)
+      return {
+        id,
+        who: laneName(a.type),
+        type: a.type,
+        many: u.length,
+        step: `${u.length} running`,
+        timeMs: Math.max(...u.map(time)),
+        calls: log.calls[id] ?? [],
+        ...(log.doing[id] ? { doing: log.doing[id] } : {}),
+        state: ids.some(i => timed(i) === 'tripped') ? 'tripped' : 'running',
+      }
+    }
     const p = progressOf(a)
     const state: LaneState = a.status === 'failed' ? 'out' : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
     return {
       id,
-      who: laneName(a.type),
+      who: a.description || laneName(a.type),
       type: a.type,
-      note: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? `${p.done}/${p.total}` : a.description,
+      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? `${p.done}/${p.total} · ${p.title}` : 'Working',
+      timeMs: time(a),
       ...(state === 'finished' ? { progress: 1 } : p ? { progress: p.done / p.total } : {}),
       calls: log.calls[id] ?? [],
       ...(log.doing[id] ? { doing: log.doing[id] } : {}),
       state,
     }
-  })
+  }
   const since = mainWorking ? turnStartedAt : Math.min(...running.map(a => a.startedAt))
-  return { lv: Math.floor(log.total / 5) + 1, coins: log.coins, hearts: Math.max(0, 3 - log.mainFails), combo: log.combo, elapsedMs: Math.max(0, now - since), more: Math.max(0, shown.length - RACE_LANES), lanes: [main, ...lanes] }
+  return {
+    running: (mainWorking ? 1 : 0) + running.length,
+    done: ended.length,
+    ok: log.total - log.fails,
+    fails: log.fails,
+    elapsedMs: Math.max(0, now - since),
+    more: shown.slice(RACE_LANES).reduce((n, u) => n + u.length, 0),
+    lanes: [main, ...shown.slice(0, RACE_LANES).map(lane)],
+  }
 }

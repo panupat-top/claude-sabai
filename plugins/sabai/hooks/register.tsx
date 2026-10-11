@@ -1,11 +1,11 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, RECENT_MS, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
@@ -34,6 +34,8 @@ const DEFAULT_PREFS: Prefs = {
   warnAt: 70,
   alertAt: 90,
   density: 'comfortable',
+  extras: { accessories: true, tricks: true },
+  usageStyle: 'tiles',
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -46,6 +48,8 @@ const withDefaults = (v: unknown): Prefs => {
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
     show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
+    extras: { ...DEFAULT_PREFS.extras, ...(p.extras ?? {}) },
+    usageStyle: p.usageStyle && p.usageStyle in USAGE_STYLES ? p.usageStyle : DEFAULT_PREFS.usageStyle,
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -65,8 +69,6 @@ const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { i
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
 let mainWorking = false
-// Each plan limit's readings in its current window, for its forecast.
-const usageSamples = atom({ plugin: 'sabai', key: 'usageSamples' } as const, {} as Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -212,6 +214,13 @@ async function setBar($: EngineInterface, style: string) {
   await $.store.set('bar', style)
 }
 
+// Settings, skin and bar style back to their defaults.
+async function resetAll($: EngineInterface) {
+  await setPrefs($, () => DEFAULT_PREFS)
+  await setSkin($, 'auto')
+  await setBar($, 'dither')
+}
+
 async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
   const next = await update($, prefs, fn)
   await $.store.set('prefs', next)
@@ -249,24 +258,6 @@ async function guarded($: EngineInterface, tool: string, input: { command?: unkn
 async function logCall($: EngineInterface, agentId: string | undefined, called: { deny?: string }, call: Logged) {
   if (agentId !== undefined || called.deny !== undefined) return
   await update($, turnLog, l => logged(l, call))
-}
-
-// Each limit's readings in its current window, for the forecast; a new window starts over.
-async function sample($: EngineInterface, limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]) {
-  const at = await $.clock.now()
-  await update($, usageSamples, all => {
-    const next = { ...all }
-    for (const l of limits) {
-      if (l.kind !== 'five_hour' && l.kind !== 'seven_day') continue
-      const was = next[l.kind]
-      const points = (was && was.resetsAt === l.resetsAt ? was.points : []).filter(p => at - p.at < RECENT_MS)
-      // About one reading a minute: measure fires on every response, and a busy turn would
-      // otherwise crowd the window into a few minutes, too short for a forecast.
-      const crowded = points.length > 1 && at - points[points.length - 2]!.at < 60_000
-      next[l.kind] = { resetsAt: l.resetsAt, points: [...(crowded ? points.slice(0, -1) : points), { at, percent: l.percentUsed }] }
-    }
-    return next
-  })
 }
 
 // The main turn's step in flight, for the live strip: the step's running title; a subagent's
@@ -369,8 +360,7 @@ export const register: Register = on => {
     const known = await $.session.usage().catch(() => undefined)
     if (known) {
       await update($, usage, () => toUsage(known))
-      await sample($, known.rateLimits)
-    }
+      }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -439,6 +429,8 @@ export const register: Register = on => {
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
+      // Clawd waves for WAVE_MS; redraw when the wave ends.
+      $.clock.after(WAVE_MS + 100, () => void tick($))
       mainWorking = false
       await update($, liveStep, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
@@ -609,7 +601,6 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
-    await sample($, e.rateLimits)
     if ((await read($, prefs)).limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
@@ -797,8 +788,26 @@ export const register: Register = on => {
         <Button key={`pref-${key}`} label={isOn ? '● On' : '○ Off'} onPress={() => setPrefs($, flip)} />
       </Box>
     )
-    const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
-      toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
+    // Several on/off choices on one row; the desktop draws a Button from its label alone, so the
+    // dot carries the state there.
+    const pills = (items: { key: string; label: string; on: boolean; flip: (p: Prefs) => Prefs }[]) => (
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        {items.map(i => (
+          <Button key={`pref-${i.key}`} label={`${i.on ? '●' : '○'} ${i.label}`} variant={i.on ? 'primary' : 'secondary'} onPress={() => setPrefs($, i.flip)} />
+        ))}
+      </Box>
+    )
+    const rowPill = (key: keyof Prefs['rows'], label: string) => ({ key, label, on: p.rows[key], flip: (x: Prefs) => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }) })
+    const showPill = (key: keyof Prefs['show'], label: string) => ({ key: `show-${key}`, label, on: p.show[key], flip: (x: Prefs) => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }) })
+    const extraPill = (key: keyof Prefs['extras'], label: string) => ({ key: `extras-${key}`, label, on: p.extras[key], flip: (x: Prefs) => ({ ...x, extras: { ...x.extras, [key]: !x.extras[key] } }) })
+    // One of a few values, the current one standing out.
+    const choice = <T extends string>(prefix: string, values: readonly T[], label: (v: T) => string, current: T, pick: (v: T) => void) => (
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        {values.map(v => (
+          <Button key={`${prefix}-${v}`} label={label(v)} variant={v === current ? 'primary' : 'secondary'} onPress={() => pick(v)} />
+        ))}
+      </Box>
+    )
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
     const showToggle = (key: keyof Prefs['show'], name: string, note: string) =>
       toggle(`show-${key}`, name, note, p.show[key], x => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }))
@@ -849,32 +858,45 @@ export const register: Register = on => {
       <Box flexDirection="column" rowGap={1}>
         <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
         {group(
-          'band',
+          'layout',
           '▤',
-          'Band',
-          'Rows above the prompt',
+          'Layout',
+          'What the band shows',
           <>
-            {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
-            {rowToggle('tasks', 'Tasks', "Claude's own task list")}
-            {rowToggle('live', 'Live', 'What Claude is doing now, while it works')}
-            {rowToggle('crew', 'Crew', 'Subagents at work')}
-            {rowToggle('usage', 'Usage', 'Context and plan limits')}
-            {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
-            {subheading('Info chips', 'What the first row names')}
-            {showToggle('folder', 'Folder', 'The project folder')}
-            {showToggle('gitUser', 'Git user', 'Your git name')}
-            {showToggle('branch', 'Branch', 'Branch, ahead/behind and changes')}
-            {showToggle('node', 'Node', 'The Node version')}
-            {subheading('Usage cards', 'Which limits show, and when they turn amber and red')}
-            {showToggle('context', 'Context', 'How full the conversation is')}
-            {showToggle('session', '5H limit', 'The five-hour plan limit')}
-            {showToggle('week', '7D limit', 'The seven-day plan limit')}
-            {thresholdRow('warn', 'Warn at', [60, 70, 80], p.warnAt)}
-            {thresholdRow('alert', 'Alert at', [85, 90, 95], p.alertAt)}
-            {subheading('Clawd', 'The pixel crab')}
-            {showToggle('clawd', 'Clawd', 'His moods in the band')}
+            {named('Density', 'Comfortable: Clawd, info and usage, and the race while work runs. Compact: one-line rows')}
+            {choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d })))}
+            {subheading('Rows', 'Tap to show or hide')}
+            {pills([rowPill('info', 'Info'), rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('crew', 'Agents'), rowPill('usage', 'Usage'), rowPill('toolbar', 'Toolbar')])}
+            <Text dimColor>Activity is the race in comfortable, the live strip in compact. Agents are lanes in the race, or the crew row.</Text>
           </>,
         )}
+        {group('info', '▣', 'Info', 'The first row', pills([showPill('folder', 'Folder'), showPill('gitUser', 'Git user'), showPill('branch', 'Branch'), showPill('node', 'Node')]))}
+        {group(
+          'usage',
+          '◔',
+          'Usage',
+          'Limits and when they turn amber and red',
+          <>
+            {subheading('Style', 'How the comfortable band draws them')}
+            {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
+            {subheading('Limits', 'Which ones show')}
+            {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
+            {thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt)}
+            {thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt)}
+          </>,
+        )}
+        {group(
+          'clawd',
+          '✻',
+          'Clawd',
+          'The pixel crab',
+          <>
+            {showToggle('clawd', 'Clawd', 'His mood and what it means')}
+            {subheading('Extras', 'Hats and props for the hour and holidays; waves, yawns and looks')}
+            {pills([extraPill('accessories', 'Accessories'), extraPill('tricks', 'Tricks')])}
+          </>,
+        )}
+        {group('agents', '⚙', 'Agents', 'Subagents', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
         {group(
           'chat',
           '❯',
@@ -888,7 +910,6 @@ export const register: Register = on => {
             {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </>,
         )}
-        {group('agents', '✻', 'Agents', 'Subagents and their panel', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
         {group(
           'safety',
           '◈',
@@ -920,7 +941,7 @@ export const register: Register = on => {
         {group(
           'alerts',
           '◔',
-          'Alerts',
+          'Notifications',
           'Outside the band',
           <>
             {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
@@ -930,15 +951,9 @@ export const register: Register = on => {
         {group(
           'look',
           '◐',
-          'Appearance',
-          'The band and panels',
+          'Look',
+          'Colours and bars',
           <>
-            {subheading('Density', 'How tall the band is')}
-            <Box flexDirection="row" columnGap={1}>
-              {(['comfortable', 'compact'] as const).map(d => (
-                <Button key={`density-${d}`} label={d === 'comfortable' ? 'Comfortable' : 'Compact'} variant={p.density === d ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, density: d }))} />
-              ))}
-            </Box>
             {subheading('Progress bar', 'Tasks and usage cards')}
             <Box flexDirection="row" columnGap={1}>
               {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
@@ -950,6 +965,10 @@ export const register: Register = on => {
             <Box flexDirection="column" rowGap={1}>{themes}</Box>
           </>,
         )}
+        <Box flexDirection="row" alignItems="center" columnGap={2}>
+          {named('Reset', 'Back to how sabai started: these settings, the skin and the bar style')}
+          <Button key="reset-defaults" label="Reset to defaults" variant="secondary" onPress={() => void $.clock.after(0, () => void resetAll($))} />
+        </Box>
       </Box>
     )
   })
@@ -1065,12 +1084,7 @@ export const register: Register = on => {
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const samples = await read($, usageSamples)
-    // The latest reading may be newer than the band's clock tick.
-    const latest = Math.max(at, ...Object.values(samples).flatMap(s => s.points.map(p => p.at)))
-    const list = rows.usage
-      ? meters(measured, latest, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt, samples: Object.fromEntries(Object.entries(samples).map(([k, v]) => [k, v.points])) })
-      : []
+    const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
     const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
@@ -1090,7 +1104,19 @@ export const register: Register = on => {
     // The race: Main and the agents at work, while any work runs.
     const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, await read($, turnStartedAt), step?.title) : undefined
     if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
-    const mood = moodOf({ log: await read($, turnLog), contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: await read($, lastTurnAt) })
+    const last = await read($, lastTurnAt)
+    const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
+    const clawdLine = moodLine(mood, {
+      caught: caughtCount,
+      passed: turn.test?.passed,
+      failed: turn.test?.failed,
+      contextPercent: measured?.contextPercent,
+      idleMs: last > 0 ? at - last : undefined,
+    })
+    const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
+    // The race shows beside Clawd only in the comfortable band from 760 px (heroBand's rule).
+    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= 760
+    const trick = shownPrefs.extras.tricks ? trickOf({ mood, now: at, lastTurnAt: last, isWorking: e.props.isWorking, raceShown, limitHigh: list.some(m => m.level) }) : undefined
 
     const skinName = await read($, skin)
     const style = await read($, bar)
@@ -1152,7 +1178,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), accessory: accessoryOf(new Date(at)) })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, now: at, ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -1216,7 +1242,6 @@ export const register: Register = on => {
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
                 <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
-                {m.forecast === undefined ? null : <Text dimColor>{` → ${m.forecast >= 100 ? 'full' : `~${m.forecast}%`}`}</Text>}
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

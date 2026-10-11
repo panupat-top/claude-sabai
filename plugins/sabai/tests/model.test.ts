@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, forecastOf, moodOf, raced } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -114,23 +114,6 @@ test('chips and meters follow what the person chose to show, and thresholds set 
   expect(level(84, 60, 85)).toBe('warn')
 })
 
-test('the forecast extends the recent rate to the reset, and stays quiet without enough to go on', () => {
-  const min = 60_000
-  const now = 100 * min
-  expect(forecastOf([], 60 * min, now)).toBeUndefined()
-  expect(forecastOf([{ at: now, percent: 10 }], 60 * min, now)).toBeUndefined()
-  // Under five minutes of readings.
-  expect(forecastOf([{ at: now - 4 * min, percent: 10 }, { at: now, percent: 12 }], 60 * min, now)).toBeUndefined()
-  // Flat.
-  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 20 }], 60 * min, now)).toBeUndefined()
-  // 1% a minute for 60 more minutes: 30 → 90.
-  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now - 5 * min, percent: 25 }, { at: now, percent: 30 }], 60 * min, now)).toBe(90)
-  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 30 }], 200 * min, now)).toBe(100)
-  // Only the last 30 minutes count: an old steep climb is ignored.
-  expect(forecastOf([{ at: now - 90 * min, percent: 0 }, { at: now - 60 * min, percent: 20 }, { at: now - 20 * min, percent: 20 }, { at: now, percent: 21 }], 20 * min, now)).toBe(22)
-  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 30 }], undefined, now)).toBeUndefined()
-})
-
 test('Clawd’s accessory follows the local date and hour, holidays first', () => {
   const at = (iso: string) => accessoryOf(new Date(iso))
   expect(at('2026-12-31T23:30:00')).toBe('newyear')
@@ -149,20 +132,14 @@ test('Clawd’s accessory follows the local date and hour, holidays first', () =
   expect(at('2026-10-13T05:00:00')).toBeUndefined()
 })
 
-test('raced keeps each member’s last tiles, the combo, coins and Main’s fails', () => {
+test('raced keeps each member’s last tiles and counts the turn’s calls and failures', () => {
   let log = EMPTY_RACE
   for (let i = 0; i < 20; i++) log = raced(log, 'main', { kind: 'read', ok: true }, i)
-  expect(log.calls.main!.length).toBe(16)
-  expect(log.combo).toBe(20)
+  expect(log.calls.main).toHaveLength(16)
   log = raced(log, 'agent-a', { kind: 'command', ok: false }, 30)
-  expect(log.combo).toBe(0)
-  expect(log.mainFails).toBe(0)
-  expect(log.fellAt['agent-a']).toBe(30)
-  log = raced(log, 'main', { kind: 'command', ok: false }, 31)
-  expect(log.mainFails).toBe(1)
+  expect([log.total, log.fails, log.fellAt['agent-a']]).toEqual([21, 1, 30])
   log = raced(log, 'main', { kind: 'test', ok: true }, 32)
-  expect([log.coins, log.scoredAt.main]).toEqual([1, 32])
-  expect(log.total).toBe(23)
+  expect([log.total, log.fails, log.scoredAt.main]).toEqual([22, 1, 32])
 })
 
 test('raceOf lays out Main and up to three agents, each in its state, and stays away when idle', () => {
@@ -179,9 +156,9 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
     run('e', { status: 'failed', endedAt: now - 2000 }),
   ]
   const r = raceOf({ ...log, doing: { main: 'edit' } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
-  expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['Plan', 'scored'], ['General', 'tripped'], ['Explore', 'running']])
+  expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['c', 'scored'], ['b', 'tripped'], ['a', 'running']])
   expect(r.more).toBe(2)
-  expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', note: 'Editing svg.ts' })
+  expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', step: 'Editing svg.ts' })
   expect(r.lanes[3]!.progress).toBe(0.6)
   // No step reports and no task list: no progress, so the runner holds the middle.
   expect(r.lanes[2]!.progress).toBeUndefined()
@@ -194,19 +171,86 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   // Finished and out agents show their states while the race runs.
   const ends = raceOf(EMPTY_RACE, [run('d', { status: 'done', endedAt: now - 2000 }), run('e', { status: 'failed', endedAt: now - 2000 })], undefined, now, true, now - 10)!
   expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
-  expect(ends.hearts).toBe(3)
+  expect([ends.running, ends.done]).toEqual([1, 2])
 })
 
 test('a finished agent stays in the race for the crew’s linger minute, then leaves it', () => {
   const now = 1_000_000
   const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
-  expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'Plan'])
+  expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'd'])
   expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main'])
 })
 
 test('raceOf runs the newest running agents first, the oldest over the cap', () => {
-  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  // Four types, so nothing merges and the order shows.
+  const types = ['Plan', 'Explore', 'general-purpose', 'x:y']
+  const run = (id: string, i: number): AgentRun => ({ id, agentId: id, type: types[i]!, description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
   const r = raceOf(EMPTY_RACE, ['a1', 'a2', 'a3', 'a4'].map(run), undefined, 1000, true, 0)!
   expect(r.lanes.map(l => l.id)).toEqual(['main', 'a4', 'a3', 'a2'])
   expect(r.more).toBe(1)
+})
+
+test('moodLine says why Clawd feels as he does, and nothing when the fact is missing', () => {
+  expect(moodLine('idle', {})).toBe('your turn')
+  expect(moodLine('startled', { caught: 1 })).toBe('guard stopped 1')
+  expect(moodLine('sad', { failed: 2 })).toBe('2 failed')
+  expect(moodLine('celebrating', { passed: 12 })).toBe('12 passed')
+  expect(moodLine('sweating', { contextPercent: 84 })).toBe('84% · compact?')
+  expect(moodLine('sleeping', { idleMs: 20 * 60_000 })).toBe('idle 20m')
+  expect(moodLine('sleeping', { idleMs: 135 * 60_000 })).toBe('idle 2h')
+  // Review Focus 1: a missing fact leaves the line out.
+  for (const mood of ['startled', 'sad', 'celebrating', 'sweating', 'sleeping'] as const) expect([mood, moodLine(mood, {})]).toEqual([mood, undefined])
+  expect(moodLine('sleeping', { idleMs: Number.NaN })).toBeUndefined()
+  expect(moodLine('working', { idleMs: 1 })).toBeUndefined()
+})
+
+test('trickOf: a wave after a turn, a look at the race or a high limit, a yawn when idle; moods first', () => {
+  const base = { mood: 'idle' as const, now: 1_000_000, lastTurnAt: 1_000_000 - 1000, isWorking: false, raceShown: false, limitHigh: false }
+  expect(trickOf(base)).toBe('wave')
+  expect(trickOf({ ...base, lastTurnAt: base.now - WAVE_MS })).toBeUndefined()
+  expect(trickOf({ ...base, lastTurnAt: 0 })).toBeUndefined()
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, raceShown: true })).toBe('look-right')
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, limitHigh: true })).toBe('look-up')
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, raceShown: true, limitHigh: true })).toBe('look-right')
+  expect(trickOf({ ...base, lastTurnAt: base.now - YAWN_AFTER_MS })).toBe('yawn')
+  expect(trickOf({ ...base, lastTurnAt: base.now - YAWN_AFTER_MS + 1 })).toBeUndefined()
+  // A mood with its own look keeps it.
+  for (const mood of ['startled', 'sad', 'celebrating', 'sweating', 'sleeping'] as const) expect([mood, trickOf({ ...base, mood })]).toEqual([mood, undefined])
+})
+
+test('raceOf merges agents of one type when more run than lanes hold, and names lanes by their task', () => {
+  const run = (id: string, type: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type, description: `task ${id}`, model: 'm', status: 'running', startedAt: 1000, contextTokens: 0, steps: 1, ...over })
+  const now = 61_000
+  let log = raced(EMPTY_RACE, 'e2', { kind: 'command', ok: false }, now - 1000)
+  log = raced(log, 'e3', { kind: 'read', ok: true }, now - 2000)
+  const agents = [run('p1', 'Plan'), run('e1', 'Explore'), run('e2', 'Explore'), run('g1', 'general-purpose'), run('e3', 'Explore', { startedAt: 500 })]
+  const r = raceOf(log, agents, undefined, now, true, now - 10_000)!
+  expect(r.lanes.map(l => [l.who, l.many ?? 1])).toEqual([['Main', 1], ['Explore', 3], ['task g1', 1], ['task p1', 1]])
+  const merged = r.lanes[1]!
+  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', calls: [{ kind: 'read', ok: true }] })
+  expect(merged.progress).toBeUndefined()
+  expect(merged.timeMs).toBe(now - 500)
+  expect(r.more).toBe(0)
+  expect(r.lanes[0]!.timeMs).toBe(10_000)
+  expect([r.running, r.ok, r.fails]).toEqual([6, 1, 1])
+  // Review Focus 4: four different types do not merge; the oldest goes to +1, ended lanes after.
+  const four = raceOf(EMPTY_RACE, [run('a', 'Plan'), run('b', 'Explore'), run('c', 'general-purpose'), run('d', 'x:y')], undefined, now, true, now)!
+  expect([four.lanes.length, four.more, four.lanes.some(l => l.many)]).toEqual([4, 1, false])
+  const ended = raceOf(EMPTY_RACE, [run('a', 'Plan', { status: 'done', endedAt: now - 1000 }), run('b', 'Explore')], undefined, now, true, now)!
+  expect(ended.lanes.map(l => l.who)).toEqual(['Main', 'task b', 'task a'])
+  // No description: the type names the lane.
+  expect(raceOf(EMPTY_RACE, [run('z', 'Explore', { description: '' })], undefined, now, true, now)!.lanes[1]!.who).toBe('Explore')
+})
+
+test('resetClock names the reset as a local time, with the weekday past today, and nothing without one', () => {
+  const now = new Date('2026-10-11T13:00:00').getTime()
+  expect(resetClock(90 * 60_000, now)).toBe('resets 14:30')
+  // Review Focus 3: past midnight the weekday shows; none without a reset.
+  expect(resetClock(12 * 3_600_000, now)).toBe('resets Mon 01:00')
+  expect(resetClock(undefined, now)).toBeUndefined()
+})
+
+test('the context meter says what is left', () => {
+  const [ctx] = meters({ contextPercent: 74, contextTokens: 743_500, contextWindow: 1_000_000, rateLimits: [] }, 0)
+  expect(ctx!.left).toBe('256.5k left')
 })

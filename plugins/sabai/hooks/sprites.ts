@@ -188,25 +188,56 @@ export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?:
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   // Shut eyes: the lower of the two eye rows is painted as body.
-  const body = (mode === 'dizzy' || mode === 'sleep') && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
+  // A mode may be a base and a trick, `run look-right`: the base sets the motion, the trick the eyes.
+  const modes = mode.split(' ')
+  const has = (m: string) => modes.includes(m)
+  const shut = (has('dizzy') || has('sleep') || has('out') || has('yawn')) && kind === 'tasks'
+  const body = kind === 'tasks' ? trickRows(shut ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows, has) : rows
   const worn = kind === 'tasks' && !hat && accessory ? accessory : undefined
   const held = tool ? TOOLS[tool] : hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : worn ? ACCESSORY_PROPS[worn] : undefined
   const cap = worn ? ACCESSORY_HATS[worn] : undefined
   const art =
     (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
     (cap ? draw(cap.rows, px, -HAT_H, ch => (cap.colors[ch] ? { fill: cap.colors[ch], group: 'bd' } : undefined)) : '') +
-    draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined)) +
+    (has('wave') && kind === 'tasks'
+      ? `<style>${WAVE_CSS}</style><g class="wv-up">${draw(raised(body), px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))}</g><g class="wv-down">${draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))}</g>`
+      : draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))) +
     (worn === 'songkran' ? draw(SHIRT.rows, px, SHIRT.y, ch => (SHIRT.colors[ch] ? { fill: SHIRT.colors[ch], group: 'bd' } : undefined)) : '') +
     (held ? draw(held.rows, px, 3, ch => (held.colors[ch] ? { fill: held.colors[ch], group: held.classes[ch] } : undefined), 24) : '') +
     (mode === 'dizzy' && kind === 'tasks' ? draw(BANDAGE, px, 4, ch => (ch === 'w' ? { fill: '#f8f6f1', group: 'bd' } : undefined), 10) : '') +
-    (kind === 'tasks' ? (MOOD_MARKS[mode] ?? '') : '')
+    (kind === 'tasks' ? (MOOD_MARKS[modes[0]!] ?? '') : '')
   return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${art}</g>`
 }
+
+// Paint one cell of a sprite's rows.
+const paint = (rows: string[], cells: [number, number, string][]) => {
+  const out = rows.map(r => [...r])
+  for (const [x, y, ch] of cells) if (out[y]?.[x] !== undefined) out[y]![x] = ch
+  return out.map(r => r.join(''))
+}
+// The tricks' eyes and mouth: looking right moves each eye a column over, looking up a row up,
+// a yawn opens the mouth (its shut eyes come from the shut-eye rows).
+function trickRows(rows: string[], has: (m: string) => boolean): string[] {
+  if (has('look-right')) return rows.map((r, i) => (i === 2 || i === 3 ? r.slice(0, 4) + 'o' + r.slice(4, 19) + r.slice(20) : r))
+  if (has('look-up')) return paint(rows.map((r, i) => (i === 2 || i === 3 ? r.replace(/k/g, 'o') : r)), [[6, 1, 'k'], [7, 1, 'k'], [16, 1, 'k'], [17, 1, 'k']])
+  if (has('yawn')) return paint(rows, [[11, 5, 'k'], [12, 5, 'k'], [11, 6, 'k'], [12, 6, 'k']])
+  return rows
+}
+// The wave's two frames, the raised claw first so a still first frame reads as a wave. Carried
+// by the waving sprite alone: SPRITE_CSS rides in every swatch of the skins pane.
+const WAVE_CSS = '.wave .wv-up{animation:wvu 1s steps(1) infinite}.wave .wv-down{animation:wvd 1s steps(1) infinite}@keyframes wvu{50%{opacity:0}}@keyframes wvd{0%{opacity:0}50%{opacity:1}}'
+// The wave's raised claw: the right arm leaves its side and rises by the head.
+const raised = (rows: string[]) =>
+  paint(rows, [
+    ...[20, 21, 22, 23].flatMap(x => [[x, 6, '.'], [x, 7, '.']] as [number, number, string][]),
+    ...[0, 1, 2, 3].flatMap(y => [[21, y, 'o'], [22, y, 'o']] as [number, number, string][]),
+  ])
 
 // A mood's mark beside Clawd's head (24×16 at px 1, so x ≥ 24 is past him and y ≥ 0 stays inside
 // the row), mid-tones that read on light and dark; the `z` takes the band's muted ink.
 const MOOD_MARKS: Record<string, string> = {
   startle: '<g class="bang"><rect x="25" y="0" width="2" height="4" fill="#e3b341"/><rect x="25" y="5" width="2" height="1" fill="#e3b341"/></g>',
+  yawn: '<g class="zz"><rect x="25" y="0" width="3" height="1" class="sm"/><rect x="26" y="1" width="1" height="1" class="sm"/><rect x="25" y="2" width="3" height="1" class="sm"/></g>',
   sweat: '<g class="drop"><rect x="21" y="1" width="2" height="2" fill="#5fb4ff"/><rect x="21.5" y="0" width="1" height="1" fill="#5fb4ff"/></g>',
   sleep: '<g class="zz"><rect x="25" y="0" width="4" height="1" class="sm"/><rect x="27" y="1" width="1" height="1" class="sm"/><rect x="26" y="2" width="1" height="1" class="sm"/><rect x="25" y="3" width="4" height="1" class="sm"/></g>',
 }

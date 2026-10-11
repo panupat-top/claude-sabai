@@ -6,8 +6,8 @@ export const ALERT_AT = 90
 
 export type MeterKind = 'context' | 'session' | 'week'
 // `amount` is the context's fill in tokens (`434.5k / 1M`); the limits have none.
-// `forecast` is where a limit is heading by its reset, with `forecastLevel` its warning level.
-export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number; level?: 'warn' | 'alert'; forecast?: number; forecastLevel?: 'warn' | 'alert' }
+// `left` is what is left of the context window (`256.5k left`).
+export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; left?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -28,7 +28,7 @@ const resetsIn = (resetsAt: string | undefined, now: number) => {
 
 // Context, 5H and 7D, all from the engine, each only once it has a reading and when shown, with
 // its warning level at the person's thresholds.
-export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number; samples?: Partial<Record<string, readonly Point[]>> } = {}): Meter[] {
+export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number } = {}): Meter[] {
   const out: Meter[] = []
   const shown = (kind: MeterKind) => opts.show?.[kind] !== false
   const leveled = (m: Meter): Meter => ({ ...m, level: level(m.percent, opts.warnAt, opts.alertAt) })
@@ -36,16 +36,13 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
     const l = usage?.rateLimits.find(r => r.kind === window)
     if (!l || !shown(kind)) return
     const resetsInMs = resetsIn(l.resetsAt, now)
-    const forecast = forecastOf([...(opts.samples?.[window] ?? [])], resetsInMs, now)
-    out.push({
-      ...leveled({ kind, label, percent: clamp(l.percentUsed), resetsInMs }),
-      ...(forecast === undefined ? {} : { forecast, forecastLevel: level(forecast, opts.warnAt, opts.alertAt) }),
-    })
+    out.push(leveled({ kind, label, percent: clamp(l.percentUsed), resetsInMs }))
   }
   if (usage?.contextPercent !== undefined && shown('context')) {
     const { contextTokens: used, contextWindow: size } = usage
     const amount = used !== undefined && size ? `${tokens(used)} / ${tokens(size)}` : undefined
-    out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount }))
+    const left = used !== undefined && size ? `${tokens(Math.max(0, size - used))} left` : undefined
+    out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount, ...(left ? { left } : {}) }))
   }
   add('session', '5H Limit', 'five_hour')
   add('week', '7D All', 'seven_day')
@@ -151,22 +148,55 @@ export function moodOf(s: { log: TurnLog; contextPercent?: number; now: number; 
   return 'idle'
 }
 
-export type Point = { at: number; percent: number }
-export const RECENT_MS = 30 * 60_000
-// Where a limit is heading by its reset at the recent rate (a least-squares slope over the last
-// half hour), or nothing without two readings five minutes apart and a rising rate.
-export function forecastOf(points: readonly Point[], resetsInMs: number | undefined, now: number): number | undefined {
-  if (resetsInMs === undefined) return undefined
-  const recent = points.filter(p => now - p.at <= RECENT_MS)
-  if (recent.length < 2 || recent.at(-1)!.at - recent[0]!.at < 5 * 60_000) return undefined
-  const mx = recent.reduce((s, p) => s + p.at, 0) / recent.length
-  const my = recent.reduce((s, p) => s + p.percent, 0) / recent.length
-  const den = recent.reduce((s, p) => s + (p.at - mx) ** 2, 0)
-  const rate = den ? recent.reduce((s, p) => s + (p.at - mx) * (p.percent - my), 0) / den : 0
-  if (rate <= 0) return undefined
-  const last = recent.at(-1)!.percent
-  const ahead = Math.min(100, Math.round(last + rate * resetsInMs))
-  return ahead >= last + 1 ? ahead : undefined
+// The facts Clawd's second line is made of; any may be missing.
+export type MoodFacts = { caught?: number; passed?: number; failed?: number; contextPercent?: number; idleMs?: number }
+const known = (n: number | undefined): n is number => n !== undefined && Number.isFinite(n)
+// Why Clawd feels as he does, in a few words, or nothing when the fact behind it is missing.
+// Working says nothing here: the panel shows the turn's time.
+export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
+  switch (mood) {
+    case 'idle':
+      return 'your turn'
+    case 'startled':
+      return known(f.caught) && f.caught > 0 ? `guard stopped ${f.caught}` : undefined
+    case 'sad':
+      return known(f.failed) && f.failed > 0 ? `${f.failed} failed` : undefined
+    case 'celebrating':
+      return known(f.passed) ? `${f.passed} passed` : undefined
+    case 'sweating':
+      return known(f.contextPercent) ? `${Math.round(f.contextPercent)}% · compact?` : undefined
+    case 'sleeping': {
+      if (!known(f.idleMs)) return undefined
+      const m = Math.floor(f.idleMs / 60_000)
+      return m >= 60 ? `idle ${Math.floor(m / 60)}h` : `idle ${m}m`
+    }
+    default:
+      return undefined
+  }
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// A limit's reset as a local clock time: `resets 14:30` today, `resets Thu 09:00` past it.
+export function resetClock(resetsInMs: number | undefined, now: number): string | undefined {
+  if (resetsInMs === undefined || !Number.isFinite(resetsInMs)) return undefined
+  const at = new Date(now + resetsInMs)
+  const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return at.toDateString() === new Date(now).toDateString() ? `resets ${hm}` : `resets ${DAYS[at.getDay()]} ${hm}`
+}
+
+export type Trick = 'wave' | 'yawn' | 'look-right' | 'look-up'
+export const WAVE_MS = 3000
+export const YAWN_AFTER_MS = 2 * 60_000
+// A trick for Clawd when his mood has no look of its own (idle or working): a wave as a turn
+// ends, a look at the race beside him or at a limit running high, a yawn after a quiet while.
+export function trickOf(s: { mood: Mood; now: number; lastTurnAt: number; isWorking: boolean; raceShown: boolean; limitHigh: boolean }): Trick | undefined {
+  if (s.mood !== 'idle' && s.mood !== 'working') return undefined
+  const since = s.lastTurnAt > 0 ? s.now - s.lastTurnAt : undefined
+  if (!s.isWorking && since !== undefined && since < WAVE_MS) return 'wave'
+  if (s.raceShown) return 'look-right'
+  if (s.limitHigh) return 'look-up'
+  if (!s.isWorking && since !== undefined && since >= YAWN_AFTER_MS) return 'yawn'
+  return undefined
 }
 
 export type Accessory = 'newyear' | 'xmas' | 'halloween' | 'songkran' | 'coffee' | 'nightcap'
@@ -184,7 +214,7 @@ export function accessoryOf(d: Date): Accessory | undefined {
   return undefined
 }
 
-export const EMPTY_RACE: RaceLog = { calls: {}, doing: {}, fellAt: {}, scoredAt: {}, combo: 0, coins: 0, mainFails: 0, total: 0 }
+export const EMPTY_RACE: RaceLog = { calls: {}, doing: {}, fellAt: {}, scoredAt: {}, fails: 0, total: 0 }
 export const TRIP_MS = 4000
 export const SCORE_MS = 3000
 export const RACE_TILES = 16
@@ -192,15 +222,12 @@ export const RACE_LANES = 3
 // How long a finished agent keeps its lane, as the crew row keeps it.
 export const RACE_LINGER_MS = 60_000
 
-// One finished call of a member folded into the race: its tile, the shared combo and coins, and
-// Main's lost hearts.
+// One finished call of a member folded into the race: its tile, its fall or score, the turn's counts.
 export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: boolean }, at: number): RaceLog {
   return {
     ...log,
     calls: { ...log.calls, [member]: [...(log.calls[member] ?? []), call].slice(-RACE_TILES) },
-    combo: call.ok ? log.combo + 1 : 0,
-    coins: log.coins + (call.kind === 'test' && call.ok ? 1 : 0),
-    mainFails: log.mainFails + (member === 'main' && !call.ok ? 1 : 0),
+    fails: log.fails + (call.ok ? 0 : 1),
     fellAt: call.ok ? log.fellAt : { ...log.fellAt, [member]: at },
     scoredAt: call.kind === 'test' && call.ok ? { ...log.scoredAt, [member]: at } : log.scoredAt,
     total: log.total + 1,
