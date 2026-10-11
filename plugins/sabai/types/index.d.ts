@@ -93,6 +93,7 @@ declare module 'claude-code' {
       guardCaught: number
       lastTurnAt: number
       receipts: Record<string, TurnLog>
+      usageSamples: Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>
     }
   }
 }

@@ -157,14 +157,15 @@ export const BAR_STYLES: Record<BarStyle, string> = { dither: 'Dither', blocks: 
 
 // A rounded track and its fill, drawn in `style`: dither (sparse at the start, dense toward the
 // head), square segments as tall as the bar, or one solid run. `id` must be unique in the page.
-function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio: number, color: string, ticks = 0, style: BarStyle = 'dither'): string {
+function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio: number, color: string, ticks = 0, style: BarStyle = 'dither', ghost?: { ratio: number; color: string }): string {
   const fillW = Math.round(w * Math.max(0, Math.min(1, ratio)))
   if (style === 'blocks') {
     const count = Math.max(1, Math.floor((w + 2) / (h + 2)))
     const seg = (w - 2 * (count - 1)) / count
     const filled = Math.round(count * Math.max(0, Math.min(1, ratio)))
     const cells = Array.from({ length: count }, (_, i) => {
-      const paint = i < filled ? `fill="${color}"` : 'class="k"'
+      const ahead = ghost ? Math.round(count * Math.max(0, Math.min(1, ghost.ratio))) : 0
+      const paint = i < filled ? `fill="${color}"` : i < ahead ? `fill="${ghost!.color}" opacity=".3"` : 'class="k"'
       return `<rect ${paint} x="${(i * (seg + 2)).toFixed(1)}" width="${seg.toFixed(1)}" height="${h}" rx="1.5"/>`
     })
     return `<g transform="translate(${x},${y})">${cells.join('')}</g>`
@@ -189,10 +190,13 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
     if (tx > fillW + 4) marks.push(`<rect class="m" x="${tx}" y="${h / 2 - 3}" width="1.5" height="6" rx="0.75"/>`)
   }
   const fill = style === 'solid' ? `<rect fill="${color}" width="${fillW}" height="${h}"/>` : `<g fill="${color}">${dots.join('')}</g>`
+  // Where the bar is heading, faint, from its fill on.
+  const ghostW = ghost ? Math.round(w * Math.max(0, Math.min(1, ghost.ratio))) - fillW : 0
+  const shade = ghost && ghostW > 0 ? `<rect fill="${ghost.color}" opacity=".3" x="${fillW}" width="${ghostW}" height="${h}"/>` : ''
   return (
     `<g transform="translate(${x},${y})"><defs><clipPath id="${id}"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
     `<rect class="k" width="${w}" height="${h}" rx="${h / 2}"/>` +
-    `<g clip-path="url(#${id})">${fill}${marks.join('')}</g></g>`
+    `<g clip-path="url(#${id})">${fill}${shade}${marks.join('')}</g></g>`
   )
 }
 
@@ -209,6 +213,10 @@ const GAP = 8
 const PAD = 10
 const CARD_H = 44
 const CARD_H_COMPACT = 22
+// A forecast in words: `~74%`, or `full` at 100.
+const forecastWords = (f: number) => (f >= 100 ? 'full' : `~${f}%`)
+// The faint run to where a limit is heading, in the colour it will reach.
+const ghostOf = (look: Look, m: Meter) => (m.forecast === undefined ? undefined : { ratio: m.forecast / 100, color: look.bar(m.kind, m.forecastLevel) })
 
 // A usage card on one line, for the compact band: its mark (context only), label, bar, percent,
 // and the reset countdown when there is room.
@@ -224,7 +232,7 @@ function compactCard(look: Look, m: Meter, x: number, y: number, w: number, styl
     `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H_COMPACT}" rx="6"/>` +
     (m.kind === 'context' ? sprite('context', x + PAD + 1, y + CARD_H_COMPACT / 2 - spriteSize('context').height / 2) : '') +
     `<text class="m" x="${labelX}" y="${y + 15}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
-    pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style) +
+    pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style, ghostOf(look, m)) +
     `<text class="c-${m.level ?? m.kind}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
   )
 }
@@ -296,6 +304,8 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
     const bottom = y + 31
     const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
     const color = look.bar(m.kind, m.level)
+    const ahead = m.forecast === undefined ? '' : ` → ${forecastWords(m.forecast)}`
+    const aheadW = ahead ? monoWidth(ahead, 10.5) : 0
     const detail = m.amount
       ? `<text class="t" x="${right}" y="${top + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${m.amount}</text>`
       : m.resetsInMs === undefined
@@ -306,12 +316,13 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
       (m.kind === 'context' ? sprite('context', x + PAD + 1, top - spriteSize('context').height / 2) : '') +
       `<text class="m" x="${labelX}" y="${top + 3.5}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(m.label.toUpperCase())}</text>` +
       detail +
-      pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
-      `<text class="c-${m.level ?? m.kind}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
+      pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44 - aheadW, 9, m.percent / 100, color, 0, style, ghostOf(look, m)) +
+      (ahead ? `<text class="m" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
+      `<text class="c-${m.level ?? m.kind}" x="${right - aheadW}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
     )
   })
   const alt = list
-    .map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
+    .map(m => `${m.label} ${value(m)}${m.forecast === undefined ? '' : `, ${forecastWords(m.forecast)} by reset`}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
     .join('; ')
   return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }

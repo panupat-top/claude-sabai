@@ -62,6 +62,8 @@ const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // receipt card; the engine names no turn on a reply, but its text is the answer's.
 const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
 const RECEIPTS_KEPT = 40
+// Each plan limit's readings in its current window, for its forecast.
+const usageSamples = atom({ plugin: 'sabai', key: 'usageSamples' } as const, {} as Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -246,6 +248,21 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
+// Each limit's readings in its current window, for the forecast; a new window starts over.
+async function sample($: EngineInterface, limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]) {
+  const at = await $.clock.now()
+  await update($, usageSamples, all => {
+    const next = { ...all }
+    for (const l of limits) {
+      if (l.kind !== 'five_hour' && l.kind !== 'seven_day') continue
+      const was = next[l.kind]
+      const points = was && was.resetsAt === l.resetsAt ? was.points : []
+      next[l.kind] = { resetsAt: l.resetsAt, points: [...points, { at, percent: l.percentUsed }].slice(-60) }
+    }
+    return next
+  })
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -314,7 +331,10 @@ export const register: Register = on => {
     await tick($)
     // session.measure fires only on the next response, so a fresh load reads what is known now.
     const known = await $.session.usage().catch(() => undefined)
-    if (known) await update($, usage, () => toUsage(known))
+    if (known) {
+      await update($, usage, () => toUsage(known))
+      await sample($, known.rateLimits)
+    }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -552,6 +572,7 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
+    await sample($, e.rateLimits)
     if ((await read($, prefs)).limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
@@ -971,7 +992,12 @@ export const register: Register = on => {
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
+    const samples = await read($, usageSamples)
+    // The latest reading may be newer than the band's clock tick.
+    const latest = Math.max(at, ...Object.values(samples).flatMap(s => s.points.map(p => p.at)))
+    const list = rows.usage
+      ? meters(measured, latest, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt, samples: Object.fromEntries(Object.entries(samples).map(([k, v]) => [k, v.points])) })
+      : []
     const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
@@ -1098,6 +1124,7 @@ export const register: Register = on => {
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
                 <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
+                {m.forecast === undefined ? null : <Text dimColor>{` → ${m.forecast >= 100 ? 'full' : `~${m.forecast}%`}`}</Text>}
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

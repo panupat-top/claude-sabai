@@ -6,7 +6,8 @@ export const ALERT_AT = 90
 
 export type MeterKind = 'context' | 'session' | 'week'
 // `amount` is the context's fill in tokens (`434.5k / 1M`); the limits have none.
-export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
+// `forecast` is where a limit is heading by its reset, with `forecastLevel` its warning level.
+export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number; level?: 'warn' | 'alert'; forecast?: number; forecastLevel?: 'warn' | 'alert' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -27,13 +28,19 @@ const resetsIn = (resetsAt: string | undefined, now: number) => {
 
 // Context, 5H and 7D, all from the engine, each only once it has a reading and when shown, with
 // its warning level at the person's thresholds.
-export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number } = {}): Meter[] {
+export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number; samples?: Partial<Record<string, readonly Point[]>> } = {}): Meter[] {
   const out: Meter[] = []
   const shown = (kind: MeterKind) => opts.show?.[kind] !== false
   const leveled = (m: Meter): Meter => ({ ...m, level: level(m.percent, opts.warnAt, opts.alertAt) })
   const add = (kind: MeterKind, label: string, window: string) => {
     const l = usage?.rateLimits.find(r => r.kind === window)
-    if (l && shown(kind)) out.push(leveled({ kind, label, percent: clamp(l.percentUsed), resetsInMs: resetsIn(l.resetsAt, now) }))
+    if (!l || !shown(kind)) return
+    const resetsInMs = resetsIn(l.resetsAt, now)
+    const forecast = forecastOf([...(opts.samples?.[window] ?? [])], resetsInMs, now)
+    out.push({
+      ...leveled({ kind, label, percent: clamp(l.percentUsed), resetsInMs }),
+      ...(forecast === undefined ? {} : { forecast, forecastLevel: level(forecast, opts.warnAt, opts.alertAt) }),
+    })
   }
   if (usage?.contextPercent !== undefined && shown('context')) {
     const { contextTokens: used, contextWindow: size } = usage
@@ -142,4 +149,22 @@ export function moodOf(s: { log: TurnLog; contextPercent?: number; now: number; 
   if (s.isWorking) return 'working'
   if (s.lastTurnAt > 0 && now - s.lastTurnAt >= SLEEP_AFTER_MS) return 'sleeping'
   return 'idle'
+}
+
+export type Point = { at: number; percent: number }
+const RECENT_MS = 30 * 60_000
+// Where a limit is heading by its reset at the recent rate (a least-squares slope over the last
+// half hour), or nothing without two readings five minutes apart and a rising rate.
+export function forecastOf(points: readonly Point[], resetsInMs: number | undefined, now: number): number | undefined {
+  if (resetsInMs === undefined) return undefined
+  const recent = points.filter(p => now - p.at <= RECENT_MS)
+  if (recent.length < 2 || recent.at(-1)!.at - recent[0]!.at < 5 * 60_000) return undefined
+  const mx = recent.reduce((s, p) => s + p.at, 0) / recent.length
+  const my = recent.reduce((s, p) => s + p.percent, 0) / recent.length
+  const den = recent.reduce((s, p) => s + (p.at - mx) ** 2, 0)
+  const rate = den ? recent.reduce((s, p) => s + (p.at - mx) * (p.percent - my), 0) / den : 0
+  if (rate <= 0) return undefined
+  const last = recent.at(-1)!.percent
+  const ahead = Math.min(100, Math.round(last + rate * resetsInMs))
+  return ahead >= last + 1 ? ahead : undefined
 }

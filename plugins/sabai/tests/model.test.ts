@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, moodOf } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, forecastOf, moodOf } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -110,4 +110,21 @@ test('chips and meters follow what the person chose to show, and thresholds set 
   expect(list.map(m => [m.kind, m.level])).toEqual([['context', 'warn'], ['week', 'alert']])
   expect(meters(usage, 0).map(m => m.level)).toEqual([undefined, undefined, 'warn'])
   expect(level(84, 60, 85)).toBe('warn')
+})
+
+test('the forecast extends the recent rate to the reset, and stays quiet without enough to go on', () => {
+  const min = 60_000
+  const now = 100 * min
+  expect(forecastOf([], 60 * min, now)).toBeUndefined()
+  expect(forecastOf([{ at: now, percent: 10 }], 60 * min, now)).toBeUndefined()
+  // Under five minutes of readings.
+  expect(forecastOf([{ at: now - 4 * min, percent: 10 }, { at: now, percent: 12 }], 60 * min, now)).toBeUndefined()
+  // Flat.
+  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 20 }], 60 * min, now)).toBeUndefined()
+  // 1% a minute for 60 more minutes: 30 → 90.
+  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now - 5 * min, percent: 25 }, { at: now, percent: 30 }], 60 * min, now)).toBe(90)
+  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 30 }], 200 * min, now)).toBe(100)
+  // Only the last 30 minutes count: an old steep climb is ignored.
+  expect(forecastOf([{ at: now - 90 * min, percent: 0 }, { at: now - 60 * min, percent: 20 }, { at: now - 20 * min, percent: 20 }, { at: now, percent: 21 }], 20 * min, now)).toBe(22)
+  expect(forecastOf([{ at: now - 10 * min, percent: 20 }, { at: now, percent: 30 }], undefined, now)).toBeUndefined()
 })

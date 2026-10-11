@@ -1019,6 +1019,25 @@ test('choosing a dark-mode skin draws the band as a pair; Same goes back', async
   expect(await source()).not.toContain('var(--tasks)')
 })
 
+test('a rising 5H limit gets a ghost to where it is heading and words for it; a reset starts it over', async ($, on) => {
+  const { clock } = engine(on)
+  await start($)
+  const at = (percent: number, resetsAt = '2026-10-10T05:00:00Z') =>
+    $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: percent, resetsAt }], changed: ['rateLimits'] })
+  await at(20)
+  await clock.advance(5 * 60_000)
+  await at(25)
+  await clock.advance(5 * 60_000)
+  await at(30)
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/5H Limit 30%, (~\d+%|full) by reset/)
+  expect((await shown($, 'terminal')).words).toMatch(/→ (~\d+%|full)/)
+  // A new window: one reading, no forecast.
+  await at(2, '2026-10-10T10:00:00Z')
+  await settle()
+  expect((await shown($, 'desktop')).words).not.toContain('by reset')
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
