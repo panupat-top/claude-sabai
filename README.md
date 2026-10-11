@@ -1,6 +1,6 @@
 # claude-sabai
 
-[Claude Code](https://claude.com/claude-code) mods. The one mod, **sabai-band**, shows at a glance what Claude is doing:
+[Claude Code](https://claude.com/claude-code) mods. The one mod, **sabai**, shows at a glance what Claude is doing:
 - a pixel-art status band above the prompt;
 - a panel for subagents;
 - tool calls in the chat as easy-to-read steps.
@@ -13,7 +13,7 @@ Needs Claude Code **2.1.287** or later. Run in a **terminal** (the Code tab has 
 
 ```bash
 claude plugin marketplace add panupat-top/claude-sabai
-claude plugin install sabai-band@claude-sabai
+claude plugin install sabai@claude-sabai
 ```
 
 The band appears in every new session, the Code tab included. Mods do not load in the desktop app's WSL sessions.
@@ -44,7 +44,7 @@ Press **Report** on a finished agent to read what it found, and **Clear** to tid
 ### In the conversation
 
 ```
-✎ Edited svg.ts  …/sabai-band/hooks/            ▮▮▮▮▯ [+3 −2]
+✎ Edited svg.ts  …/sabai/hooks/            ▮▮▮▮▯ [+3 −2]
 ⚗ Run the tests  $ bun test                     ▮▮▮▮▮ [✓ 159 passed]   5.4s
 › List a folder  "/x": No such file…                  [✗ exit 2]
 ```
@@ -75,18 +75,18 @@ The guard is a safety net, not a sandbox: it catches common slips, not someone s
 
 ```bash
 claude plugin marketplace update claude-sabai
-claude plugin update sabai-band@claude-sabai
+claude plugin update sabai@claude-sabai
 ```
 
 ```bash
-claude plugin uninstall sabai-band@claude-sabai
+claude plugin uninstall sabai@claude-sabai
 ```
 
 Restart Claude Code after either one.
 
 ## Privacy
 
-sabai-band reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads.
+sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads.
 
 ## Troubleshooting
 

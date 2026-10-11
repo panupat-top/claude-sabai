@@ -51,7 +51,7 @@ export type Prefs = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'sabai-band': {
+    'sabai': {
       usage: Usage | null
       tasks: Task[]
       now: number

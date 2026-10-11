@@ -13,13 +13,13 @@ import { SKINS, THEMES, contrast } from './themes'
 // Black or white, whichever reads better on a tile of `bg`.
 const inkOn = (bg: string) => (contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111')
 
-const usage = atom({ plugin: 'sabai-band', key: 'usage' } as const, null as Usage | null)
-const tasks = atom({ plugin: 'sabai-band', key: 'tasks' } as const, [] as Task[])
-const now = atom({ plugin: 'sabai-band', key: 'now' } as const, 0)
-const env = atom({ plugin: 'sabai-band', key: 'env' } as const, {} as Env)
-const skin = atom({ plugin: 'sabai-band', key: 'skin' } as const, 'auto')
-const agents = atom({ plugin: 'sabai-band', key: 'agents' } as const, [] as AgentRun[])
-const bar = atom({ plugin: 'sabai-band', key: 'bar' } as const, 'dither' as BarStyle)
+const usage = atom({ plugin: 'sabai', key: 'usage' } as const, null as Usage | null)
+const tasks = atom({ plugin: 'sabai', key: 'tasks' } as const, [] as Task[])
+const now = atom({ plugin: 'sabai', key: 'now' } as const, 0)
+const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
+const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'auto')
+const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
+const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
 const DEFAULT_PREFS: Prefs = {
   rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
   notify: true,
@@ -28,7 +28,7 @@ const DEFAULT_PREFS: Prefs = {
   steps: true,
   chat: { spinner: true, tools: true, tests: true, callouts: true },
 }
-const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
+const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
 const withDefaults = (v: unknown): Prefs => {
   const p = (v && typeof v === 'object' ? v : {}) as Partial<Prefs>
@@ -39,10 +39,10 @@ const withDefaults = (v: unknown): Prefs => {
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
   }
 }
-const STEP_TOOL = 'mcp__sabai-band__step'
+const STEP_TOOL = 'mcp__sabai__step'
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
 // call redraws no other row); -1 while unknown. The result carries no duration of its own.
-const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, -1)
+const durations = atom({ plugin: 'sabai', key: 'durations' } as const, -1)
 // Bash calls in flight, by id, and those that waited on the permission dialog: their time would
 // be the person's, not the command's. The auto-mode classifier's ask is quick and keeps it.
 const inFlight = new Map<string, string>()
@@ -58,8 +58,8 @@ const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
 // Each plan-limit window warned about already, by kind and reset time.
 const warned = new Set<string>()
-const finishedOpen = atom({ plugin: 'sabai-band', key: 'finishedOpen' } as const, false)
-const openResults = atom({ plugin: 'sabai-band', key: 'openResults' } as const, [] as string[])
+const finishedOpen = atom({ plugin: 'sabai', key: 'finishedOpen' } as const, false)
+const openResults = atom({ plugin: 'sabai', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
 const FINISHED_SHOWN = 8
 // Likewise the newest running agents: a wide workflow fan-out would otherwise outgrow the pane.
@@ -189,7 +189,7 @@ async function guarded($: EngineInterface, tool: string, input: { command?: unkn
   const risk = (await read($, prefs)).guard ? riskOf(tool, input) : undefined
   if (!risk) return undefined
   $.ui.toast(`Blocked: this ${risk}`)
-  return `sabai-band's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`
+  return `sabai's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`
 }
 
 async function setSkin($: EngineInterface, name: string) {
@@ -232,7 +232,7 @@ export const register: Register = on => {
     if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
     const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
     await update($, prefs, () => savedPrefs)
-    await $.command.register({ name: 'sabai-settings', description: 'Open the sabai-band settings' })
+    await $.command.register({ name: 'sabai-settings', description: 'Open the sabai settings' })
     // Agents can report their own steps: a subagent rarely has a task list of its own.
     if (savedPrefs.steps)
       await $.tool
@@ -785,7 +785,7 @@ export const register: Register = on => {
   on('prompt.compose', async ($, e, next) => {
     const composed = await next(e)
     if (!(await read($, prefs)).chat.callouts) return composed
-    return { sections: [...composed.sections, { id: 'sabai-band:callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
+    return { sections: [...composed.sections, { id: 'sabai:callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

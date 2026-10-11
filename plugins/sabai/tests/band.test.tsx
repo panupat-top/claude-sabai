@@ -77,7 +77,7 @@ const start = async ($: Engine) => {
 
 const mountBand = ($: Engine, surface: Surface, isWorking = false) =>
   $.ui.mount({
-    plugin: 'sabai-band',
+    plugin: 'sabai',
     surface,
     component: 'AbovePrompt',
     requestId: 'band',
@@ -279,7 +279,7 @@ const spawn = ($: Engine, description: string) =>
 
 const mountPane = ($: Engine, surface: Surface, requestId = 'sabai-agents') =>
   $.ui.mount({
-    plugin: 'sabai-band',
+    plugin: 'sabai',
     surface,
     component: 'Pane',
     requestId,
@@ -539,7 +539,7 @@ test('a wide pane in pixel blocks with eight finished agents open stays under th
     if (i >= 2) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
   }
   const ui = await $.ui.mount({
-    plugin: 'sabai-band',
+    plugin: 'sabai',
     surface: 'desktop',
     component: 'Pane',
     requestId: 'sabai-agents',
@@ -829,12 +829,12 @@ test('agents report their own steps through the mod’s tool, filling their card
   const tools: string[] = []
   on('tool.register', ($, e) => {
     tools.push(e.name)
-    return { value: { tool: `mcp__sabai-band__${e.name}` } }
+    return { value: { tool: `mcp__sabai__${e.name}` } }
   })
   await start($)
   expect(tools).toEqual(['step'])
   await spawn($, 'worker')
-  const reply = await $.tool.call({ tool: 'mcp__sabai-band__step', agentId: 'agent-worker', done: 2, total: 4, note: 'Reading the docs' } as unknown as Parameters<typeof $.tool.call>[0])
+  const reply = await $.tool.call({ tool: 'mcp__sabai__step', agentId: 'agent-worker', done: 2, total: 4, note: 'Reading the docs' } as unknown as Parameters<typeof $.tool.call>[0])
   expect(reply.result).toBe('ok')
   const ui = await mountPane($, 'desktop')
   const card = ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]).find(c => c.props.alt.startsWith('worker:'))
@@ -844,7 +844,7 @@ test('agents report their own steps through the mod’s tool, filling their card
 
 const mountTool = ($: Engine, surface: Surface, props: Record<string, unknown>) =>
   $.ui.mount({
-    plugin: 'sabai-band',
+    plugin: 'sabai',
     surface,
     component: 'ToolUse',
     requestId: String(props.tool_use_id),
@@ -926,7 +926,7 @@ test('with Test results off, a test run is a plain failed Bash line', async ($, 
 const FACTS = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as never
 let replies = 0
 const mountReply = ($: Engine, surface: Surface, text: string, extra: Record<string, unknown> = {}) =>
-  $.ui.mount({ plugin: 'sabai-band', surface, component: 'AssistantMessage', requestId: `m${++replies}`, viewport: { columns: 120, rows: 30 }, props: { text, isFirstOfReply: true, ...extra } as never })
+  $.ui.mount({ plugin: 'sabai', surface, component: 'AssistantMessage', requestId: `m${++replies}`, viewport: { columns: 120, rows: 30 }, props: { text, isFirstOfReply: true, ...extra } as never })
 const isStock = async (ui: Awaited<ReturnType<typeof mountReply>>) => (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')
 
 test('a reply with a callout draws it as a bordered box between its Markdown; others pass through', async ($, on) => {
@@ -947,7 +947,7 @@ test('Claude is told about callouts only while Callouts is on', async ($, on) =>
   engine(on)
   on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
   await start($)
-  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai-band:callouts'])
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai:callouts'])
 })
 
 test('with Callouts off, replies and the prompt are left alone', async ($, on) => {
@@ -969,7 +969,7 @@ test('the spinner speaks Thai on the terminal, and on the desktop only in place 
   await start($)
   await $.turn.start({ text: 'hi', turnId: 'turn-1' })
   const spin = (surface: Surface, word: string, n: number) =>
-    $.ui.mount({ plugin: 'sabai-band', surface, component: 'Spinner', requestId: `s${n}`, viewport: { columns: 120, rows: 30 }, props: { word, message: null, suffix: '…', mode: 'thinking' } })
+    $.ui.mount({ plugin: 'sabai', surface, component: 'Spinner', requestId: `s${n}`, viewport: { columns: 120, rows: 30 }, props: { word, message: null, suffix: '…', mode: 'thinking' } })
   await spin('terminal', 'Sauteing', 1)
   await spin('desktop', 'Creating notes.md', 2)
   await spin('desktop', 'Working', 3)
@@ -1065,7 +1065,7 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   })
   engine(on)
   await start($)
-  await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: 'g', viewport: { columns: 120, rows: 30 }, props: { calls: [{ tool: 'Read' }], isActive: false, isExpanded: false } as never })
+  await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'ToolGroup', requestId: 'g', viewport: { columns: 120, rows: 30 }, props: { calls: [{ tool: 'Read' }], isActive: false, isExpanded: false } as never })
   expect(seen.at(-1)).toBe(true)
 })
 
@@ -1096,7 +1096,7 @@ test('the footer’s modes are left to the engine on the desktop; the terminal a
   })
   engine(on, { store: { prefs: { guard: true } } })
   await start($)
-  const mount = (surface: Surface, n: number) => $.ui.mount({ plugin: 'sabai-band', surface, component: 'SessionMode', requestId: `sm${n}`, viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
+  const mount = (surface: Surface, n: number) => $.ui.mount({ plugin: 'sabai', surface, component: 'SessionMode', requestId: `sm${n}`, viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
   await mount('desktop', 1)
   expect(seen.at(-1)).toEqual(['focus'])
   await mount('terminal', 2)
@@ -1124,7 +1124,7 @@ test('only a run of reads unfolds into steps; a group with searches stays folded
   })
   engine(on)
   await start($)
-  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: `rg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
+  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'ToolGroup', requestId: `rg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
   await group(1, ['Read', 'Read'])
   expect(seen.at(-1)).toBe(true)
   await group(2, ['Read', 'Grep'])
