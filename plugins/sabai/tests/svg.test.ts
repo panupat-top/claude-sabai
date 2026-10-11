@@ -533,7 +533,8 @@ const ROW = {
   show: true,
 } as const
 // The info row's texts in order, from the first drawn part of the band.
-const rowTexts = (source: string) => [...source.slice(0, source.indexOf('</g><!--info-->')).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
+const infoRow = (source: string) => source.slice(source.indexOf('<g class="info">'), source.indexOf('</g><!--info-->'))
+const rowTexts = (source: string) => [...infoRow(source).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
 
 test('the info row: the project, a branch tag with its sync, then guard, Node and the user in muted ink', () => {
   const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
@@ -542,7 +543,7 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
     ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
   ])
   // Marks at the right take the muted ink; no chip cards.
-  expect(d.source.slice(0, d.source.indexOf('</g><!--info-->'))).not.toContain('<rect class="p"')
+  expect(infoRow(d.source)).not.toContain('<rect class="p"')
   expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
 })
 
@@ -569,7 +570,7 @@ test('hidden or unread parts leave no gap; a plain branch chip draws its value; 
 
 test('in the stacked band Clawd still leads the info row', () => {
   const d = bandSvg(undefined, ROW, [], 400, { mood: 'idle' })!
-  const row = d.source.slice(0, d.source.indexOf('</g><!--info-->'))
+  const row = infoRow(d.source)
   expect(row).toContain('crispEdges')
   const name = row.match(/<text class="st" x="([\d.]+)"[^>]*>claude-skins</)
   expect(Number(name![1])).toBeGreaterThan(24)
@@ -579,7 +580,7 @@ test('no two info-row texts overlap at any width', () => {
   for (const W of [240, 320, 400, 480, 600, 760, 900, 1400]) {
     for (const hero of [true, false]) {
       const src = bandSvg(undefined, ROW, [], W, { hero, clawd: false })!.source
-      const row = src.slice(0, src.indexOf('</g><!--info-->'))
+      const row = infoRow(src)
       const boxes = [...row.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
         const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
         return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
@@ -587,5 +588,34 @@ test('no two info-row texts overlap at any width', () => {
       for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, hero, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, hero, false])
       for (const [a, b] of boxes) expect([W, hero, a! >= -1 && b! <= W + 1]).toEqual([W, hero, true])
     }
+  }
+})
+
+test('a long branch name is cut before it pushes the guard and Node off a wide row', () => {
+  const long = { ...ROW, left: [ROW.left[0], ROW.left[1], { icon: 'branch', label: 'Branch', value: 'x', branch: 'dependabot/npm_and_yarn/some-package-1.2.3-beta', ahead: 1 }] }
+  const texts = rowTexts(bandSvg(undefined, long as never, [], 900, { hero: true, clawd: false })!.source).map(t => t[1]!)
+  expect(texts).toContain('guard 7')
+  expect(texts).toContain('v24')
+  expect(texts.find(t => t.startsWith('dependabot'))!.endsWith('…')).toBe(true)
+})
+
+test('at 760 px with the race, the hero keeps the project, the branch and Node; the user and guard give way', () => {
+  // Pins what the real layout keeps: the middle is 760 − 116 − 308 = 336 px.
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+  const texts = rowTexts(bandSvg(undefined, ROW, [], 760, { hero: true, race: race as never })!.source).map(t => t[1]!)
+  expect(texts).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'v24'])
+})
+
+test('no two info-row texts overlap with Clawd leading the stacked band or the race beside the hero', () => {
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+  const cases: [number, object][] = [[300, { mood: 'idle' }], [400, { mood: 'idle' }], [470, { mood: 'idle' }], [760, { hero: true, race }], [820, { hero: true, race }], [900, { hero: true, race }]]
+  for (const [W, o] of cases) {
+    const src = bandSvg(undefined, ROW, [], W, o as never)!.source
+    const row = infoRow(src)
+    const boxes = [...row.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].filter(m => m[3]!.indexOf('text-anchor="middle"') < 0).map(m => {
+      const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
+      return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
+    })
+    for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, false])
   }
 })

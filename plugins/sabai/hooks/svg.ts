@@ -340,7 +340,10 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
           .map(([n, mark, cls]) => ({ s: `${mark}${n}`, cls }))
       : []
   const countsW = counts.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
-  const name = branch ? (branch.branch ?? branch.value) : ''
+  // A very long branch (a dependabot or feature path) is cut to its first 24 characters before it can
+  // push the guard and Node off an otherwise roomy row.
+  const fullName = [...(branch ? (branch.branch ?? branch.value) : '')]
+  const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
   const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 9
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
   const leftW = (f: string, b: string) => x0 + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
@@ -379,7 +382,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   }
   const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
   const alt = drawn.map(c => `${c.label} ${c.value}`).join(', ') + (clawd ? moodSaid(clawd.mood) : '')
-  return { body: `<g>${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
+  return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
 }
 
 const CREW_H = 22
