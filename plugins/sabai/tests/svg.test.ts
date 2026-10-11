@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -46,7 +46,7 @@ test('cards run side by side when wide, two or one when narrow, 8px apart', () =
   expect(wide?.source).toContain('7D ALL')
   expect(wide?.source.match(/shape-rendering="crispEdges"/g)?.length).toBe(1)
   expect(wide?.source).toContain('↻ 2h 0m')
-  expect(wide?.source).toContain(fillColor(85, '#000'))
+  expect(wide?.source).toContain('#f08a3c')
   expect(wide?.alt).toBe('Context 434.5k / 1M (85%); 5H Limit 7%, resets in 2h 0m; 7D All 3%, resets in 3d 0h')
 })
 
@@ -95,7 +95,6 @@ test('every text colour reads at 4.5:1 on its card, in light and dark', () => {
 })
 
 test('figures take their meter colour, then the warning ones', () => {
-  expect([textClass(10, 'week'), textClass(75, 'week'), textClass(95, 'week')]).toEqual(['c-week', 'c-warn', 'c-alert'])
   expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
@@ -106,11 +105,6 @@ test('a skin colours the cards and bars but draws no background or inset, as aut
   expect(themed?.source).toContain('<g fill="#b4befe">')
   expect(themed?.source).not.toContain('rx="10" fill=')
   expect(themed?.source).not.toContain('translate(10,10)')
-})
-
-test('fill colours step up at the warning thresholds', () => {
-  expect(new Set([fillColor(10, '#123456'), fillColor(75, '#123456'), fillColor(95, '#123456')]).size).toBe(3)
-  expect(fillColor(10, '#123456')).toBe('#123456')
 })
 
 test('bars draw as dither, pixel blocks or a solid fill', () => {

@@ -234,9 +234,9 @@ test('a receipt’s parts and mood: all green, failing tests, a failed command, 
 })
 
 test('read-only commands are told apart from ones that change things', () => {
-  for (const c of ['cat a.ts', 'ls -la', 'grep -n x a.ts', 'rg foo', 'git status', 'git log --oneline -3', 'git diff', 'head -5 a', 'wc -l a', 'find . -name x', 'cd x && git show HEAD'])
+  for (const c of ['cat a.ts', 'ls -la', 'grep -n x a.ts', 'rg foo', 'git status', 'git log --oneline -3', 'git diff', 'head -5 a', 'wc -l a', 'find . -name x', 'cd x && git show HEAD', 'cat a 2>/dev/null', 'grep -i x a', 'ls 2>&1', 'git branch -a', 'git remote -v'])
     expect([c, isReadOnly(c)]).toEqual([c, true])
-  for (const c of ['bun test', 'git commit -m x', 'rm a', 'ls && npm i', 'cat a > b', 'echo x >> f', 'sed -i s/a/b/ f'])
+  for (const c of ['bun test', 'git commit -m x', 'rm a', 'ls && npm i', 'cat a > b', 'echo x >> f', 'sed -i s/a/b/ f', 'find . -delete', 'find . -exec rm {} \\;', 'git branch -D x', 'git remote add o u', 'git diff --output=f', 'cat $(rm x)', 'cat a & rm b', 'ls\nrm a'])
     expect([c, isReadOnly(c)]).toEqual([c, false])
 })
 
@@ -246,8 +246,8 @@ test('reads do not fill a receipt alone; with an edit or a test run they count',
   const edited = logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'a', newText: 'b' })
   expect(receiptOf(read(edited))?.commands).toEqual({ count: 1, failed: 0 })
   expect(receiptOf(logged(EMPTY_LOG, { tool: 'Bash', command: 'cat nope', output: 'No such file', isError: true, at: 1, readOnly: true }))?.commands).toEqual({ count: 1, failed: 1 })
-  // replace_all: the change counted once per occurrence.
-  expect(logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'x', newText: 'y', times: 3 }).files.a).toEqual({ added: 3, removed: 3 })
+  // replace_all: the engine's patch holds every occurrence.
+  expect(logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'x', newText: 'y', patch: [{ lines: ['-x', '-x', '-x', '+y', '+y', '+y'] }] }).files.a).toEqual({ added: 3, removed: 3 })
 })
 
 test('an overwrite counts its diff, a new file every line', () => {

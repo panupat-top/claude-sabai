@@ -1059,6 +1059,8 @@ test('while the main turn works the band shows the live strip with the step in f
   await settle()
   expect((await shown($, 'desktop', true)).words).toContain('Build it')
   expect((await shown($, 'terminal', true)).words).toContain('Build it')
+  // Clawd's mark leads the live strip, not the info row as well.
+  expect((await shown($, 'terminal', true)).words.split(' | ')).not.toContain('●')
   release()
   await running
   await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])

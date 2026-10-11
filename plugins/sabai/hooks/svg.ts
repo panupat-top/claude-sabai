@@ -2,7 +2,7 @@ import type { AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
-import { countdown, level, resetClock, tokens, value } from './model'
+import { countdown, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
 import { icon } from './icons'
@@ -93,16 +93,6 @@ function fit(s: string, size: number, maxW: number): string {
 const noise = (x: number, y: number): number => {
   const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
   return s - Math.floor(s)
-}
-
-// The text class for a meter's figures: its own colour, or the warning one past 70 and 90.
-export function textClass(percent: number, kind: string): string {
-  return `c-${level(percent) ?? kind}`
-}
-
-export function fillColor(percent: number, base: string): string {
-  const l = level(percent)
-  return l === 'alert' ? ALERT : l === 'warn' ? WARN : base
 }
 
 // How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
