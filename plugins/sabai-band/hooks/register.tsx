@@ -1,5 +1,5 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
+import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
@@ -573,9 +573,21 @@ export const register: Register = on => {
     const { Box, Button, Text } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
-    const heading = (title: string, note: string) => (
+    // One group: a bordered card with its mark, title and what it is about, then its rows.
+    const group = (key: string, mark: string, title: string, note: string, rows: RenderNode) => (
+      <Box key={`group-${key}`} borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
+        <Text>
+          <Text bold>{`${mark}  ${title}`}</Text>
+          <Text dimColor>{`  ${note}`}</Text>
+        </Text>
+        {rows}
+      </Box>
+    )
+    const subheading = (title: string, note: string) => (
       <Text>
-        <Text bold>{title}</Text>
+        <Text bold dimColor>
+          {title}
+        </Text>
         <Text dimColor>{`  ${note}`}</Text>
       </Text>
     )
@@ -599,46 +611,8 @@ export const register: Register = on => {
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
-    return (
-      <Box flexDirection="column" rowGap={2}>
-        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Band', 'Rows above the prompt')}
-          {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
-          {rowToggle('tasks', 'Tasks', "Claude's own task list")}
-          {rowToggle('crew', 'Crew', 'Subagents at work')}
-          {rowToggle('usage', 'Usage', 'Context and plan limits')}
-          {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Progress bar', 'Tasks and usage cards')}
-          <Box flexDirection="row" columnGap={1}>
-            {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
-              <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
-            ))}
-          </Box>
-          {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Alerts', 'Outside the band')}
-          {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
-          {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Chat', 'In the conversation')}
-          {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
-          {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
-          {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
-          {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Agents and safety', '')}
-          {flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session')}
-          {flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Color theme', 'The band and panels')}
-          {SKINS.map(k => {
+    // The color themes, each with its swatch and a Use button: the longest list, so last.
+    const themes = SKINS.map(k => {
             const t = THEMES[k]
             const tone = t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'
             const kLook = lookOf(k)
@@ -666,8 +640,70 @@ export const register: Register = on => {
                 )}
               </Box>
             )
-          })}
-        </Box>
+          })
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
+        {group(
+          'band',
+          '▤',
+          'Band',
+          'Rows above the prompt',
+          <>
+            {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
+            {rowToggle('tasks', 'Tasks', "Claude's own task list")}
+            {rowToggle('crew', 'Crew', 'Subagents at work')}
+            {rowToggle('usage', 'Usage', 'Context and plan limits')}
+            {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
+          </>,
+        )}
+        {group(
+          'chat',
+          '❯',
+          'Conversation',
+          "How Claude's work shows in the chat",
+          <>
+            {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
+            {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
+            {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
+            {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
+          </>,
+        )}
+        {group('agents', '✻', 'Agents', 'Subagents and their panel', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
+        {group(
+          'safety',
+          '◈',
+          'Safety',
+          'What Claude may not run',
+          flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on'),
+        )}
+        {group(
+          'alerts',
+          '◔',
+          'Alerts',
+          'Outside the band',
+          <>
+            {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
+            {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
+          </>,
+        )}
+        {group(
+          'look',
+          '◐',
+          'Appearance',
+          'The band and panels',
+          <>
+            {subheading('Progress bar', 'Tasks and usage cards')}
+            <Box flexDirection="row" columnGap={1}>
+              {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
+                <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
+              ))}
+            </Box>
+            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+            {subheading('Color theme', 'Ten looks')}
+            <Box flexDirection="column" rowGap={1}>{themes}</Box>
+          </>,
+        )}
       </Box>
     )
   })

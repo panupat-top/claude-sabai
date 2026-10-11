@@ -1142,3 +1142,19 @@ test('on the terminal a step is one line: its glyph, title, what it did, result 
   expect(await ui.findAll({ type: 'Box' })).toEqual([])
   expect(await lineWords(ui, 'terminal')).toMatch(/^✎ Edited a\.ts.*src\/.*\+1 −0/)
 })
+
+test('settings are six bordered groups in order: band, conversation, agents, safety, alerts, appearance', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const pane = await mountPane($, surface, 'sabai-skins')
+    const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+    expect([surface, cards.length]).toEqual([surface, 6])
+    const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
+    const order = ['Band', 'Conversation', 'Agents', 'Safety', 'Alerts', 'Appearance'].map(t => words.indexOf(`${t}`))
+    expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
+    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+    await pane.unmount()
+  }
+})
