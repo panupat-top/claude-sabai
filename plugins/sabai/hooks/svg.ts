@@ -451,9 +451,11 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
   // Room for Clawd and anything he holds to his right.
   const lead = mood ? spriteSize('tasks').width + PROP_W + 6 : 0
   const time = clock(live.elapsedMs)
-  const tallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
+  const allTallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
   const stepX = lead + monoWidth(time, 11.5) + 12
-  const room = W - stepX - monoWidth(tallies, 11) - 16
+  // On a narrow band the step outranks the tallies: they go first when both would not fit.
+  const tallies = live.step && W - stepX - monoWidth(allTallies, 11) - 16 < 80 ? '' : allTallies
+  const room = W - stepX - (tallies ? monoWidth(tallies, 11) + 16 : 0)
   const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
   const body =
     (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory) : '') +

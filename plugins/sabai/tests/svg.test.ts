@@ -351,3 +351,12 @@ test('the live strip shows the turn’s time, step and tallies, and takes Clawd 
   expect(withTasks.source.match(/class="run"/g)?.length).toBe(1)
   expect(withTasks.alt).toContain('Working 1m 42s')
 })
+
+test('on the narrowest band the live strip keeps the step and lets the tallies go', () => {
+  const info = { left: [], right: [{ icon: 'node' as const, label: 'Node', value: 'v24.21.0' }], show: true }
+  const live = { elapsedMs: 31_000, step: { icon: 'terminal' as const, title: 'Wait eight seconds so the live strip can be seen' }, files: 0, commands: 2, test: { passed: 200, failed: 0 } }
+  const d = bandSvg(undefined, info, [], 200, { mood: 'working', live })!
+  expect(d.source).toContain('› Wait eight')
+  // Wide enough, both show.
+  expect(bandSvg(undefined, info, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
+})
