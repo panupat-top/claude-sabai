@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { SPINNER_WORDS, clean, isGenericWord, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, logged, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -175,4 +175,43 @@ test('a marker inside a longer fence, or under a fence opened with an info strin
   expect(splitCallouts(nested)).toEqual([{ kind: 'md', text: nested }])
   const info = '```\n```js\n> [!NOTE]\n> x\n```'
   expect(splitCallouts(info).every(s => s.kind === 'md')).toBe(true)
+})
+
+const BUN_OK = 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 2 files. [1.2s]'
+const BUN_BAD = 'bun test v1\n\n 7 pass\n 2 fail\nRan 9 tests across 2 files. [1.2s]'
+
+test('the turn log adds up edits by file, commands and the last test run', () => {
+  let log = EMPTY_LOG
+  log = logged(log, { tool: 'Edit', path: 'a.ts', oldText: 'x\ny', newText: 'x\nz\nw' })
+  log = logged(log, { tool: 'Edit', path: 'a.ts', oldText: 'q', newText: 'r' })
+  log = logged(log, { tool: 'Write', path: 'b.md', content: 'one\ntwo\n' })
+  log = logged(log, { tool: 'Bash', command: 'ls', output: '', isError: false, at: 1 })
+  log = logged(log, { tool: 'Bash', command: 'false', output: 'Exit code 1', isError: true, at: 2 })
+  log = logged(log, { tool: 'Bash', command: 'bun test', output: BUN_BAD, isError: true, at: 3 })
+  log = logged(log, { tool: 'Bash', command: 'bun test', output: BUN_OK, isError: false, at: 4 })
+  expect(log.files).toEqual({ 'a.ts': { added: 3, removed: 2 }, 'b.md': { added: 2, removed: 0 } })
+  expect(log.commands).toBe(4)
+  expect(log.failed).toBe(2)
+  expect(log.test).toEqual({ passed: 9, failed: 0, at: 4 })
+  // Words that look like a summary from a command that does not run tests are not a run.
+  expect(logged(EMPTY_LOG, { tool: 'Bash', command: 'cat log.txt', output: BUN_OK, isError: false, at: 5 }).test).toBeUndefined()
+})
+
+test('the receipt says only what the turn did, in one line', () => {
+  expect(receiptText(EMPTY_LOG)).toBeUndefined()
+  const one = { ...EMPTY_LOG, files: { 'a.ts': { added: 1, removed: 0 } } }
+  expect(receiptText(one)).toBe('✎ 1 file +1 −0')
+  expect(receiptText({ ...EMPTY_LOG, commands: 1 })).toBe('› 1 command')
+  expect(receiptText({ ...EMPTY_LOG, commands: 6, failed: 1 })).toBe('› 6 commands, 1 failed')
+  expect(receiptText({ ...EMPTY_LOG, commands: 1, test: { passed: 159, failed: 0, at: 0 } })).toBe('✓ 159 passed · › 1 command')
+  expect(
+    receiptText({
+      files: { 'a.ts': { added: 30, removed: 10 }, 'b.ts': { added: 10, removed: 2 }, 'c.ts': { added: 0, removed: 0 } },
+      commands: 2,
+      failed: 1,
+      test: { passed: 96, failed: 2, at: 0 },
+    }),
+  ).toBe('✎ 3 files +40 −12 · ✗ 2 of 98 failed · › 2 commands, 1 failed')
+  // The guard's stamp alone is no work.
+  expect(receiptText({ ...EMPTY_LOG, caught: 5 })).toBeUndefined()
 })

@@ -1,12 +1,12 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { STARTLE_MS, blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, riskOf } from './guard'
-import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -43,7 +43,6 @@ const withDefaults = (v: unknown): Prefs => {
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
-const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
 const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
 // What the guard refused or asked about this session; not stored.
 const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)

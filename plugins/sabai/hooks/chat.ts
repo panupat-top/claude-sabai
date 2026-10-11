@@ -1,5 +1,7 @@
 // What the mod adds to the conversation, as plain values: a summary line under a tool row,
-// test results, callouts and the spinner's words. register.tsx draws them per surface.
+// test results, callouts, the spinner's words and a turn's receipt. register.tsx draws them per surface.
+
+import type { TurnLog } from '../types'
 
 export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn' | 'edit' | 'read'
 export type Part = { text: string; tone: Tone }
@@ -278,4 +280,45 @@ export function stepText(s: Step): string {
   const said = s.result.map(p => p.text).join('')
   const words = said.startsWith('✓ ') ? said.slice(2) : said.startsWith('✗ ') ? (/fail/.test(said) ? said.slice(2) : `failed, ${said.slice(2)}`) : said
   return [s.title, s.detail, words, s.time?.replace(/^\p{Extended_Pictographic}\s*/u, '')].filter(Boolean).join(', ')
+}
+
+export const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
+
+export type Logged =
+  | { tool: 'Edit'; path: string; oldText: string; newText: string }
+  | { tool: 'Write'; path: string; content: string }
+  | { tool: 'Bash'; command: string; output: string; isError: boolean; at: number }
+
+// One finished call of the main turn folded into its log: a file's added and removed lines, a
+// command and whether it failed, and the counts of the last command that ran tests.
+export function logged(log: TurnLog, c: Logged): TurnLog {
+  if (c.tool === 'Bash') {
+    const tests = TEST_COMMAND.test(c.command) ? testResult(c.output) : undefined
+    return {
+      ...log,
+      commands: log.commands + 1,
+      failed: log.failed + (c.isError ? 1 : 0),
+      ...(tests ? { test: { passed: tests.passed, failed: tests.failed, at: c.at } } : {}),
+    }
+  }
+  const was = log.files[c.path] ?? { added: 0, removed: 0 }
+  const change = c.tool === 'Edit' ? asked(c.oldText, c.newText).lines : lines(c.content).map(l => `+${l}`)
+  const added = change.filter(l => l.startsWith('+')).length
+  const removed = change.filter(l => l.startsWith('-')).length
+  return { ...log, files: { ...log.files, [c.path]: { added: was.added + added, removed: was.removed + removed } } }
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// The turn's receipt, or nothing for a turn that changed, tested and ran nothing.
+export function receiptText(log: TurnLog): string | undefined {
+  const files = Object.values(log.files)
+  const parts: string[] = []
+  if (files.length) {
+    const sum = (k: 'added' | 'removed') => files.reduce((n, f) => n + f[k], 0)
+    parts.push(`✎ ${plural(files.length, 'file')} +${sum('added')} −${sum('removed')}`)
+  }
+  if (log.test) parts.push(log.test.failed ? `✗ ${log.test.failed} of ${log.test.passed + log.test.failed} failed` : `✓ ${log.test.passed} passed`)
+  if (log.commands) parts.push(`› ${plural(log.commands, 'command')}${log.failed ? `, ${log.failed} failed` : ''}`)
+  return parts.length ? parts.join(' · ') : undefined
 }
