@@ -623,3 +623,48 @@ test('no two info-row texts overlap with Clawd leading the stacked band or the r
     for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, false])
   }
 })
+
+test('when the guard cannot fit even as its shield, the branch name is not left cut for it', () => {
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release', ahead: 2, behind: 1, changes: 3 }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard · 7' }], show: true } as const
+  for (const W of [274, 280, 286, 292, 298]) {
+    const texts = rowTexts(bandSvg(undefined, row, [], W, { clawd: false })!.source)
+    // The guard is gone at these widths, so the branch has no reason to be cut.
+    expect([W, texts.some(t => t[0] === 'sm'), texts.find(t => t[0] === 's-session')![1]]).toEqual([W, false, 'release'])
+  }
+})
+
+test('a guard with nothing caught draws its shield alone, with no empty text', () => {
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
+  for (const W of [230, 250, 270]) {
+    const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
+    expect([W, row2.match(/<path class="sm"/g)?.length]).toEqual([W, 2])
+    expect([W, /<text class="sm"[^>]*><\/text>/.test(row2)]).toEqual([W, false])
+  }
+})
+
+test('at 240 px nothing is drawn at the right of the info row', () => {
+  const texts = rowTexts(bandSvg(undefined, ROW, [], 240, { hero: true, clawd: false })!.source)
+  expect(texts.filter(t => t[0] === 'sm')).toEqual([])
+})
+
+test('an emoji branch is measured as it is cut, so the counts stay inside the row', () => {
+  const branch = 'feat/' + '🚀'.repeat(25)
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: branch, branch, ahead: 2, changes: 3 }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
+  for (const W of [300, 417, 418, 419, 460]) {
+    const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
+    for (const m of row2.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)) {
+      const end = m[3]!.includes('text-anchor="end"') ? Number(m[1]) : Number(m[1]) + [...m[4]!].length * Number(m[2]) * 0.6
+      expect([W, m[4], end <= W + 1]).toEqual([W, m[4], true])
+    }
+  }
+})
+
+test('cutting a long branch never splits a joined emoji', () => {
+  const family = '👨‍👩‍👧‍👦'
+  const branch = 'feat/' + family.repeat(25)
+  const row = { left: [{ icon: 'branch', label: 'Branch', value: branch, branch }], right: [], show: true } as const
+  const drawn = rowTexts(bandSvg(undefined, row, [], 900, { hero: true, clawd: false })!.source).find(t => t[0] === 's-session')![1]!
+  expect(drawn.endsWith('…')).toBe(true)
+  expect(drawn).not.toMatch(/‍…$/)
+  expect(drawn.slice(5, -1).split(family).join('')).toBe('')
+})

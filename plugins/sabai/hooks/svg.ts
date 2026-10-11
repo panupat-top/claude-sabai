@@ -300,12 +300,17 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
   return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }
 
-export const monoWidth = (s: string, size: number) => s.length * size * 0.6
+// The characters a reader sees: a joined emoji (a family, a flag) is one, so a cut never splits it.
+const segmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : undefined
+const graphemes = (s: string): string[] => (segmenter ? [...segmenter.segment(s)].map(g => g.segment) : [...s])
+// Measured by code points, as the cutters count, so an emoji is not taken for two characters.
+export const monoWidth = (s: string, size: number) => [...s].length * size * 0.6
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
-// Cut on whole characters, never inside a surrogate pair, which would leave the SVG malformed.
+// Cut on whole characters, never inside a surrogate pair or a joined emoji, which would leave the
+// SVG malformed or a glyph broken.
 const fitMono = (s: string, size: number, maxW: number) => {
   const room = Math.floor(maxW / (size * 0.64))
-  const chars = [...s]
+  const chars = graphemes(s)
   return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
 }
 
@@ -340,9 +345,9 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
           .map(([n, mark, cls]) => ({ s: `${mark}${n}`, cls }))
       : []
   const countsW = counts.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
-  // A very long branch (a dependabot or feature path) is cut to its first 24 characters before it can
+  // A very long branch (a dependabot or feature path) is cut to 23 characters and `…` before it can
   // push the guard and Node off an otherwise roomy row.
-  const fullName = [...(branch ? (branch.branch ?? branch.value) : '')]
+  const fullName = graphemes(branch ? (branch.branch ?? branch.value) : '')
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
   const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 9
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
@@ -360,7 +365,11 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
     shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
     const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
     if (room < tagW(b)) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), room - tagW('')))
-    if (leftW(f, b) + 12 > W - rightW(shown)) shown = []
+    // Even the shield does not fit: it goes, and the branch takes back what was cut for it.
+    if (leftW(f, b) + 12 > W - rightW(shown)) {
+      shown = []
+      b = name
+    }
   }
   // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
   if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), monoWidth(b, 11) - (leftW(f, b) - W)))
@@ -385,7 +394,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   }
   let rx = W - rightW(shown)
   for (const i of shown) {
-    body += icon(i.k, +rx.toFixed(1), mid - 6, 12, 'sm') + `<text class="sm" x="${+(rx + 17).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5">${xml(i.v)}</text>`
+    body += icon(i.k, +rx.toFixed(1), mid - 6, 12, 'sm') + (i.v ? `<text class="sm" x="${+(rx + 17).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5">${xml(i.v)}</text>` : '')
     rx += itemW(i) + 16
   }
   const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
