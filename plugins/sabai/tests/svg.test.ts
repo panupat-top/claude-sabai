@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -680,4 +680,71 @@ test('cutting a long branch never splits a joined emoji', () => {
   expect(drawn.endsWith('…')).toBe(true)
   expect(drawn).not.toMatch(/‍…$/)
   expect(drawn.slice(5, -1).split(family).join('')).toBe('')
+})
+
+// The [left, right] span of each end-anchored mono text a drawing puts on line `y`.
+const endSpans = (body: string, y: number) =>
+  [...body.matchAll(/<text [^>]*x="([\d.]+)" y="([\d.]+)" text-anchor="end" font-family="[^"]*monospace[^"]*" font-size="([\d.]+)"[^>]*>([^<]*)<\/text>/g)]
+    .filter(m => Number(m[2]) === y)
+    .map(m => [Number(m[1]) - monoWidth(m[4]!, Number(m[3])), Number(m[1])] as const)
+    .sort((a, b) => a[0] - b[0])
+
+test('the race header’s figures never overlap, however long the time or the counts run', () => {
+  const race = { running: 2, done: 0, ok: 1234, fails: 567, elapsedMs: 6_000_000, more: 12, lanes: [{ id: 'main', who: 'Main', step: 'n', calls: [], state: 'running' }] }
+  const spans = endSpans(racePart(lookOf('auto'), race as never, 300, 0).body, 16)
+  expect(spans.length).toBe(4)
+  for (let i = 1; i < spans.length; i++) expect(spans[i - 1]![1] + 4 <= spans[i]![0]).toBe(true)
+  // The usual case keeps its slots.
+  const usual = endSpans(racePart(lookOf('auto'), { ...race, ok: 12, fails: 1, elapsedMs: 102_000, more: 1 } as never, 300, 0).body, 16)
+  expect(usual.map(s => s[1])).toEqual([172, 210, 250, 288])
+})
+
+test('a lane’s tiles stop before its flag, however many calls it made', () => {
+  const calls = Array.from({ length: 16 }, () => ({ kind: 'read', ok: true }))
+  const race = { running: 1, done: 0, ok: 16, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', calls, state: 'running' }] }
+  const body = racePart(lookOf('auto'), race as never, 300, 0).body
+  const ends = [...body.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="8" height="3"/g)].map(m => Number(m[1]) + 8)
+  const flag = Number(body.match(/<rect class="m" x="([\d.]+)"[^>]*width="1.2"/)![1])
+  expect(ends.length).toBeGreaterThan(16)
+  expect(Math.max(...ends) <= flag).toBe(true)
+})
+
+test('a ring at 0% draws its track and no dot', () => {
+  const list = [{ kind: 'session', label: '5H Limit', percent: 0 }, { kind: 'week', label: '7D All', percent: 40 }] as never
+  const source = bandSvg(undefined, { left: [], right: [] }, list, 900, { hero: true, usageStyle: 'rings', clawd: false })!.source
+  expect(source.match(/stroke-dasharray/g)!.length).toBe(1)
+  expect(source).not.toContain('stroke-dasharray="0 ')
+})
+
+test('on a narrow pane an agent card’s type and model give way to the time', () => {
+  const a: AgentRun = { id: 'a', agentId: 'a', type: 'general-purpose', description: 'd', model: 'claude-opus-5-5', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, effort: '32000' }
+  for (const W of [240, 260, 420]) {
+    const body = agentCardSvg(a, W, 7_200_000).source
+    const time = endSpans(body, 18)[0]!
+    const meta = body.match(/<text class="m" x="([\d.]+)" y="18" font-family="[^"]*" font-size="11">([^<]*)<\/text>/)
+    if (meta) expect([W, Number(meta[1]) + monoWidth(meta[2]!, 11) + 4 <= time[0]]).toEqual([W, true])
+  }
+  expect(agentCardSvg(a, 420, 7_200_000).source).toContain('general-purpose')
+})
+
+test('a slow step’s tortoise time sits clear of its pill', () => {
+  const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }], time: '🐢 1m 5s' })
+  const pill = d.source.match(/<rect class="k-ok" opacity="[\d.]+" x="([\d.]+)" y="4" width="([\d.]+)"/)!
+  const time = endSpans(d.source, 15.5)[0]!
+  expect(Number(pill[1]) + Number(pill[2]) <= time[0]).toBe(true)
+  // A plain time keeps the column, so pills line up from row to row.
+  const plain = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }], time: '1.2s' })
+  const none = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }] })
+  const pillX = (src: string) => src.match(/<rect class="k-ok" opacity="[\d.]+" x="([\d.]+)"/)![1]
+  expect(pillX(plain.source)).toBe(pillX(none.source))
+})
+
+test('mono widths count an emoji or a CJK character as wide, and a joined emoji once', () => {
+  expect(['ab', '🐢', '日本', '👨‍👩‍👧'].map(s => Math.round(monoWidth(s, 10)))).toEqual([12, 12, 20, 12])
+})
+
+test('the band’s loops each last a second or less', () => {
+  const loops = [...MOTION.matchAll(/animation(?:-duration)?:[^;}]*?([\d.]+)s/g)].map(m => Number(m[1]))
+  expect(loops.length).toBeGreaterThan(5)
+  expect(loops.filter(n => n > 1).filter(n => n !== 3.2)).toEqual([])
 })

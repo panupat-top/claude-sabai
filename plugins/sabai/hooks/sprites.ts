@@ -247,8 +247,10 @@ export const SPRITE_CSS =
   '.run g.bd,.run g.eye{animation:bob .4s steps(1) infinite -.1s}' +
   '@keyframes step{50%{transform:translateY(-1px)}}@keyframes bob{50%{transform:translateY(1px)}}' +
   // A blink repaints the eyes in the body's colour (the look's `wink` keyframes), so no hole shows.
+  // The one loop past a second, kept so: a blink each second would read as a twitch, and where a
+  // drawing redraws every second the restart only skips the blink.
   '.idle g.eye rect{animation:wink 3.2s steps(1) infinite}' +
-  'g.led1{animation:blink 1.2s steps(1) infinite}g.led2{animation:blink 1.2s steps(1) infinite -.6s}' +
+  'g.led1{animation:blink 1s steps(1) infinite}g.led2{animation:blink 1s steps(1) infinite -.5s}' +
   '@keyframes blink{50%{opacity:.15}}' +
   '.hop g{animation:hop .45s ease-out 2}@keyframes hop{50%{transform:translateY(-3px)}}' +
   // Props move only while the agent works; every loop fits the pane's one-second redraw.

@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -85,8 +85,9 @@ const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'su
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
-// Each plan-limit window warned about already, by kind and reset time.
-const warned = new Set<string>()
+// Each plan-limit window warned about already, by kind and reset time; in state, so a reload
+// does not warn again.
+const warned = atom({ plugin: 'sabai', key: 'warned' } as const, [] as string[])
 const finishedOpen = atom({ plugin: 'sabai', key: 'finishedOpen' } as const, false)
 const openResults = atom({ plugin: 'sabai', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
@@ -272,12 +273,15 @@ const UNFINISHED = { deny: 'unfinished' }
 async function racing($: EngineInterface, agentId: string | undefined, kind: CallKind, called?: { deny?: string; isError?: boolean }, ok?: boolean) {
   const member = agentId ?? 'main'
   if (called === undefined && ok === undefined) {
-    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: kind } }))
+    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
     return
   }
   const at = await $.clock.now()
   await update($, race, r => {
-    const { [member]: _, ...doing } = r.doing
+    // This call leaves the member's calls in flight; a parallel one still running stays.
+    const left = doingOf(r, member)
+    const i = left.indexOf(kind)
+    const doing = { ...r.doing, [member]: i === -1 ? left : [...left.slice(0, i), ...left.slice(i + 1)] }
     return !called || called.deny !== undefined ? { ...r, doing } : raced({ ...r, doing }, member, { kind, ok: ok ?? !called.isError }, at)
   })
 }
@@ -376,11 +380,17 @@ export const register: Register = on => {
     return started
   })
 
-  // A cleared, resumed or forked conversation does not carry this one's task list.
+  // A cleared, resumed or forked conversation does not carry this one's task list, turn, race,
+  // receipts or the guard's count.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     await update($, tasks, () => [])
     await update($, agents, () => [])
     await update($, openResults, () => [])
+    await update($, turnLog, () => EMPTY_LOG)
+    await update($, race, () => EMPTY_RACE)
+    await update($, guardCaught, () => 0)
+    await update($, receipts, () => ({}))
+    await update($, liveStep, () => null)
     return next(e)
   })
 
@@ -435,8 +445,11 @@ export const register: Register = on => {
       const log = await read($, turnLog)
       if ((await read($, prefs)).chat.receipt && receiptOf(log)) {
         const answer = e.answer.trim()
-        if (!answer) return { ...completed, text: completed.text ? `${completed.text}\n${receiptText(log)!}` : receiptText(log)! }
-        await update($, receipts, all => Object.fromEntries([...Object.entries(all).filter(([k]) => k !== answer), [answer, log]].slice(-RECEIPTS_KEPT)))
+        // An answer an earlier turn gave word for word ("Done.") would draw this receipt under that
+        // turn's reply too, so it goes in the notice; the earlier reply keeps its own.
+        if (!answer || Object.hasOwn(await read($, receipts), answer))
+          return { ...completed, text: completed.text ? `${completed.text}\n${receiptText(log)!}` : receiptText(log)! }
+        await update($, receipts, all => Object.fromEntries([...Object.entries(all), [answer, log]].slice(-RECEIPTS_KEPT)))
       }
     } else {
       const at = await $.clock.now()
@@ -603,8 +616,8 @@ export const register: Register = on => {
       for (const l of e.rateLimits) {
         const label = l.kind === 'five_hour' ? '5H' : l.kind === 'seven_day' ? '7D' : undefined
         const key = `${l.kind}:${l.resetsAt ?? ''}`
-        if (!label || l.percentUsed < LIMIT_WARN_AT || warned.has(key)) continue
-        warned.add(key)
+        if (!label || l.percentUsed < LIMIT_WARN_AT || (await read($, warned)).includes(key)) continue
+        await update($, warned, keys => [...keys, key].slice(-20))
         const left = l.resetsAt ? Date.parse(l.resetsAt) - at : NaN
         $.ui.toast(`${label} limit at ${Math.round(l.percentUsed)}%${Number.isFinite(left) && left > 0 ? ` — resets in ${countdown(left)}` : ''}`)
       }
@@ -668,7 +681,8 @@ export const register: Register = on => {
       await unstep($, e.agentId)
       await racing($, e.agentId, 'edit', called ?? UNFINISHED)
     }
-    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
+    const written = called.result as BuiltinToolResults['Write'] | undefined
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content, ...(written?.type === 'update' && written.originalFile !== null ? { patch: written.structuredPatch } : {}) })
     return called
   })
   // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
@@ -1081,7 +1095,8 @@ export const register: Register = on => {
     const { rows } = shownPrefs
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
-    const at = await read($, now)
+    // Drawn before session.start's first tick, the clock still reads 0 (1 January 1970).
+    const at = (await read($, now)) || (await $.clock.now())
     const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
     const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.

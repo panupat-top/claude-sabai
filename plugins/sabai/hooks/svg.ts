@@ -52,11 +52,11 @@ export const PILL_TINT = 0.1
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
-const MOTION =
-  '.d0,.d1,.d2,.d3{animation:tw 2.2s ease-in-out infinite}.d1{animation-duration:2.8s;animation-delay:-.7s}' +
-  '.d2{animation-duration:1.9s;animation-delay:-1.3s}.d3{animation-duration:3.3s;animation-delay:-.4s}' +
+export const MOTION =
+  // Each loop within a second: the band redraws every second while work runs, restarting them.
+  '.d0,.d1,.d2,.d3{animation:tw 1s ease-in-out infinite}.d1{animation-duration:.8s;animation-delay:-.3s}' +
+  '.d2{animation-duration:.9s;animation-delay:-.6s}.d3{animation-duration:.7s;animation-delay:-.2s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.3}}' +
-  '.live{animation:tw 1.6s ease-in-out infinite}' +
   '.ripple{transform-box:fill-box;transform-origin:center;animation:rp 1s ease-out infinite}@keyframes rp{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.2);opacity:0}}' +
   // A pop that starts and ends at full size: an image's animation can sit frozen on its first
   // frame (a hidden window), so no motion here may begin by hiding what it moves.
@@ -69,16 +69,22 @@ const MOTION =
 const xml = (s: string): string =>
   s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
 
+// The characters a reader sees: a joined emoji (a family, a flag) is one, so a cut never splits it.
+const segmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : undefined
+const graphemes = (s: string): string[] => (segmenter ? [...segmenter.segment(s)].map(g => g.segment) : [...s])
+// A wide character's advance in em, in any face: an emoji drawn as one, or a CJK character.
+const wideEm = (g: string): number | undefined =>
+  /\p{Emoji_Presentation}|\uFE0F/u.test(g) ? 1.2 : /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(g) ? 1 : undefined
 // Rough advance of system UI text in em: enough to size a slot, not to typeset.
-const charEm = (ch: string): number => (/[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-Z@%mw]/.test(ch) ? 0.72 : 0.56)
-const textWidth = (s: string, size: number): number => [...s].reduce((w, ch) => w + charEm(ch) * size, 0)
+const charEm = (ch: string): number => wideEm(ch) ?? (/[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-Z@%mw]/.test(ch) ? 0.72 : 0.56)
+const textWidth = (s: string, size: number): number => graphemes(s).reduce((w, g) => w + charEm(g) * size, 0)
 
 function fit(s: string, size: number, maxW: number): string {
   if (textWidth(s, size) <= maxW) return s
   let out = ''
-  for (const ch of s) {
-    if (textWidth(out + ch + '…', size) > maxW) break
-    out += ch
+  for (const g of graphemes(s)) {
+    if (textWidth(out + g + '…', size) > maxW) break
+    out += g
   }
   return out + '…'
 }
@@ -301,18 +307,19 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
   return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }
 
-// The characters a reader sees: a joined emoji (a family, a flag) is one, so a cut never splits it.
-const segmenter = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : undefined
-const graphemes = (s: string): string[] => (segmenter ? [...segmenter.segment(s)].map(g => g.segment) : [...s])
-// Measured by code points, as the cutters count, so an emoji is not taken for two characters.
-export const monoWidth = (s: string, size: number) => [...s].length * size * 0.6
+// Measured by what a reader sees: a joined emoji is one character, and it or a CJK one is wide.
+export const monoWidth = (s: string, size: number) => graphemes(s).reduce((w, g) => w + (wideEm(g) ?? 0.6) * size, 0)
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
 // Cut on whole characters, never inside a surrogate pair or a joined emoji, which would leave the
 // SVG malformed or a glyph broken.
 const fitMono = (s: string, size: number, maxW: number) => {
-  const room = Math.floor(maxW / (size * 0.64))
+  const adv = (g: string) => ((wideEm(g) ?? 0.6) / 0.6) * 0.64 * size
   const chars = graphemes(s)
-  return chars.length <= room ? s : `${chars.slice(0, Math.max(1, room - 1)).join('')}…`
+  if (chars.reduce((w, g) => w + adv(g), 0) <= maxW) return s
+  let w = adv('…')
+  let n = 0
+  while (n < chars.length && w + adv(chars[n]!) <= maxW) w += adv(chars[n++]!)
+  return `${chars.slice(0, Math.max(1, n)).join('')}…`
 }
 
 const INFO_H = 22
@@ -494,19 +501,31 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     return `${classes ? `class="${classes}"` : ''}${paint.fill ? ` fill="${paint.fill}"` : ''}`
   }
   const time = race.elapsedMs === undefined ? '' : mmss(race.elapsedMs)
+  // The header's right side from the edge: each figure at its slot, or further left when the one
+  // after it runs long (an hour and more, a thousand calls).
+  let edge = W
+  const figure = (slot: number, cls: string, s: string, size: number, bold = true) => {
+    const x = Math.min(slot, edge - 10)
+    edge = x - monoWidth(s, size)
+    return `<text class="${cls}" x="${+x.toFixed(1)}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="${size}"${bold ? ' font-weight="700"' : ''}>${s}</text>`
+  }
+  const right = [
+    time ? figure(W - 12, 'm', time, 10.5, false) : '',
+    figure(W - 50, 'c-ok', `✓ ${race.ok}`, 10.5),
+    race.fails ? figure(W - 90, 'c-alert', `✗ ${race.fails}`, 10.5) : '',
+    race.more ? figure(W - 128, 'm', `+${race.more}`, 10) : '',
+  ]
   const head =
     `<text class="t" x="12" y="${top + 16}" font-family="${SANS}" font-size="11" font-weight="700">${race.running} running${race.done ? ` · ${race.done} done` : ''}</text>` +
-    (race.more ? `<text class="m" x="${W - 128}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10" font-weight="700">+${race.more}</text>` : '') +
-    (race.fails ? `<text class="c-alert" x="${W - 90}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✗ ${race.fails}</text>` : '') +
-    `<text class="c-ok" x="${W - 50}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✓ ${race.ok}</text>` +
-    (time ? `<text class="m" x="${W - 12}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5">${time}</text>` : '')
+    right.reverse().join('')
   const laneX = 12
   const laneW = W - laneX - 26
   const lanes = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * LANE_H
     const ground = y + LANE_H - 8
     const moving = l.state === 'running' || l.state === 'scored'
-    const tiles = (l.calls.length ? [...l.calls, ...(moving ? l.calls : [])] : []).map((c, j) => `<rect x="${laneX + j * 10}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
+    // As many tiles as the lane holds before its flag.
+    const tiles = (l.calls.length ? [...l.calls, ...(moving ? l.calls : [])] : []).slice(0, Math.floor((laneW + 2) / 10)).map((c, j) => `<rect x="${laneX + j * 10}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
     const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? 0.5))
     const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
@@ -630,7 +649,8 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
       const at2 = (n: number) => +n.toFixed(1)
       const ring =
         `<circle class="k-stroke" cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke-width="${at2(sw)}"/>` +
-        `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>`
+        // None at 0%: a round cap on an empty arc still draws a dot.
+        (m.percent > 0 ? `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>` : '')
       const pct = utext(pctClass(m), cx, cy + fs * 0.35, `${m.percent}%`, fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
       const words = stacked
         ? utext('t', cx, cy + d / 2 + 16, `${usageLabel(m)} · ${mainOf(m)}`, 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
@@ -998,6 +1018,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin: string =
   const H = AGENT_H
   const mark = statusMark(look, a.status, right - 5, 14, color, fresh)
   const markW = 16
+  const metaRoom = right - markW - 4 - monoWidth(time, 11.5) - 10 - textX - effortW - (effort ? 6 : 0)
   // A workflow's agent says so on the second line, where a narrow pane leaves it room.
   const progressText =
     (a.workflow ? 'workflow · ' : '') + (line ? (line.done === line.total ? 'Done' : line.title) : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`)
@@ -1031,7 +1052,8 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin: string =
     (effort
       ? `<rect x="${textX}" y="8" width="${effortW}" height="14" rx="4" fill="${color}" fill-opacity=".16"/><text class="${textCls}" x="${textX + 6}" y="18" font-family="${MONO}" font-size="10" font-weight="600">${xml(effort)}</text>`
       : '') +
-    `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="18" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, Math.max(40, right - markW - 4 - monoWidth(time, 11.5) - 10 - textX - effortW - (effort ? 6 : 0))))}</text>` +
+    // On a narrow pane the type and model give way rather than run under the time.
+    (metaRoom >= 30 ? `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="18" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, metaRoom))}</text>` : '') +
     `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>` +
     mark +
     `<text class="m" x="${textX}" y="33" font-family="${MONO}" font-size="11">${xml(fitMono(progressText, 11, Math.max(40, barW - monoWidth(ctx, 11) - 10)))}</text>` +
@@ -1128,8 +1150,9 @@ const fitSans = (s: string, size: number, maxW: number) => {
 export function stepSvg(step: Step): Drawing {
   const resultText = step.result.map(p => p.text).join('')
   const pillTone = step.result[0]?.tone ?? 'muted'
-  // Always kept, so pills line up from row to row whether or not a step has a time.
-  const timeW = 44
+  // Always kept, so pills line up from row to row whether or not a step has a time; a long time
+  // (a slow run's tortoise) widens it rather than run under the pill.
+  const timeW = Math.max(44, step.time ? monoWidth(step.time, 10.5) + 6 : 0)
   const pillW = resultText ? monoWidth(resultText, 11) + 12 : 0
   const meterW = step.meter ? 5 * 5 + 6 : 0
   const right = STEP_W - 2 - timeW

@@ -295,17 +295,21 @@ export const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
 
 export type Logged =
   | { tool: 'Edit'; path: string; oldText: string; newText: string; times?: number }
-  | { tool: 'Write'; path: string; content: string }
+  // `patch` is the engine's diff of an overwrite; a new file has none and counts every line.
+  | { tool: 'Write'; path: string; content: string; patch?: Hunk2[] }
   | { tool: 'Bash'; command: string; output: string; isError: boolean; at: number; readOnly?: boolean }
 
 // One finished call of the main turn folded into its log: a file's added and removed lines, a
-// command and whether it failed, and the counts of the last command that ran tests.
+// command and whether it failed, and the counts of the last command that ran tests. A test run
+// whose counts cannot be read (it crashed before its summary) leaves none, not an older run's.
 export function logged(log: TurnLog, c: Logged): TurnLog {
   if (c.tool === 'Bash') {
-    const tests = TEST_COMMAND.test(c.command) ? testResult(c.output) : undefined
+    const isTest = TEST_COMMAND.test(c.command)
+    const tests = isTest ? testResult(c.output) : undefined
     const read = c.readOnly && !c.isError
+    const { test: _, ...rest } = log
     return {
-      ...log,
+      ...(isTest ? rest : log),
       commands: log.commands + (read ? 0 : 1),
       reads: (log.reads ?? 0) + (read ? 1 : 0),
       failed: log.failed + (c.isError ? 1 : 0),
@@ -313,7 +317,7 @@ export function logged(log: TurnLog, c: Logged): TurnLog {
     }
   }
   const was = log.files[c.path] ?? { added: 0, removed: 0 }
-  const change = c.tool === 'Edit' ? asked(c.oldText, c.newText).lines : lines(c.content).map(l => `+${l}`)
+  const change = c.tool === 'Edit' ? asked(c.oldText, c.newText).lines : c.patch ? c.patch.flatMap(h => h.lines) : lines(c.content).map(l => `+${l}`)
   const times = c.tool === 'Edit' ? (c.times ?? 1) : 1
   const added = change.filter(l => l.startsWith('+')).length * times
   const removed = change.filter(l => l.startsWith('-')).length * times
