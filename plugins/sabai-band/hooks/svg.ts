@@ -34,16 +34,18 @@ export const TEXT = {
   alert: ['#c0262c', '#ff7377'],
 } as const
 // The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
-// a skin's card. Checked at 4.5:1 against white and a dark conversation by the tests.
+// a skin's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
 export const CHAT_INK: Record<Tone, readonly [string, string]> = {
   text: TEXT.t,
-  muted: TEXT.m,
-  ok: ['#1a7f37', '#3fb950'],
-  bad: ['#cf222e', '#ff7b72'],
-  warn: ['#9a6700', '#d29922'],
-  edit: ['#0969da', '#4493f8'],
-  read: ['#0a7568', '#3ccbbb'],
+  muted: ['#5f5f5c', '#b4b4af'],
+  ok: ['#116329', '#56d364'],
+  bad: ['#a40e26', '#ff8a80'],
+  warn: ['#7d4e00', '#e3b341'],
+  edit: ['#0550ae', '#79c0ff'],
+  read: ['#0a6158', '#3ccbbb'],
 }
+// How strongly a result pill is tinted with its ink: the ink must still read on the tint.
+export const PILL_TINT = 0.1
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
@@ -622,8 +624,6 @@ const ink = (prefix: string, prop: 'fill' | 'stroke', colours: Record<string, re
   Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[0]}}`).join('') +
   `@media (prefers-color-scheme: dark){${Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[1]}}`).join('')}}`
 const CHAT_CSS = ink('k', 'fill', CHAT_INK) + ink('s', 'stroke', CHAT_INK) + `.trk{fill:${TEXT.m[0]};opacity:.16}@media (prefers-color-scheme: dark){.trk{fill:${TEXT.m[1]}}}`
-// One-shot motion, each starting from a visible frame: the icons settle within half a second
-// (the terminal's cursor blinks three times), and reduced motion keeps them still.
 // One-shot motion, starting from a visible frame; reduced motion keeps it still.
 const CHAT_MOTION =
   '.an-pop,.an-shake{transform-box:fill-box;transform-origin:center}' +
@@ -641,13 +641,24 @@ const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: numbe
 const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
 // A semibold proportional face's width, by kind of character: near enough to set the next
 // word after it without overlap, and to cut a title short of the right column.
-const sansWidth = (s: string, size: number) =>
-  [...s].reduce((w, c) => w + size * (/[il.,:;'|!]/.test(c) ? 0.3 : /[fjrt() -]/.test(c) ? 0.4 : /[mwMW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.7 : 0.6), 0)
+// Combining marks (Thai vowels and tones) take no width; CJK and pictographs a full em.
+const charWidth = (c: string) =>
+  /\p{M}/u.test(c) ? 0
+  : /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}]/u.test(c) ? 1
+  : /[il.,:;'|!]/.test(c) ? 0.3 : /[fjrt() -]/.test(c) ? 0.4 : /[mwMW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.7 : 0.6
+const sansWidth = (s: string, size: number) => [...s].reduce((w, c) => w + size * charWidth(c), 0)
+// One pass: keep characters while they and an ellipsis fit.
 const fitSans = (s: string, size: number, maxW: number) => {
   if (sansWidth(s, size) <= maxW) return s
-  const chars = [...s]
-  while (chars.length > 1 && sansWidth(`${chars.join('')}…`, size) > maxW) chars.pop()
-  return `${chars.join('')}…`
+  const room = maxW - size * 0.6
+  let w = 0
+  let out = ''
+  for (const c of s) {
+    w += size * charWidth(c)
+    if (w > room) break
+    out += c
+  }
+  return `${out || [...s][0]}…`
 }
 
 // One tool call as a minimal step on one line: a small stroke icon in its tool's colour, a
@@ -656,14 +667,15 @@ const fitSans = (s: string, size: number, maxW: number) => {
 export function stepSvg(step: Step): Drawing {
   const resultText = step.result.map(p => p.text).join('')
   const pillTone = step.result[0]?.tone ?? 'muted'
-  const timeW = step.time ? monoWidth(step.time, 10.5) + 8 : 0
+  // Always kept, so pills line up from row to row whether or not a step has a time.
+  const timeW = 44
   const pillW = resultText ? monoWidth(resultText, 11) + 12 : 0
   const meterW = step.meter ? 5 * 5 + 6 : 0
   const right = STEP_W - 2 - timeW
   let x = right - pillW
   let pill = ''
   if (resultText) {
-    pill = `<rect class="k-${pillTone}" opacity=".14" x="${x.toFixed(1)}" y="4" width="${pillW.toFixed(1)}" height="16" rx="8"/>`
+    pill = `<rect class="k-${pillTone}" opacity="${PILL_TINT}" x="${x.toFixed(1)}" y="4" width="${pillW.toFixed(1)}" height="16" rx="8"/>`
     let tx = x + 6
     for (const p of step.result) {
       pill += `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="15.5" font-family="${MONO}" font-size="11" xml:space="preserve">${xml(p.text)}</text>`
@@ -728,10 +740,10 @@ export function modesSvg(modes: readonly string[]): Drawing {
 // glyph, and its SVG ink as [light, dark].
 export const CALLOUT_KINDS = {
   note: { title: 'Note', icon: 'info', key: 'suggestion', glyph: 'ℹ', ink: ['#0969da', '#4493f8'] },
-  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', glyph: '💡', ink: CHAT_INK.ok },
-  important: { title: 'Important', icon: 'badge-alert', key: 'claude', glyph: '✦', ink: ['#8250df', '#ab7df8'] },
-  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', glyph: '⚠', ink: CHAT_INK.warn },
-  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', glyph: '⛔', ink: CHAT_INK.bad },
+  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', glyph: '✱', ink: CHAT_INK.ok },
+  important: { title: 'Important', icon: 'badge-alert', key: 'claude', glyph: '✦', ink: ['#a8461f', '#e8916b'] },
+  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', glyph: '▲', ink: CHAT_INK.warn },
+  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', glyph: '✖', ink: CHAT_INK.bad },
 } as const satisfies Record<CalloutKind, { title: string; icon: StrokeKind; key: string; glyph: string; ink: readonly [string, string] }>
 
 // A callout's title: its icon and name in its kind's colour.

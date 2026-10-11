@@ -48,6 +48,8 @@ export type Prefs = {
   chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; label: boolean }
 }
 
+import type { StateFamily } from 'claude-code'
+
 declare module 'claude-code' {
   interface PluginState {
     'sabai-band': {
@@ -61,7 +63,7 @@ declare module 'claude-code' {
       finishedOpen: boolean
       openResults: string[]
       agents: AgentRun[]
-      durations: Record<string, number>
+      durations: StateFamily<number>
     }
   }
 }

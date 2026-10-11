@@ -44,14 +44,15 @@ The newest running agents get a card (up to six, fewer when their drawings would
 
 - **Tool summaries:** each Edit, Write, Read and Bash call is drawn as a one-line step, in place of its folded row:
   - a small stroke icon in the tool's colour;
-  - a title saying what it was about (`Run the mod's test suite`, `Edited svg.ts`);
-  - what it did, dimmed (the command, or the file's path);
+  - a title saying what it was about: the description Claude gave a command, or `Edited svg.ts`;
+  - what it did, dimmed: the command, the file's folder, or the first line of its error;
   - at the right:
     - a small meter (added against removed lines, passed against failed tests);
-    - the result in a tinted pill (`✓ done`, `✗ exit 1`, `+12 −3`, `lines 1–20`);
-    - the time, with ⚡ under a second and 🐢 past thirty.
-  Runs of reads and searches are unfolded into their own steps.
-- **Test results:** a run of bun, jest, vitest, pytest, cargo or go gets a flask icon and its counts (`✓ 141 passed`, `✗ 2 of 98 failed`).
+    - the result in a tinted pill (`✓ done`, `✗ exit 1`, `✗ failed`, `+12 −3`, `lines 1–20`);
+    - the time, with 🐢 past thirty seconds.
+
+  A failed, refused or interrupted call says so. A run of reads unfolds into its own steps. The steps replace the native rows, which expand to a command's output or an edit's diff; turn Tool summaries off to get those back.
+- **Test results:** a command that runs bun, jest, vitest, pytest, cargo or go tests gets a flask icon, a meter and its counts (`✓ 141 passed`, `✗ 2 of 98 failed`).
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` and `[!CAUTION]` in a reply are drawn as boxes in their colour. The mod tells Claude, in one line of its system prompt, that it may use them.
 - **Spinner words:** in Thai while Claude works (`กำลังคิด`, `กำลังลงมือทำ`). On the desktop they replace only the generic `Working`, never a word that names the step.
 - **Guard label:** a shield and `guard` under the prompt while the guard is on, drawn like the steps' icons.

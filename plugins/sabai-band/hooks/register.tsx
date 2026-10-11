@@ -1,4 +1,4 @@
-import { atom, read, update } from 'claude-code'
+import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
@@ -40,11 +40,15 @@ const withDefaults = (v: unknown): Prefs => {
   }
 }
 const STEP_TOOL = 'mcp__sabai-band__step'
-// When each Bash call ran, by tool_use_id: the result carries no duration of its own.
-const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, {} as Record<string, number>)
-const DURATIONS_KEPT = 200
-// Bash calls that waited on a permission prompt: their time would be the person's, not the command's.
+// How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
+// call redraws no other row); -1 while unknown. The result carries no duration of its own.
+const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, -1)
+// Bash calls in flight, by id, and those that waited on the permission dialog: their time would
+// be the person's, not the command's. The auto-mode classifier's ask is quick and keeps it.
+const inFlight = new Map<string, string>()
 const asked = new Set<string>()
+// A reply longer than this is left to the engine: redrawn, it could outgrow the tree limit.
+const REPLY_REDRAW_MAX = 90_000
 // The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
 const SVG_IN_CHAT = true
 // Theme keys for each tone: the conversation follows the person's light or dark theme.
@@ -84,7 +88,7 @@ const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
 // The terminal's stand-ins for a step's icon.
-const STEP_GLYPH: Record<StepIcon, string> = { terminal: '▶', flask: '⚗', pen: '✎', file: '✚', read: '◉', stop: '⏹' }
+const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
@@ -202,20 +206,18 @@ function stepView($: EngineInterface, e: Parameters<EngineInterface['ui']['resol
     return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
   }
   return (
-    <Box flexDirection="column">
-      <Text>
-        <Text color={TONE_KEY[step.tone]}>{`${STEP_GLYPH[step.icon]} `}</Text>
-        <Text bold>{step.title}</Text>
-        {'  '}
-        {step.result.map((p, i) => (
-          <Text key={`r${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
-            {p.text}
-          </Text>
-        ))}
-        {step.time ? <Text dimColor>{` · ${step.time}`}</Text> : null}
-      </Text>
-      <Text dimColor wrap="truncate-end">{`  ${step.detail}`}</Text>
-    </Box>
+    <Text wrap="truncate-end">
+      <Text color={TONE_KEY[step.tone]}>{`${STEP_GLYPH[step.icon]} `}</Text>
+      <Text bold>{step.title}</Text>
+      {step.detail ? <Text dimColor>{`  ${step.detail}`}</Text> : null}
+      {'  '}
+      {step.result.map((p, i) => (
+        <Text key={`r${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
+          {p.text}
+        </Text>
+      ))}
+      {step.time ? <Text dimColor>{` · ${step.time}`}</Text> : null}
+    </Text>
   )
 }
 
@@ -506,12 +508,20 @@ export const register: Register = on => {
     // Timed here, as the result carries no duration of its own.
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
-    const called = await next(e)
-    if (id && !asked.delete(id)) {
-      const ms = (await $.clock.now()) - startedAt
-      await update($, durations, d => Object.fromEntries([...Object.entries(d), [id, ms] as const].slice(-DURATIONS_KEPT)))
+    if (id) inFlight.set(id, e.command)
+    try {
+      const called = await next(e)
+      if (id && !asked.has(id)) {
+        const ms = (await $.clock.now()) - startedAt
+        await update($, memberOf(durations, { requestId: id }), () => ms)
+      }
+      return called
+    } finally {
+      if (id) {
+        inFlight.delete(id)
+        asked.delete(id)
+      }
     }
-    return called
   })
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     const risk = await guarded($, 'Read', e)
@@ -617,10 +627,10 @@ export const register: Register = on => {
         <Box flexDirection="column" rowGap={1}>
           {heading('Chat', 'In the conversation')}
           {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
-          {chatToggle('tools', 'Tool summaries', 'A line under edits, reads and commands')}
-          {chatToggle('tests', 'Test results', 'Passed and failed counts as a bar')}
+          {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
+          {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
           {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-          {chatToggle('label', 'Guard label', 'A shield and guard under the prompt while the guard is on')}
+          {chatToggle('label', 'Guard label', 'A shield and guard under the prompt (needs Guard)')}
         </Box>
         <Box flexDirection="column" rowGap={1}>
           {heading('Agents and safety', '')}
@@ -668,24 +678,28 @@ export const register: Register = on => {
     const { chat } = await read($, prefs)
     const p = e.props
     if (!chat.tools) return next(e)
-    const durationMs = p.tool === 'Bash' ? (await read($, durations))[p.tool_use_id] : undefined
-    const step = stepOf({ ...p, ...(durationMs === undefined ? {} : { durationMs }), tests: chat.tests })
+    const measured = p.tool === 'Bash' ? await read($, memberOf(durations, e)) : -1
+    const step = stepOf({ ...p, ...(measured >= 0 ? { durationMs: measured } : {}), tests: chat.tests })
     return step ? stepView($, e, step) : next(e)
   })
 
-  on('tool.check', { tool: 'Bash' }, async ($, e, next) => {
-    const checked = await next(e)
-    if (checked.decision === 'ask' && e.tool_use_id) asked.add(e.tool_use_id)
-    return checked
+  // The permission dialog opened for a Bash call: mark the calls in flight that it is for.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const input = e.tool_input as { command?: unknown } | undefined
+    if (e.tool_name === 'Bash') for (const [id, command] of inFlight) if (command === input?.command) asked.add(id)
+    return next(e)
   })
 
-  // With Tool summaries on, a folded run of reads and searches unfolds into its own steps.
+  // With Tool summaries on, a folded run of reads unfolds into its own steps; a run with
+  // searches or listings stays folded, as those would unfold into their full results.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
-    (await read($, prefs)).chat.tools ? next({ ...e, props: { ...e.props, isExpanded: true } }) : next(e),
+    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => c.tool === 'Read')
+      ? next({ ...e, props: { ...e.props, isExpanded: true } })
+      : next(e),
   )
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (e.props.isSummary || !(await read($, prefs)).chat.callouts) return next(e)
+    if (e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !(await read($, prefs)).chat.callouts) return next(e)
     const parts = splitCallouts(e.props.text)
     if (!parts.some(s => s.kind === 'callout')) return next(e)
     const ui = $.ui.resolve(e)
@@ -734,7 +748,7 @@ export const register: Register = on => {
       const d = modesSvg(e.props.modes)
       return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
     }
-    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '⛨ guard'] } })
+    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '◈ guard'] } })
   })
 
   on('prompt.compose', async ($, e, next) => {

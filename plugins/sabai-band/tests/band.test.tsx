@@ -867,7 +867,7 @@ test('a Bash row is drawn as a step in place of the engine’s row, with its mea
   for (const surface of SURFACES) {
     const ui = await mountTool($, surface, { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'npm run build' }, output: { stdout: '', stderr: '', interrupted: false } })
     expect([surface, (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')]).toEqual([surface, false])
-    expect([surface, await lineWords(ui, surface)]).toEqual([surface, expect.stringMatching(/Npm run build.*✓ done.*4\.2s/)])
+    expect([surface, await lineWords(ui, surface)]).toEqual([surface, expect.stringMatching(/npm run build.*done.*4\.2s/)])
   }
 })
 
@@ -884,21 +884,21 @@ test('settings saved before the Chat group load with every chat toggle on', asyn
   engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: false, toolbar: true }, notify: true, limits: true, guard: true, steps: true } } })
   await start($)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'f', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['False · ✗ failed'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['false, failed'])
 })
 
 test('Edit, Write and Read rows gain their summary on both surfaces', async ($, on) => {
   engine(on)
   await start($)
   const rows = [
-    { tool_use_id: 'e', tool: 'Edit', input: { file_path: 'src/a.ts' }, output: { structuredPatch: [{ lines: ['-a', '+b', '+c'] }] }, want: ['Edited a.ts', '+2 −1'] },
-    { tool_use_id: 'w', tool: 'Write', input: { file_path: 'docs/new.md' }, output: { type: 'create', content: 'x\n', structuredPatch: [] }, want: ['Created new.md', 'new · 1 line'] },
+    { tool_use_id: 'e', tool: 'Edit', input: { file_path: 'src/a.ts' }, output: { structuredPatch: [{ lines: ['-a', '+b', '+c'] }] }, want: ['Edited a.ts', 'src/', '+2 −1'] },
+    { tool_use_id: 'w', tool: 'Write', input: { file_path: 'docs/new.md' }, output: { type: 'create', content: 'x\n', structuredPatch: [] }, want: ['Created new.md', 'docs/', '1 line'] },
     { tool_use_id: 'r', tool: 'Read', input: { file_path: 'r.md' }, output: { type: 'text', file: { startLine: 5, numLines: 10, totalLines: 40 } }, want: ['Read r.md', 'lines 5–14 of 40'] },
   ]
   for (const { want, ...props } of rows) {
     const desk = await mountTool($, 'desktop', props)
     const svg = (await desk.findAll({ type: 'Svg' }))[0]
-    expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(' · '), 560, 24])
+    expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(', '), 560, 24])
     const term = await mountTool($, 'terminal', props)
     for (const w of want) expect(await lineWords(term, 'terminal')).toContain(w)
   }
@@ -911,14 +911,14 @@ test('a Bash row whose output is a test summary becomes a test line', async ($, 
   engine(on)
   await start($)
   const ui = await mountTool($, 'desktop', TEST_ROW)
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test · ✗ 1 of 10 failed'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test, 1 of 10 failed'])
 })
 
 test('with Test results off, a test run is a plain failed Bash line', async ($, on) => {
   engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: false, callouts: true, label: true } } } })
   await start($)
   const ui = await mountTool($, 'desktop', TEST_ROW)
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test · ✗ exit 1'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test, 9 pass, failed, exit 1'])
 })
 
 const FACTS = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as never
@@ -992,7 +992,7 @@ test('a run whose tests all passed but whose command failed says it failed', asy
   engine(on)
   await start($)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'bt', tool: 'Bash', input: { command: 'bun test && tsc' }, isErrored: true, output: 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS2304' })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Bun test && tsc · ✗ exit 2'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test && tsc, 3 pass, failed, exit 2'])
 })
 
 test('a backgrounded Bash call says so, with no time and no output, though its tool.call resolved', async ($, on) => {
@@ -1004,41 +1004,46 @@ test('a backgrounded Bash call says so, with no time and no output, though its t
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'npm run dev', description: '', tool_use_id: 'bg' } as Parameters<typeof $.tool.call>[0])
   const ui = await mountTool($, 'desktop', { tool_use_id: 'bg', tool: 'Bash', input: { command: 'npm run dev' }, output: { stdout: 'ready', stderr: '', interrupted: false, backgroundTaskId: 'b1' } })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Npm run dev · in the background · 🐢 2m 0s'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['npm run dev, in the background, 2m 0s'])
   expect(await ui.findAll({ type: 'Code' })).toEqual([])
 })
 
-test('a Bash call that waited on a permission prompt shows no time', async ($, on) => {
+test('a Bash call that waited on the permission dialog shows no time; a classifier’s ask keeps it', async ($, on) => {
+  let dialog = false
   on('tool.check', () => ({ decision: 'ask' as const }))
-  on('tool.call', { tool: 'Bash' }, async () => {
+  on('tool.call', { tool: 'Bash' }, async (_, e) => {
+    if (dialog) await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: (e as { command: string }).command } } as never)
     await clock.advance(6000)
     return { result: { stdout: '', stderr: '', interrupted: false } }
   })
+  on('classic.PermissionRequest', () => ({}) as never)
   const { clock } = engine(on)
   await start($)
-  await $.tool.check({ tool: 'Bash', input: { command: 'rm x' }, tool_use_id: 'ask1' })
+  await $.tool.call({ tool: 'Bash', command: 'make', description: '', tool_use_id: 'auto1' } as Parameters<typeof $.tool.call>[0])
+  dialog = true
   await $.tool.call({ tool: 'Bash', command: 'rm x', description: '', tool_use_id: 'ask1' } as Parameters<typeof $.tool.call>[0])
-  const ui = await mountTool($, 'desktop', { tool_use_id: 'ask1', tool: 'Bash', input: { command: 'rm x' }, isErrored: true, output: 'refused' })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Rm x · ✗ failed'])
+  const alt = async (id: string, command: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command }, output: { stdout: '', stderr: '' } })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect(await alt('auto1', 'make')).toEqual(['make, done, 6.0s'])
+  expect(await alt('ask1', 'rm x')).toEqual(['rm x, done'])
 })
 
 test('a quick command the mod did not time still gets its line', async ($, on) => {
   engine(on)
   await start($)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'q', tool: 'Bash', input: { command: 'ls' }, output: { stdout: '', stderr: '', interrupted: false } })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Ls · ✓ done'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['ls, done'])
 })
 
 test('an edit or a write whose row carries no result is read from what was asked of it', async ($, on) => {
   engine(on)
   await start($)
   const edit = await mountTool($, 'desktop', { tool_use_id: 'ni', tool: 'Edit', input: { file_path: 'a.ts', old_string: 'old', new_string: 'new\nmore' } })
-  expect((await edit.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Edited a.ts · +2 −1'])
+  expect((await edit.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Edited a.ts, +2 −1'])
   expect(await edit.findAll({ type: 'Code' })).toEqual([])
   const write = await mountTool($, 'desktop', { tool_use_id: 'nw', tool: 'Write', input: { file_path: 'n.md', content: 'a\nb\n' } })
-  expect((await write.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Wrote n.md · 2 lines'])
+  expect((await write.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Wrote n.md, 2 lines'])
   const read = await mountTool($, 'desktop', { tool_use_id: 'nr', tool: 'Read', input: { file_path: 'r.md', offset: 10, limit: 5 } })
-  expect((await read.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Read r.md · lines 10–14'])
+  expect((await read.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Read r.md, lines 10–14'])
 })
 
 test('a step stands alone: no output under it, and with Tool summaries off the engine’s row is left as it is', async ($, on) => {
@@ -1057,7 +1062,7 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   })
   engine(on)
   await start($)
-  await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: 'g', viewport: { columns: 120, rows: 30 }, props: { calls: [], isActive: false, isExpanded: false } as never })
+  await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: 'g', viewport: { columns: 120, rows: 30 }, props: { calls: [{ tool: 'Read' }], isActive: false, isExpanded: false } as never })
   expect(seen.at(-1)).toBe(true)
 })
 
@@ -1075,5 +1080,47 @@ test('the guard label is drawn like a step’s icon on the desktop, and as a gly
   expect([svg?.props.alt, typeof svg?.props.width, typeof svg?.props.height]).toEqual(['focus & guard', 'number', 'number'])
   expect(String(svg?.props.source)).toContain('M20 13c0 5-3.5 7.5-7.66 8.95')
   await mount('terminal', 2)
-  expect(seen.at(-1)).toEqual(['focus', '⛨ guard'])
+  expect(seen.at(-1)).toEqual(['focus', '◈ guard'])
+})
+
+test('each Bash duration is kept under its own id, so one call does not redraw every row', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(1500)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'make', description: '', tool_use_id: 'own1' } as Parameters<typeof $.tool.call>[0])
+  const alt = async (id: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command: 'make' }, output: {} })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect(await alt('own1')).toEqual(['make, done, 1.5s'])
+  expect(await alt('other')).toEqual(['make, done'])
+})
+
+test('only a run of reads unfolds into steps; a group with searches stays folded', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  engine(on)
+  await start($)
+  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: `rg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
+  await group(1, ['Read', 'Read'])
+  expect(seen.at(-1)).toBe(true)
+  await group(2, ['Read', 'Grep'])
+  expect(seen.at(-1)).toBe(false)
+})
+
+test('a reply too long to redraw within the tree limit is left to the engine, callout or not', async ($, on) => {
+  engine(on)
+  await start($)
+  expect(await isStock(await mountReply($, 'desktop', `> [!NOTE]\n> x\n\n${'word '.repeat(19_000)}`))).toBe(true)
+})
+
+test('on the terminal a step is one line: its glyph, title, what it did, result and time', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'terminal', { tool_use_id: 't1', tool: 'Edit', input: { file_path: 'src/a.ts', new_string: 'x' } })
+  expect(await ui.findAll({ type: 'Box' })).toEqual([])
+  expect(await lineWords(ui, 'terminal')).toMatch(/^✎ Edited a\.ts.*src\/.*\+1 −0/)
 })

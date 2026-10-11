@@ -34,11 +34,11 @@ const count = (words: string, word: string) => Number(words.match(new RegExp(`(\
 const PARSERS: [TestRunner, (t: string) => Counts | undefined][] = [
   ['bun', t => {
     if (!/^Ran \d+ tests? across/m.test(t)) return undefined
-    const n = (w: string) => Number(lastMatch(t, new RegExp(`^\\s*(\\d+) ${w}$`, 'gm'))?.[1] ?? 0)
+    const n = (w: string) => Number(lastMatch(t, new RegExp(`^[ \\t]*(\\d+) ${w}$`, 'gm'))?.[1] ?? 0)
     return { passed: n('pass'), failed: n('fail'), skipped: n('skip') }
   }],
   ['vitest', t => {
-    const m = lastMatch(t, /^\s*Tests\s{2,}(.+?)\s\((\d+)\)\s*$/gm)
+    const m = lastMatch(t, /^[ \t]*Tests[ \t]{2,}(.+?)[ \t]\((\d+)\)[ \t]*$/gm)
     return m ? { passed: count(m[1]!, 'passed'), failed: count(m[1]!, 'failed'), skipped: count(m[1]!, 'skipped') } : undefined
   }],
   ['jest', t => {
@@ -55,9 +55,10 @@ const PARSERS: [TestRunner, (t: string) => Counts | undefined][] = [
     return all.reduce((a, m) => ({ passed: a.passed + Number(m[1]), failed: a.failed + Number(m[2]), skipped: a.skipped + Number(m[3]) }), { passed: 0, failed: 0, skipped: 0 })
   }],
   ['go', t => {
-    const pass = (t.match(/^\s*--- PASS:/gm) ?? []).length
-    const fail = (t.match(/^\s*--- FAIL:/gm) ?? []).length
-    const skip = (t.match(/^\s*--- SKIP:/gm) ?? []).length
+    // Top-level tests only: a subtest's line is indented under its parent's.
+    const pass = (t.match(/^--- PASS:/gm) ?? []).length
+    const fail = (t.match(/^--- FAIL:/gm) ?? []).length
+    const skip = (t.match(/^--- SKIP:/gm) ?? []).length
     if (pass + fail + skip) return { passed: pass, failed: fail, skipped: skip }
     const ok = (t.match(/^ok\s+\S+\s+[\d.]+s/gm) ?? []).length
     const bad = (t.match(/^FAIL\s+\S+\s+[\d.]+s/gm) ?? []).length
@@ -82,7 +83,8 @@ const MARKER = /^>\s*\[!(note|tip|important|warning|caution)\]\s*(.*)$/i
 export function splitCallouts(md: string): Segment[] {
   const out: Segment[] = []
   let text: string[] = []
-  let fence: string | undefined
+  // The open fence's character and length: it closes on a bare run of the same, at least as long.
+  let fence: { ch: string; n: number } | undefined
   const flush = () => {
     if (text.length) out.push({ kind: 'md', text: text.join('\n') })
     text = []
@@ -90,8 +92,12 @@ export function splitCallouts(md: string): Segment[] {
   const lines = md.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!
-    const f = line.match(/^\s*(```+|~~~+)/)?.[1]
-    if (f) fence = fence === undefined ? f[0] : f[0] === fence ? undefined : fence
+    const f = line.match(/^\s*(```+|~~~+)(.*)$/)
+    if (f) {
+      const run = f[1]!
+      if (!fence) fence = { ch: run[0]!, n: run.length }
+      else if (run[0] === fence.ch && run.length >= fence.n && !f[2]!.trim()) fence = undefined
+    }
     const m = fence === undefined && !f ? line.match(MARKER) : null
     if (!m) {
       text.push(line)
@@ -115,11 +121,11 @@ export type SpinnerMode = 'requesting' | 'responding' | 'thinking' | 'tool-input
 
 // Plain Thai, read at a glance; the engine adds its own ellipsis after the word.
 export const SPINNER_WORDS: Record<SpinnerMode, readonly string[]> = {
-  thinking: ['กำลังคิด', 'ขอคิดแป๊บนึงนะ', 'กำลังเรียบเรียงความคิด', 'กำลังหาทางที่ดีที่สุด'],
+  thinking: ['กำลังคิด', 'ขอคิดแป๊บนึงนะ', 'กำลังเรียบเรียง', 'กำลังวางแผน'],
   requesting: ['กำลังส่งคำขอ', 'รอคำตอบสักครู่'],
   'tool-input': ['กำลังเตรียมคำสั่ง'],
-  'tool-use': ['กำลังลงมือทำ', 'กำลังจัดการให้', 'กำลังตรวจดูให้'],
-  responding: ['กำลังเขียนคำตอบ', 'กำลังสรุปให้', 'ใกล้เสร็จแล้ว'],
+  'tool-use': ['กำลังลงมือทำ', 'กำลังจัดการให้', 'กำลังทำงาน'],
+  responding: ['กำลังเขียนคำตอบ', 'กำลังสรุปให้', 'กำลังพิมพ์คำตอบ'],
 }
 
 export function seedOf(id: string): number {
@@ -147,16 +153,28 @@ export function clean(text: string): string {
     .replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '')
 }
 
-const lines = (text: string) => clean(text).replace(/\s+$/, '').split('\n')
-
-const basename = (path: string) => path.split('/').filter(Boolean).pop() ?? path
-// A path short enough for a detail line: its last three parts.
-const shortPath = (path: string) => {
-  const parts = path.split('/').filter(Boolean)
-  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path
+const lines = (text: string) => {
+  const t = clean(text).replace(/\s+$/, '')
+  return t ? t.split('\n') : []
 }
-const firstLine = (text: string) => text.split('\n')[0]!.trim()
+
+const parts = (path: string) => path.split(/[\\/]/).filter(Boolean)
+const basename = (path: string) => parts(path).pop() ?? path
+// A file's folder for a detail line: its last two parts, cut from the left.
+const folderOf = (path: string) => {
+  const dirs = parts(path).slice(0, -1)
+  if (!dirs.length) return ''
+  return dirs.length > 2 ? `…/${dirs.slice(-2).join('/')}/` : `${dirs.join('/')}/`
+}
+const firstLine = (text: string) => clean(text).split('\n').map(l => l.trim()).find(Boolean) ?? ''
 const sentence = (text: string) => (text ? text[0]!.toUpperCase() + text.slice(1) : text)
+// A command's own words, past the `cd … &&` that only moves to where it runs.
+const bare = (command: string) => command.replace(/^(?:cd\s+(?:"[^"]*"|'[^']*'|\S+)\s*&&\s*)+/, '')
+// The first line of an error worth reading: past "Exit code n" and the tool's error tags.
+const errorLine = (text: string) =>
+  firstLine(text.replace(/<\/?tool_use_error>/g, '').split('\n').filter(l => !/^Exit code \d+$/.test(l.trim())).join('\n'))
+// Commands that run tests: only their output is read for counts.
+const TEST_COMMAND = /(?:^|[\s;&|(])(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?test\b|bunx?\s+test\b|(?:npx\s+|bunx\s+)?(?:jest|vitest)\b|(?:python3?\s+-m\s+)?pytest\b|cargo\s+(?:nextest\s+)?test\b|go\s+test\b|claude\s+plugin\s+test\b)/
 
 type Call = { tool: string; input: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; durationMs?: number; tests?: boolean }
 type Hunk2 = { lines: string[] }
@@ -172,65 +190,92 @@ function changes(patch: Hunk2[]): Part[] {
   ]
 }
 
+// The lines an edit changed, from what was asked of it: lines both sides share at the start
+// and end are context, not change.
+function asked(oldText: string, newText: string): Hunk2 {
+  const a = lines(oldText)
+  const b = lines(newText)
+  let head = 0
+  while (head < a.length && head < b.length && a[head] === b[head]) head++
+  let tail = 0
+  while (tail < a.length - head && tail < b.length - head && a[a.length - 1 - tail] === b[b.length - 1 - tail]) tail++
+  return { lines: [...a.slice(head, a.length - tail).map(l => `-${l}`), ...b.slice(head, b.length - tail).map(l => `+${l}`)] }
+}
+
 // The step a tool row shows, or nothing for a tool it does not know.
 export function stepOf(c: Call): Step | undefined {
-  const input = (c.input ?? {}) as { command?: string; description?: string; file_path?: string; old_string?: string; new_string?: string; content?: string; offset?: number; limit?: number }
+  const input = (c.input ?? {}) as { command?: string; description?: string; file_path?: string; old_string?: string; new_string?: string; replace_all?: boolean; content?: string; offset?: number; limit?: number }
   const out = c.output as { stdout?: string; stderr?: string; backgroundTaskId?: string; type?: string; content?: string; structuredPatch?: Hunk2[]; file?: { startLine?: number; numLines?: number; totalLines?: number } } | undefined
-  // A quick run earns a spark, a slow one a tortoise.
-  const time = c.isRunning || c.durationMs === undefined ? undefined : `${c.durationMs < 1000 ? '⚡ ' : c.durationMs >= 30_000 ? '🐢 ' : ''}${seconds(c.durationMs)}`
+  // A slow run earns a tortoise.
+  const time = c.isRunning || c.durationMs === undefined ? undefined : `${c.durationMs >= 30_000 ? '🐢 ' : ''}${seconds(c.durationMs)}`
+  const timed = time ? { time } : {}
+  const error = c.isErrored && typeof c.output === 'string' ? errorLine(c.output) : ''
+  const running: Part[] = [{ text: 'running…', tone: 'muted' }]
   if (c.tool === 'Bash') {
-    const command = firstLine(input.command ?? '')
-    const title = sentence(input.description?.trim() || command)
-    const detail = `$ ${command}`
+    const command = bare(firstLine(input.command ?? ''))
+    const description = firstLine(input.description ?? '')
+    const title = description ? sentence(description) : command
+    const detail = description ? `$ ${command}` : ''
     const said = typeof c.output === 'string' ? c.output : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
-    const tests = c.tests && !c.isRunning ? testResult(said) : undefined
+    const tests = c.tests && !c.isRunning && TEST_COMMAND.test(input.command ?? '') ? testResult(said) : undefined
     const icon: StepIcon = tests ? 'flask' : 'terminal'
-    const base = { icon, title, detail, ...(time ? { time } : {}) }
-    if (c.isRunning) return { ...base, tone: 'muted', result: [{ text: 'running…', tone: 'muted' }] }
+    const base = { icon, title, detail, ...timed }
+    if (c.isRunning) return { ...base, tone: 'muted', result: running }
     if (c.isInterrupted) return { ...base, icon: 'stop', tone: 'muted', result: [{ text: 'interrupted', tone: 'muted' }] }
     if (out?.backgroundTaskId) return { ...base, tone: 'muted', result: [{ text: 'in the background', tone: 'muted' }] }
     const meter = tests ? { good: tests.passed, bad: tests.failed } : undefined
     if (tests && tests.failed > 0)
       return { ...base, tone: 'bad', result: [{ text: `✗ ${tests.failed} of ${tests.passed + tests.failed} failed`, tone: 'bad' }], meter }
     const exit = typeof c.output === 'string' ? c.output.match(/^Exit code (\d+)/)?.[1] : undefined
-    if (c.isErrored) return { ...base, tone: 'bad', result: [{ text: exit ? `✗ exit ${exit}` : '✗ failed', tone: 'bad' }] }
+    if (c.isErrored) return { ...base, ...(error ? { detail: error } : {}), tone: 'bad', result: [{ text: exit ? `✗ exit ${exit}` : '✗ failed', tone: 'bad' }] }
     if (tests) {
       const skipped: Part[] = tests.skipped ? [{ text: ` · ${tests.skipped} skipped`, tone: 'muted' }] : []
       return { ...base, tone: 'ok', result: [{ text: `✓ ${tests.passed} passed`, tone: 'ok' }, ...skipped], meter }
     }
     return { ...base, tone: 'ok', result: [{ text: '✓ done', tone: 'ok' }] }
   }
-  const path = input.file_path ?? ''
+  const path = clean(input.file_path ?? '')
   if (!path) return undefined
-  const where = { detail: shortPath(path), ...(time ? { time } : {}) }
-  const running: Part[] = [{ text: 'working…', tone: 'muted' }]
+  const name = basename(path)
+  const where = { detail: folderOf(path), ...timed }
+  const verb = { Edit: ['Editing', 'Edit', 'Edited'], Write: ['Writing', 'Write', 'Wrote'], Read: ['Reading', 'Read', 'Read'] }[c.tool as 'Edit' | 'Write' | 'Read']
+  if (!verb) return undefined
+  const icon: StepIcon = c.tool === 'Edit' ? 'pen' : c.tool === 'Write' ? 'file' : 'read'
+  const tone: Tone = c.tool === 'Read' ? 'read' : 'edit'
+  if (c.isRunning) return { icon, tone, title: `${verb[0]} ${name}`, ...where, result: running }
+  if (c.isInterrupted) return { icon: 'stop', tone: 'muted', title: `${verb[1]} ${name}`, ...where, result: [{ text: 'interrupted', tone: 'muted' }] }
+  if (c.isErrored) return { icon, tone: 'bad', title: `${verb[1]} ${name}`, ...where, ...(error ? { detail: error } : {}), result: [{ text: '✗ failed', tone: 'bad' }] }
   const counted = (n: number) => `${n} line${n === 1 ? '' : 's'}`
   if (c.tool === 'Edit') {
-    if (c.isRunning) return { icon: 'pen', tone: 'edit', title: `Editing ${basename(path)}`, ...where, result: running }
-    const patch = out?.structuredPatch ?? (input.new_string !== undefined ? [{ lines: [...(input.old_string ? lines(input.old_string).map(l => `-${l}`) : []), ...lines(input.new_string).map(l => `+${l}`)] }] : undefined)
+    const patch = out?.structuredPatch ?? (input.new_string !== undefined ? [asked(input.old_string ?? '', input.new_string)] : undefined)
     const result = patch ? changes(patch) : []
+    const every = input.replace_all && !out?.structuredPatch
     const all = (patch ?? []).flatMap(h => h.lines)
     const meter = { good: all.filter(l => l.startsWith('+')).length, bad: all.filter(l => l.startsWith('-')).length }
-    return { icon: 'pen', tone: 'edit', title: `Edited ${basename(path)}`, ...where, result, ...(meter.good + meter.bad ? { meter } : {}) }
+    return {
+      icon, tone, title: `Edited ${name}`, ...where,
+      result: every ? [...result, { text: ' · every match', tone: 'muted' }] : result,
+      ...(!every && meter.good + meter.bad ? { meter } : {}),
+    }
   }
   if (c.tool === 'Write') {
-    if (c.isRunning) return { icon: 'file', tone: 'edit', title: `Writing ${basename(path)}`, ...where, result: running }
-    if (out?.type === 'create')
-      return { icon: 'file', tone: 'ok', title: `Created ${basename(path)}`, ...where, result: [{ text: `new · ${counted(lines(out.content ?? '').length)}`, tone: 'ok' }] }
-    if (out?.structuredPatch) return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: changes(out.structuredPatch) }
-    return { icon: 'file', tone: 'edit', title: `Wrote ${basename(path)}`, ...where, result: input.content === undefined ? [] : [{ text: counted(lines(input.content).length), tone: 'edit' }] }
+    if (out?.type === 'create') return { icon, tone: 'ok', title: `Created ${name}`, ...where, result: [{ text: counted(lines(out.content ?? '').length), tone: 'ok' }] }
+    if (out?.structuredPatch) return { icon, tone, title: `Wrote ${name}`, ...where, result: changes(out.structuredPatch) }
+    return { icon, tone, title: `Wrote ${name}`, ...where, result: input.content === undefined ? [] : [{ text: counted(lines(input.content).length), tone }] }
   }
-  if (c.tool === 'Read') {
-    const f = out?.type === 'text' ? out.file : undefined
-    const total = f?.totalLines ?? 0
-    const start = f?.startLine ?? 1
-    const n = f?.numLines ?? 0
-    const asked = input.limit ? `lines ${input.offset ?? 1}–${(input.offset ?? 1) + input.limit - 1}` : 'whole file'
-    const range = !f || total === 0 ? asked : start <= 1 && n >= total ? `${total} lines` : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
-    return { icon: 'read', tone: 'read', title: `Read ${basename(path)}`, ...where, result: range ? [{ text: range, tone: 'muted' }] : [] }
-  }
-  return undefined
+  const f = out?.type === 'text' ? out.file : undefined
+  const total = f?.totalLines ?? 0
+  const start = f?.startLine ?? 1
+  const n = f?.numLines ?? 0
+  const from = Math.max(1, input.offset ?? 1)
+  const askedFor = input.limit ? `lines ${from}–${from + input.limit - 1}` : input.offset ? `from line ${from}` : 'whole file'
+  const range = out?.type && out.type !== 'text' ? out.type : !f || total === 0 ? askedFor : start <= 1 && n >= total ? counted(total) : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
+  return { icon, tone, title: `Read ${name}`, ...where, result: [{ text: range, tone: 'muted' }] }
 }
 
-// A step in words: for a drawing's alt text and the terminal.
-export const stepText = (s: Step) => [s.title, s.result.map(p => p.text).join(''), s.time].filter(Boolean).join(' · ')
+// A step in words, without its marks: a drawing's alt text, for a reader that cannot see it.
+export function stepText(s: Step): string {
+  const said = s.result.map(p => p.text).join('')
+  const words = said.startsWith('✓ ') ? said.slice(2) : said.startsWith('✗ ') ? (/fail/.test(said) ? said.slice(2) : `failed, ${said.slice(2)}`) : said
+  return [s.title, s.detail, words, s.time?.replace(/^\p{Extended_Pictographic}\s*/u, '')].filter(Boolean).join(', ')
+}
