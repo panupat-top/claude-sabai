@@ -1,4 +1,4 @@
-import type { Env, Task, Usage } from '../types'
+import type { Env, Task, TurnLog, Usage } from '../types'
 import type { IconKind } from './icons'
 
 export const WARN_AT = 70
@@ -117,4 +117,25 @@ export function progress(tasks: Task[]): Progress | undefined {
 export const blocks = (ratio: number, width: number, full: string, empty: string): string => {
   const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width)
   return full.repeat(filled) + empty.repeat(width - filled)
+}
+
+export type Mood = 'startled' | 'sad' | 'celebrating' | 'sweating' | 'working' | 'sleeping' | 'idle'
+// How long Clawd stays startled after the guard catches a call, and celebrates a passing run.
+export const STARTLE_MS = 3000
+export const CELEBRATE_MS = 4000
+export const SLEEP_AFTER_MS = 5 * 60_000
+export const SWEAT_AT = 90
+
+// How Clawd feels, the most pressing first: the guard just caught something, the turn's tests
+// failed or just passed, the context is nearly full, work is under way, or nothing has happened
+// for a while.
+export function moodOf(s: { log: TurnLog; contextPercent?: number; now: number; isWorking: boolean; lastTurnAt: number }): Mood {
+  const { log, now } = s
+  if (log.caught !== undefined && now - log.caught < STARTLE_MS) return 'startled'
+  if (log.test && log.test.failed > 0) return 'sad'
+  if (log.test && now - log.test.at < CELEBRATE_MS) return 'celebrating'
+  if ((s.contextPercent ?? 0) >= SWEAT_AT) return 'sweating'
+  if (s.isWorking) return 'working'
+  if (s.lastTurnAt > 0 && now - s.lastTurnAt >= SLEEP_AFTER_MS) return 'sleeping'
+  return 'idle'
 }

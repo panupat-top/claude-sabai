@@ -1,13 +1,14 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
+import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { riskOf } from './guard'
-import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
-import type { Step, StepIcon, Tone } from './chat'
+import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -20,13 +21,15 @@ const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'auto')
 const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
+const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
 const DEFAULT_PREFS: Prefs = {
   rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
   notify: true,
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true },
+  chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
+  guardRules: DEFAULT_GUARD_RULES,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -37,9 +40,21 @@ const withDefaults = (v: unknown): Prefs => {
     ...p,
     rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
+    guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
+const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
+// What the guard refused or asked about this session; not stored.
+const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
+// Clock time the main conversation's last turn ended; 0 before any.
+const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
+// Recent turns' logs by their final answer, so the reply that answer is drawn as carries its
+// receipt card; the engine names no turn on a reply, but its text is the answer's.
+const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
+const RECEIPTS_KEPT = 40
+// The tools a row draws as a one-line step.
+const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
 // call redraws no other row); -1 while unknown. The result carries no duration of its own.
 const durations = atom({ plugin: 'sabai', key: 'durations' } as const, -1)
@@ -87,7 +102,11 @@ const CREW_LINGER_MS = 60_000
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
 const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: '◈' } as const
+// Clawd's mood on the terminal, as one glyph; idle shows none.
+const MOOD_GLYPH: Partial<Record<Mood, string>> = { startled: '!', sad: '✗', celebrating: '✓', sweating: '≈', working: '●', sleeping: 'z' }
 // The terminal's stand-ins for a step's icon.
+// The receipt's mark on the terminal, by how the turn went.
+const RECEIPT_GLYPH: Record<Tone, string> = { ok: '✓', bad: '✗', warn: '▲', edit: '●', text: '●', muted: '●', read: '●' }
 const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
 // Module state is fine here: session.start sets it again after a reload.
@@ -184,12 +203,38 @@ async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
   await $.store.set('prefs', next)
 }
 
-// The guard's refusal for a call, told to the person too, or nothing when it passes or is off.
+// The guard's catch for a call under one action: of the call's risks, the one whose rule is set
+// strictest (block, then ask), when that setting is `action` and the guard is on; or nothing.
+const STRICTNESS: Record<GuardAction, number> = { block: 2, ask: 1, off: 0 }
+async function riskFor($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }, action: GuardAction) {
+  const p = await read($, prefs)
+  if (!p.guard) return undefined
+  const strictest = risksOf(tool, input).sort((a, b) => STRICTNESS[p.guardRules[b.rule]] - STRICTNESS[p.guardRules[a.rule]])[0]
+  return strictest && p.guardRules[strictest.rule] === action ? strictest : undefined
+}
+
+// One more catch this session, stamped on the turn so Clawd startles.
+async function caught($: EngineInterface) {
+  const at = await $.clock.now()
+  await update($, guardCaught, n => n + 1)
+  await update($, turnLog, l => ({ ...l, caught: at }))
+  await update($, now, () => at)
+  $.clock.after(STARTLE_MS + 100, () => void tick($))
+}
+
+// The guard's refusal for a call, told to the person too, or nothing when it passes, asks or is off.
 async function guarded($: EngineInterface, tool: string, input: { command?: unknown; file_path?: unknown }): Promise<string | undefined> {
-  const risk = (await read($, prefs)).guard ? riskOf(tool, input) : undefined
+  const risk = await riskFor($, tool, input, 'block')
   if (!risk) return undefined
-  $.ui.toast(`Blocked: this ${risk}`)
-  return `sabai's guard refused this: it ${risk}. The person can turn the guard off in /sabai-settings.`
+  await caught($)
+  $.ui.toast(`Blocked: this ${risk.reason}`)
+  return `sabai's guard refused this: it ${risk.reason}. The person can turn the guard off in /sabai-settings.`
+}
+
+// The main turn's work, for its receipt and Clawd's mood; a refused call did nothing.
+async function logCall($: EngineInterface, agentId: string | undefined, called: { deny?: string }, call: Logged) {
+  if (agentId !== undefined || called.deny !== undefined) return
+  await update($, turnLog, l => logged(l, call))
 }
 
 async function setSkin($: EngineInterface, name: string) {
@@ -327,6 +372,16 @@ export const register: Register = on => {
       // Not waited on: a large repository's status must not delay the turn's end.
       void readRepo($)
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
+      const ended = await $.clock.now()
+      await update($, lastTurnAt, () => ended)
+      // The receipt: a card under the reply that holds the answer; a turn with no words of its own
+      // gets it as the notice under it instead.
+      const log = await read($, turnLog)
+      if ((await read($, prefs)).chat.receipt && receiptOf(log)) {
+        const answer = e.answer.trim()
+        if (!answer) return { ...completed, text: receiptText(log)! }
+        await update($, receipts, all => Object.fromEntries([...Object.entries(all).filter(([k]) => k !== answer), [answer, log]].slice(-RECEIPTS_KEPT)))
+      }
     } else {
       const at = await $.clock.now()
       const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
@@ -504,8 +559,35 @@ export const register: Register = on => {
   // The guard, when turned on: refuse the few commands that are almost never meant.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const risk = await guarded($, 'Bash', e)
-    if (risk) return { deny: risk }
-    // Timed here, as the result carries no duration of its own.
+    return risk ? { deny: risk } : next(e)
+  }).catch(($, e, next) => failClosed(next, () => next(e)))
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    const risk = await guarded($, 'Read', e)
+    return risk ? { deny: risk } : next(e)
+  }).catch(($, e, next) => failClosed(next, () => next(e)))
+  // The guard's Ask: the permission decision becomes an ask with the guard's reason, which opens
+  // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
+  // A deny decided beneath (a settings rule, a classic hook) stands: the guard only tightens.
+  on('tool.check', async ($, e, next) => {
+    const decided = await next(e)
+    const risk = e.tool_use_id === undefined || decided.decision === 'deny' ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
+    if (!risk) return decided
+    await caught($)
+    return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
+  }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))
+  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    const called = await next(e)
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string })
+    return called
+  })
+  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    const called = await next(e)
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
+    return called
+  })
+  // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
+  // refuses a command.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
@@ -515,6 +597,15 @@ export const register: Register = on => {
         const ms = (await $.clock.now()) - startedAt
         await update($, memberOf(durations, { requestId: id }), () => ms)
       }
+      const r = called.result as { stdout?: string; stderr?: string } | string | undefined
+      const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
+      const at = await $.clock.now()
+      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at })
+      // This call just set the turn's test result: redraw now, and again when the celebration ends.
+      if (e.agentId === undefined && (await read($, turnLog)).test?.at === at) {
+        await update($, now, () => at)
+        $.clock.after(CELEBRATE_MS + 100, () => void tick($))
+      }
       return called
     } finally {
       if (id) {
@@ -522,10 +613,6 @@ export const register: Register = on => {
         asked.delete(id)
       }
     }
-  })
-  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
-    const risk = await guarded($, 'Read', e)
-    return risk ? { deny: risk } : next(e)
   })
 
   // A subagent reporting its own steps through the mod's tool.
@@ -666,6 +753,7 @@ export const register: Register = on => {
             {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
             {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
             {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
+            {chatToggle('receipt', 'Turn receipt', 'One line under a working turn’s answer: files changed, tests, commands')}
             {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </>,
         )}
@@ -675,7 +763,28 @@ export const register: Register = on => {
           '◈',
           'Safety',
           'What Claude may not run',
-          flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on'),
+          <Box flexDirection="column" rowGap={1}>
+            {flag('guard', 'Guard', 'Catch the commands below; a shield in the band counts what it caught. In auto mode, Ask goes to the classifier')}
+            {p.guard ? (
+              <Box flexDirection="column" rowGap={1}>
+                {(Object.keys(GUARD_RULES) as GuardRule[]).map(rule => (
+                  <Box key={`row-guard-${rule}`} flexDirection="row" alignItems="center" columnGap={2}>
+                    {named(GUARD_RULES[rule].name, GUARD_RULES[rule].note)}
+                    <Box flexDirection="row" columnGap={1}>
+                      {(['block', 'ask', 'off'] as GuardAction[]).map(action => (
+                        <Button
+                          key={`guard-${rule}-${action}`}
+                          label={action === 'block' ? 'Block' : action === 'ask' ? 'Ask' : 'Off'}
+                          variant={p.guardRules[rule] === action ? 'primary' : 'secondary'}
+                          onPress={() => setPrefs($, x => ({ ...x, guardRules: { ...x.guardRules, [rule]: action } }))}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            ) : null}
+          </Box>,
         )}
         {group(
           'alerts',
@@ -725,22 +834,26 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // With Tool summaries on, a folded run of reads unfolds into its own steps; a run with
-  // searches or listings stays folded, as those would unfold into their full results.
+  // With Tool summaries on, a folded run of calls drawn as one-line steps unfolds into them; a run
+  // with searches or listings stays folded, as those would unfold into their full results.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
-    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => c.tool === 'Read')
+    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => STEP_TOOLS.has(c.tool))
       ? next({ ...e, props: { ...e.props, isExpanded: true } })
       : next(e),
   )
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
-    if (e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !(await read($, prefs)).chat.callouts) return next(e)
-    const parts = splitCallouts(e.props.text)
-    if (!parts.some(s => s.kind === 'callout')) return next(e)
+    const p = await read($, prefs)
     const ui = $.ui.resolve(e)
     const { Box, Markdown, Text } = ui
     const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
-    return (
+    // The turn's receipt, when this reply holds a working turn's final answer.
+    const log = p.chat.receipt && !e.props.isSummary ? (await read($, receipts))[e.props.text.trim()] : undefined
+    const receipt = log && receiptOf(log)
+    const parts = e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !p.chat.callouts ? [] : splitCallouts(e.props.text)
+    const body = !parts.some(s => s.kind === 'callout') ? (
+      await next(e)
+    ) : (
       <Box flexDirection="column" rowGap={1}>
         {parts.map((s, i) => {
           if (s.kind === 'md') return s.text.trim() ? <Markdown key={`md${i}`} text={s.text} /> : null
@@ -761,10 +874,24 @@ export const register: Register = on => {
         })}
       </Box>
     )
+    if (!receipt || !log) return body
+    const card = Svg ? receiptSvg(receipt) : undefined
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        {body}
+        {Svg && card ? (
+          <Svg source={card.source} alt={card.alt} width={card.width} height={card.height} />
+        ) : (
+          <Text color={TONE_KEY[receipt.tone]}>{`${RECEIPT_GLYPH[receipt.tone]} ${receipt.headline} · ${receiptText(log)}`}</Text>
+        )}
+      </Box>
+    )
   })
 
   on('turn.start', async ($, e, next) => {
     turnSeed = seedOf(e.turnId)
+    // Only the main conversation's turns start here: a subagent's run has no turn.start.
+    await update($, turnLog, () => EMPTY_LOG)
     return next(e)
   })
 
@@ -799,13 +926,15 @@ export const register: Register = on => {
     const list = rows.usage ? meters(measured, at) : []
     const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
-    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
+    const caughtCount = await read($, guardCaught)
+    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
     const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
     const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
     if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
+    const mood = moodOf({ log: await read($, turnLog), contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: await read($, lastTurnAt) })
 
     const skinName = await read($, skin)
     const style = await read($, bar)
@@ -867,7 +996,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, info, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), e.props.isWorking, skinName, style, { runs, now: at })
+      const band = bandSvg(p, { ...info, show: rows.info }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -880,8 +1009,9 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {info.left.length + info.right.length > 0 && (
+        {(info.left.length + info.right.length > 0 || (rows.info && !p && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
+            {!p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>
@@ -897,7 +1027,7 @@ export const register: Register = on => {
         {p && (
           <Box flexDirection="row" columnGap={2}>
             <Text wrap="truncate-end">
-              <Text color={look.bar('tasks', 0)}>● </Text>
+              <Text color={look.bar('tasks', 0)}>{`${MOOD_GLYPH[mood] ?? '●'} `}</Text>
               {p.title}
             </Text>
             <Text color={look.bar('tasks', 0)}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>

@@ -155,20 +155,30 @@ function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { f
 }
 
 // `mode`: `run` walks, `idle` blinks, `hop` jumps twice (a finished agent), `dizzy` shuts the
-// eyes (a failed one). `tint` repaints Clawd's body; `hat` sits on top and moves with the body,
+// eyes (a failed one); for the band's moods, `startle` jolts under a `!`, `sweat` drips a drop
+// and `sleep` shuts the eyes under a rising `z`. `tint` repaints Clawd's body; `hat` sits on top and moves with the body,
 // and with `prop` its type's tool is held to his right.
 export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }): string {
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   // Shut eyes: the lower of the two eye rows is painted as body.
-  const body = mode === 'dizzy' && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
+  const body = (mode === 'dizzy' || mode === 'sleep') && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
   const held = hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : undefined
   const art =
     (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
     draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined)) +
     (held ? draw(held.rows, px, 3, ch => (held.colors[ch] ? { fill: held.colors[ch], group: held.classes[ch] } : undefined), 24) : '') +
-    (mode === 'dizzy' && kind === 'tasks' ? draw(BANDAGE, px, 4, ch => (ch === 'w' ? { fill: '#f8f6f1', group: 'bd' } : undefined), 10) : '')
+    (mode === 'dizzy' && kind === 'tasks' ? draw(BANDAGE, px, 4, ch => (ch === 'w' ? { fill: '#f8f6f1', group: 'bd' } : undefined), 10) : '') +
+    (kind === 'tasks' ? (MOOD_MARKS[mode] ?? '') : '')
   return `<g transform="translate(${x},${y})" shape-rendering="crispEdges"${mode ? ` class="${mode}"` : ''}>${art}</g>`
+}
+
+// A mood's mark beside Clawd's head (24×16 at px 1, so x ≥ 24 is past him and y ≥ 0 stays inside
+// the row), mid-tones that read on light and dark; the `z` takes the band's muted ink.
+const MOOD_MARKS: Record<string, string> = {
+  startle: '<g class="bang"><rect x="25" y="0" width="2" height="4" fill="#e3b341"/><rect x="25" y="5" width="2" height="1" fill="#e3b341"/></g>',
+  sweat: '<g class="drop"><rect x="21" y="1" width="2" height="2" fill="#5fb4ff"/><rect x="21.5" y="0" width="1" height="1" fill="#5fb4ff"/></g>',
+  sleep: '<g class="zz"><rect x="25" y="0" width="4" height="1" class="sm"/><rect x="27" y="1" width="1" height="1" class="sm"/><rect x="26" y="2" width="1" height="1" class="sm"/><rect x="25" y="3" width="4" height="1" class="sm"/></g>',
 }
 
 export const SPRITE_CSS =
@@ -187,4 +197,9 @@ export const SPRITE_CSS =
   '.run g.pr-twist{transform-origin:50% 100%;animation:twist .5s ease-in-out infinite}@keyframes twist{50%{transform:rotate(-35deg)}}' +
   '.run g.pr-flip{transform-origin:50% 50%;animation:flip 1s steps(2) infinite}@keyframes flip{50%{transform:scaleX(-1)}}' +
   '.run g.pr-steam{animation:blink .5s steps(1) infinite}' +
-  'g.pr-wave{transform-box:fill-box;transform-origin:0 100%;animation:wave 1s ease-in-out infinite}@keyframes wave{50%{transform:rotate(-12deg)}}'
+  'g.pr-wave{transform-box:fill-box;transform-origin:0 100%;animation:wave 1s ease-in-out infinite}@keyframes wave{50%{transform:rotate(-12deg)}}' +
+  // The moods' marks: each starts where it is drawn, fully shown, so a still first frame reads.
+  '.startle g.bd,.startle g.eye,.startle g.la,.startle g.lb{animation:jolt .35s ease-out 1}@keyframes jolt{40%{transform:translateY(-3px)}}' +
+  '.bang{animation:blink .5s steps(1) 2}' +
+  '.drop{animation:drip 1s ease-in infinite}@keyframes drip{60%{transform:translateY(2px);opacity:1}61%{opacity:0}}' +
+  '.zz{animation:zz 1s ease-out infinite}@keyframes zz{70%{transform:translate(1px,-2px);opacity:.3}}'

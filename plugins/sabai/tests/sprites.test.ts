@@ -54,3 +54,18 @@ test('a finished Clawd waves his report; a failed one wears a bandage', () => {
   expect(SPRITE_CSS).toContain('g.pr-wave{')
   expect(pixels(sprite('tasks', 0, 0, 'dizzy', '#ff0000')).get('11,5')).toBe('#f8f6f1')
 })
+
+test('Clawd startles with a mark, sweats a drop and sleeps with shut eyes and a z', () => {
+  const startle = sprite('tasks', 0, 0, 'startle', '#ff0000')
+  expect(startle).toContain('class="startle"')
+  expect(startle).toContain('class="bang"')
+  expect(sprite('tasks', 0, 0, 'sweat', '#ff0000')).toContain('class="drop"')
+  const sleep = sprite('tasks', 0, 0, 'sleep', '#ff0000')
+  expect(sleep).toContain('class="zz')
+  // Shut eyes, as a failed Clawd's, but no bandage.
+  const px = pixels(sleep)
+  expect([px.get('6,2'), px.get('6,3')]).toEqual(['#1F1E1D', '#ff0000'])
+  expect(px.get('11,5')).toBe('#ff0000')
+  // Each mark's animation is in the stylesheet.
+  for (const cls of ['startle', 'bang', 'drop', 'zz']) expect([cls, SPRITE_CSS.includes(`.${cls}`)]).toEqual([cls, true])
+})

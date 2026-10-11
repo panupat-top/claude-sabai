@@ -45,7 +45,22 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
-  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean }
+  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
+  guardRules: Record<GuardRule, GuardAction>
+}
+
+export type GuardRule = 'wipe' | 'force' | 'env' | 'discard'
+export type GuardAction = 'block' | 'ask' | 'off'
+
+// The main conversation's current turn: what its receipt and Clawd's mood read.
+export type TurnLog = {
+  files: Record<string, { added: number; removed: number }>
+  commands: number
+  failed: number
+  // The turn's last test run, with the clock time it ended.
+  test?: { passed: number; failed: number; at: number }
+  // Clock time of the guard's latest refusal or ask.
+  caught?: number
 }
 
 
@@ -63,6 +78,10 @@ declare module 'claude-code' {
       openResults: string[]
       agents: AgentRun[]
       durations: StateFamily<number>
+      turnLog: TurnLog
+      guardCaught: number
+      lastTurnAt: number
+      receipts: Record<string, TurnLog>
     }
   }
 }

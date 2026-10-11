@@ -1,5 +1,7 @@
 // What the mod adds to the conversation, as plain values: a summary line under a tool row,
-// test results, callouts and the spinner's words. register.tsx draws them per surface.
+// test results, callouts, the spinner's words and a turn's receipt. register.tsx draws them per surface.
+
+import type { TurnLog } from '../types'
 
 export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn' | 'edit' | 'read'
 export type Part = { text: string; tone: Tone }
@@ -278,4 +280,67 @@ export function stepText(s: Step): string {
   const said = s.result.map(p => p.text).join('')
   const words = said.startsWith('✓ ') ? said.slice(2) : said.startsWith('✗ ') ? (/fail/.test(said) ? said.slice(2) : `failed, ${said.slice(2)}`) : said
   return [s.title, s.detail, words, s.time?.replace(/^\p{Extended_Pictographic}\s*/u, '')].filter(Boolean).join(', ')
+}
+
+export const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
+
+export type Logged =
+  | { tool: 'Edit'; path: string; oldText: string; newText: string }
+  | { tool: 'Write'; path: string; content: string }
+  | { tool: 'Bash'; command: string; output: string; isError: boolean; at: number }
+
+// One finished call of the main turn folded into its log: a file's added and removed lines, a
+// command and whether it failed, and the counts of the last command that ran tests.
+export function logged(log: TurnLog, c: Logged): TurnLog {
+  if (c.tool === 'Bash') {
+    const tests = TEST_COMMAND.test(c.command) ? testResult(c.output) : undefined
+    return {
+      ...log,
+      commands: log.commands + 1,
+      failed: log.failed + (c.isError ? 1 : 0),
+      ...(tests ? { test: { passed: tests.passed, failed: tests.failed, at: c.at } } : {}),
+    }
+  }
+  const was = log.files[c.path] ?? { added: 0, removed: 0 }
+  const change = c.tool === 'Edit' ? asked(c.oldText, c.newText).lines : lines(c.content).map(l => `+${l}`)
+  const added = change.filter(l => l.startsWith('+')).length
+  const removed = change.filter(l => l.startsWith('-')).length
+  return { ...log, files: { ...log.files, [c.path]: { added: was.added + added, removed: was.removed + removed } } }
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+export type Receipt = {
+  tone: Tone
+  headline: string
+  files?: { count: number; added: number; removed: number }
+  test?: { passed: number; failed: number }
+  commands?: { count: number; failed: number }
+}
+
+// What a turn did, for its receipt, with a headline and tone for how it went; nothing for a turn
+// that changed, tested and ran nothing.
+export function receiptOf(log: TurnLog): Receipt | undefined {
+  const all = Object.values(log.files)
+  const files = all.length ? { count: all.length, added: all.reduce((n, f) => n + f.added, 0), removed: all.reduce((n, f) => n + f.removed, 0) } : undefined
+  const test = log.test ? { passed: log.test.passed, failed: log.test.failed } : undefined
+  const commands = log.commands ? { count: log.commands, failed: log.failed } : undefined
+  if (!files && !test && !commands) return undefined
+  const [tone, headline]: [Tone, string] =
+    test && test.failed > 0 ? ['bad', 'Tests failing']
+    : log.failed > 0 ? ['warn', `${plural(log.failed, 'command')} failed`]
+    : test ? ['ok', 'All green']
+    : ['edit', 'Done']
+  return { tone, headline, ...(files ? { files } : {}), ...(test ? { test } : {}), ...(commands ? { commands } : {}) }
+}
+
+// The turn's receipt in one line, or nothing for a turn that changed, tested and ran nothing.
+export function receiptText(log: TurnLog): string | undefined {
+  const r = receiptOf(log)
+  if (!r) return undefined
+  const parts: string[] = []
+  if (r.files) parts.push(`✎ ${plural(r.files.count, 'file')} +${r.files.added} −${r.files.removed}`)
+  if (r.test) parts.push(r.test.failed ? `✗ ${r.test.failed} of ${r.test.passed + r.test.failed} failed` : `✓ ${r.test.passed} passed`)
+  if (r.commands) parts.push(`› ${plural(r.commands.count, 'command')}${r.commands.failed ? `, ${r.commands.failed} failed` : ''}`)
+  return parts.join(' · ')
 }

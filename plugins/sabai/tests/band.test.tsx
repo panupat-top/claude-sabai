@@ -823,6 +823,170 @@ test('the guard, once turned on, refuses a risky command and says why', async ($
   expect((await run('ls')).deny).toBeUndefined()
 })
 
+const guardOn = async ($: Engine) => {
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-guard' })
+  return pane
+}
+const bash = ($: Engine, command: string) => $.tool.call({ tool: 'Bash', command, description: '' } as Parameters<typeof $.tool.call>[0])
+// The permission decision for a real Bash call: the guard's Ask answers here.
+let checks = 0
+const check = async ($: Engine, command: string) =>
+  (await $.tool.check({ tool: 'Bash', input: { command }, tool_use_id: `c${++checks}` } as never)) as { decision: string; reason?: string }
+const allowBeneath = (on: On) => on('tool.check', () => ({ decision: 'allow' as const }))
+
+test('each guard rule blocks, asks or passes as Settings say', async ($, on) => {
+  engine(on)
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  const pane = await guardOn($)
+  // Defaults: wipe and env block; force and discard ask.
+  expect((await bash($, 'rm -rf /')).deny).toMatch(/deletes the whole disk/)
+  expect((await bash($, 'git reset --hard')).deny).toBeUndefined()
+  expect(await check($, 'git reset --hard')).toEqual({ decision: 'ask', reason: expect.stringMatching(/throws away uncommitted work/) })
+  expect((await check($, 'rm -rf /')).decision).toBe('allow')
+  expect((await check($, 'ls')).decision).toBe('allow')
+  // Discard set to Block, wipe set to Off.
+  await pane.press({ key: 'guard-discard-block' })
+  await pane.press({ key: 'guard-wipe-off' })
+  expect((await bash($, 'git reset --hard')).deny).toMatch(/throws away uncommitted work/)
+  expect((await check($, 'git reset --hard')).decision).toBe('allow')
+  expect((await bash($, 'rm -rf /')).deny).toBeUndefined()
+})
+
+test('a deny decided beneath stands over the guard’s ask; a compound command takes its strictest rule', async ($, on) => {
+  engine(on)
+  panes(on)
+  on('tool.check', () => ({ decision: 'deny' as const, reason: 'a settings rule' }))
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await guardOn($)
+  expect(await check($, 'git reset --hard')).toEqual({ decision: 'deny', reason: 'a settings rule' })
+  // Discard asks and .env blocks by default: together, the block wins.
+  expect((await bash($, 'git reset --hard && cat .env')).deny).toMatch(/reads a .env file/)
+})
+
+test('the band’s guard chip counts what the guard caught this session', async ($, on) => {
+  engine(on)
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await guardOn($)
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringMatching(/guard(?! ·)/)])
+  await bash($, 'rm -rf /')
+  await check($, 'git reset --hard')
+  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 2')])
+})
+
+test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true }, notify: true, limits: true, guard: true, steps: true, chat: { spinner: true, tools: true, tests: true, callouts: true } } } })
+  panes(on)
+  allowBeneath(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  expect((await bash($, 'cat .env')).deny).toMatch(/reads a .env file/)
+  expect((await check($, 'git push -f origin main')).reason).toMatch(/force-pushes to main/)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const rule of ['wipe', 'force', 'env', 'discard']) expect([rule, await pane.find({ key: `guard-${rule}-ask` })]).not.toEqual([rule, undefined])
+})
+
+// A main turn: start, the calls, end; what turn.complete answered.
+let turns = 0
+async function turn($: Engine, calls: () => Promise<unknown>, answer = 'ok') {
+  const turnId = `main-${++turns}`
+  await $.turn.start({ turnId } as never)
+  await calls()
+  return (await $.turn.complete({ turnId, answer, durationMs: 1000, isAborted: false, reason: 'answer' })) as { text: string }
+}
+// The receipt under a reply: the desktop's drawing by its alt, the terminal's line.
+async function receiptUnder($: Engine, surface: Surface, text: string) {
+  const ui = await mountReply($, surface, text)
+  const words = surface === 'desktop' ? (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('') : (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
+  await ui.unmount()
+  return words
+}
+const turnStarts = (on: On) => on('turn.start', ($, e) => ({ turnId: (e as { turnId: string }).turnId }))
+
+test('a working turn’s last reply carries its receipt card; other replies, plain answers and reads none', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  turnStarts(on)
+  await start($)
+  const done = await turn(
+    $,
+    async () => {
+      await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b\nc', replace_all: false } as Parameters<typeof $.tool.call>[0])
+      await bash($, 'bun test')
+      await bash($, 'ls')
+    },
+    'All done.',
+  )
+  // The answer itself is left alone: the card is drawn under the reply instead.
+  expect(done.text).toBe('')
+  expect(await receiptUnder($, 'desktop', 'All done.')).toBe('Turn receipt: All green; 1 file +2 −1; 9 passed; 2 commands')
+  expect(await receiptUnder($, 'terminal', 'All done.')).toContain('All green · ✎ 1 file +2 −1 · ✓ 9 passed · › 2 commands')
+  expect(await receiptUnder($, 'desktop', 'An earlier reply.')).not.toContain('Turn receipt')
+  await turn($, async () => undefined, 'Just talk.')
+  expect(await receiptUnder($, 'desktop', 'Just talk.')).not.toContain('Turn receipt')
+  await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]), 'Read it.')
+  expect(await receiptUnder($, 'desktop', 'Read it.')).not.toContain('Turn receipt')
+  // A turn that ends with no words of its own falls back to the notice under it.
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('› 1 command')
+})
+
+test('a subagent’s calls stay out of the main turn’s receipt, and the toggle turns it off', async ($, on) => {
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await turn($, () => $.tool.call({ tool: 'Bash', command: 'ls', description: '', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0]), 'Sub ran.')
+  expect(await receiptUnder($, 'desktop', 'Sub ran.')).not.toContain('Turn receipt')
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-chat-receipt' })
+  await turn($, () => bash($, 'ls'), 'Ran ls.')
+  expect(await receiptUnder($, 'desktop', 'Ran ls.')).not.toContain('Turn receipt')
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
+})
+
+test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 7 pass\n 2 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  on('ui.toast', () => ({ value: undefined }))
+  await start($)
+  await turn($, () => bash($, 'bun test'))
+  expect((await shown($, 'desktop')).words).toContain('Clawd is sad')
+  expect((await shown($, 'terminal')).words).toContain('✗')
+  await guardOn($)
+  await bash($, 'rm -rf /')
+  expect((await shown($, 'desktop')).words).toContain('Clawd is startled')
+})
+
+test('the band with every row, a full crew and Clawd in the info row stays under the tree limit', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (let i = 0; i < 6; i++) await spawn($, `job ${i}`)
+  const ui = await mountBand($, 'desktop', true)
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  const svg = (await ui.findAll({ type: 'Svg' }))[0]
+  expect(String(svg?.props.source)).toContain('class="run"')
+  expect(String(svg?.props.source).length).toBeLessThanOrEqual(131_072)
+  await ui.unmount()
+})
+
 test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
   engine(on)
   panes(on)
@@ -1114,6 +1278,21 @@ test('each Bash duration is kept under its own id, so one call does not redraw e
   const alt = async (id: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command: 'make' }, output: {} })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
   expect(await alt('own1')).toEqual(['make, done, 1.5s'])
   expect(await alt('other')).toEqual(['make, done'])
+})
+
+test('a group of calls drawn as steps unfolds; one with searches stays folded', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  engine(on)
+  await start($)
+  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'ToolGroup', requestId: `mg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
+  await group(1, ['Bash', 'Read', 'Edit', 'Write'])
+  expect(seen.at(-1)).toBe(true)
+  await group(2, ['Bash', 'Glob'])
+  expect(seen.at(-1)).toBe(false)
 })
 
 test('only a run of reads unfolds into steps; a group with searches stays folded', async ($, on) => {
