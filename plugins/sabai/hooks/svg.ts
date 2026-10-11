@@ -437,6 +437,30 @@ export type BandOpts = {
   crew?: { runs: readonly AgentRun[]; now: number }
   density?: 'comfortable' | 'compact'
   clawd?: boolean
+  live?: LiveStrip
+}
+
+// The turn as it runs, for the live strip.
+export type LiveStrip = { elapsedMs: number; step?: { icon: StepIcon; title: string }; files: number; commands: number; test?: { passed: number; failed: number } }
+const LIVE_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '⚗', pen: '✎', file: '+', read: '≡', stop: '■' }
+
+// The live strip: Clawd (when he stands here), the turn's elapsed time, the step in flight, and
+// the turn's tallies so far at the right.
+function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood): Part {
+  const lead = mood ? spriteSize('tasks').width + 8 : 0
+  const time = clock(live.elapsedMs)
+  const tallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
+  const stepX = lead + monoWidth(time, 11.5) + 12
+  const room = W - stepX - monoWidth(tallies, 11) - 16
+  const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
+  const body =
+    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood) : '') +
+    `<text class="st" x="${lead}" y="${top + 14}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` +
+    (title ? `<text class="sm" x="${stepX}" y="${top + 14}" font-family="${SANS}" font-size="12">${xml(title)}</text>` : '') +
+    (tallies ? `<text class="sm" x="${W}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11">${xml(tallies)}</text>` : '')
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+  const words = [live.files && plural(live.files, 'file'), live.commands && plural(live.commands, 'command'), live.test && (live.test.failed ? `${live.test.failed} failed` : `${live.test.passed} passed`)].filter(Boolean).join(', ')
+  return { body: `<g>${body}</g>`, height: ROW_H, alt: `Working ${time}${live.step ? `: ${live.step.title}` : ''}${words ? `; ${words}` : ''}` }
 }
 
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
@@ -448,7 +472,7 @@ export function bandSvg(
   W: number,
   opts: BandOpts = {},
 ): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true } = opts
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live } = opts
   const compact = opts.density === 'compact'
   const gap = compact ? 4 : GAP
   const look = lookOf(skin)
@@ -458,9 +482,11 @@ export function bandSvg(
     parts.push(part)
     y += part.height + gap
   }
-  // Clawd stands in the info row when there is no tasks row to hold him.
-  const clawdInInfo = !p && Boolean(info.show) && clawd
+  // One Clawd: the tasks row holds him, else the live strip, else the info row.
+  const clawdInLive = !p && Boolean(live) && clawd
+  const clawdInInfo = !p && !live && Boolean(info.show) && clawd
   if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
+  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))

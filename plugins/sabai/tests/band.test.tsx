@@ -1038,6 +1038,25 @@ test('a rising 5H limit gets a ghost to where it is heading and words for it; a 
   expect((await shown($, 'desktop')).words).not.toContain('by reset')
 })
 
+test('while the main turn works the band shows the live strip with the step in flight; a subagent’s calls do not', async ($, on) => {
+  let release: () => void = () => undefined
+  on('tool.call', { tool: 'Bash' }, () => new Promise(r => (release = () => r({ result: { stdout: '', stderr: '', interrupted: false } }))))
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'live' } as never)
+  const running = $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build it' } as Parameters<typeof $.tool.call>[0])
+  await settle()
+  expect((await shown($, 'desktop', true)).words).toContain('Build it')
+  expect((await shown($, 'terminal', true)).words).toContain('Build it')
+  release()
+  await running
+  await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
+  expect((await shown($, 'desktop', true)).words).not.toContain('Reading a.ts')
+  await $.turn.complete({ turnId: 'live', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop', false)).words).not.toContain('Working')
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'

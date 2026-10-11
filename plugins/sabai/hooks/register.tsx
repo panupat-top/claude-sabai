@@ -24,7 +24,7 @@ const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
 const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
 const DEFAULT_PREFS: Prefs = {
-  rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
+  rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true, live: true },
   notify: true,
   limits: true,
   guard: false,
@@ -62,6 +62,11 @@ const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // receipt card; the engine names no turn on a reply, but its text is the answer's.
 const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
 const RECEIPTS_KEPT = 40
+// The main turn as it runs, for the live strip: when it began, and the step in flight.
+const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
+const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string } | null)
+// Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
+let mainWorking = false
 // Each plan limit's readings in its current window, for its forecast.
 const usageSamples = atom({ plugin: 'sabai', key: 'usageSamples' } as const, {} as Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>)
 // The tools a row draws as a one-line step.
@@ -263,6 +268,18 @@ async function sample($: EngineInterface, limits: readonly { kind: string; perce
   })
 }
 
+// The main turn's step in flight, for the live strip: the step's running title; a subagent's
+// calls leave it alone.
+async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
+  if (agentId !== undefined) return
+  const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
+  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title } : null))
+}
+
+async function unstep($: EngineInterface, agentId: string | undefined) {
+  if (agentId === undefined) await update($, liveStep, () => null)
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -340,7 +357,7 @@ export const register: Register = on => {
     // Running subagents' clocks count by the second; quiet when none runs.
     $.clock.every(1000, () => {
       void (async () => {
-        if ((await read($, agents)).some(a => a.status === 'running')) await tick($)
+        if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
       })()
     })
     // git and node last, and not waited on: a slow repository must not hold the session.
@@ -403,6 +420,8 @@ export const register: Register = on => {
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
+      mainWorking = false
+      await update($, liveStep, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
       // gets it as the notice under it instead.
       const log = await read($, turnLog)
@@ -606,13 +625,23 @@ export const register: Register = on => {
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
   }).catch(($, e, next) => checkFailClosed(next, () => next(e)))
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    await stepping($, e.agentId, 'Read', e)
+    try {
+      return await next(e)
+    } finally {
+      await unstep($, e.agentId)
+    }
+  })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
-    const called = await next(e)
+    await stepping($, e.agentId, 'Edit', e)
+    const called = await next(e).finally(() => unstep($, e.agentId))
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
-    const called = await next(e)
+    await stepping($, e.agentId, 'Write', e)
+    const called = await next(e).finally(() => unstep($, e.agentId))
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
     return called
   })
@@ -622,6 +651,7 @@ export const register: Register = on => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
+    await stepping($, e.agentId, 'Bash', e)
     try {
       const called = await next(e)
       if (id && !asked.has(id)) {
@@ -643,6 +673,7 @@ export const register: Register = on => {
         inFlight.delete(id)
         asked.delete(id)
       }
+      await unstep($, e.agentId)
     }
   })
 
@@ -782,6 +813,7 @@ export const register: Register = on => {
           <>
             {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
             {rowToggle('tasks', 'Tasks', "Claude's own task list")}
+            {rowToggle('live', 'Live', 'What Claude is doing now, while it works')}
             {rowToggle('crew', 'Crew', 'Subagents at work')}
             {rowToggle('usage', 'Usage', 'Context and plan limits')}
             {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
@@ -961,6 +993,9 @@ export const register: Register = on => {
     turnSeed = seedOf(e.turnId)
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
+    mainWorking = true
+    const began = await $.clock.now()
+    await update($, turnStartedAt, () => began)
     return next(e)
   })
 
@@ -1007,7 +1042,14 @@ export const register: Register = on => {
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
     const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
     const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
-    if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
+    // The live strip: the main turn's time, step in flight and tallies, while it works.
+    const turn = await read($, turnLog)
+    // The contract types the icon as a string; the hooks only ever write a StepIcon.
+    const step = (await read($, liveStep)) as { icon: StepIcon; title: string } | null
+    const live = rows.live && e.props.isWorking
+      ? { elapsedMs: Math.max(0, at - (await read($, turnStartedAt))), ...(step ? { step } : {}), files: Object.keys(turn.files).length, commands: turn.commands, ...(turn.test ? { test: turn.test } : {}) }
+      : undefined
+    if (!p && !live && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
     const mood = moodOf({ log: await read($, turnLog), contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: await read($, lastTurnAt) })
 
     const skinName = await read($, skin)
@@ -1070,7 +1112,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: choiceOf(skinName, shownPrefs.darkSkin), style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: choiceOf(skinName, shownPrefs.darkSkin), style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, ...(live ? { live } : {}) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -1097,6 +1139,16 @@ export const register: Register = on => {
               ),
             )}
           </Box>
+        )}
+        {live && (
+          <Text wrap="truncate-end">
+            <Text color={look.clawd}>{`${(shownPrefs.show.clawd && !p && MOOD_GLYPH[mood]) || '●'} `}</Text>
+            <Text bold>{clock(live.elapsedMs)}</Text>
+            {live.step ? <Text>{`  ${live.step.title}`}</Text> : null}
+            <Text dimColor>
+              {`   ${[live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join(' · ')}`}
+            </Text>
+          </Text>
         )}
         {p && (
           <Box flexDirection="row" columnGap={2}>

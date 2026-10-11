@@ -339,3 +339,15 @@ test('a light/dark pair carries both skins, the dark one under the OS’s dark m
   // Auto with a dark skin carries both text sets.
   expect(lookOf({ light: 'auto', dark: 'dracula' }).css.match(/\.t\{fill:/g)?.length).toBeGreaterThanOrEqual(2)
 })
+
+test('the live strip shows the turn’s time, step and tallies, and takes Clawd when there are no tasks', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 2, commands: 5, test: { passed: 178, failed: 0 } }
+  const d = bandSvg(undefined, info, [], 800, { mood: 'working', live })!
+  expect(d.alt).toContain('Working 1m 42s: Editing svg.ts; 2 files, 5 commands, 178 passed')
+  expect(d.source.match(/class="run"/g)?.length).toBe(1)
+  // With a tasks row, Clawd stays there.
+  const withTasks = bandSvg({ title: 't', done: 1, total: 2 }, info, [], 800, { mood: 'working', live })!
+  expect(withTasks.source.match(/class="run"/g)?.length).toBe(1)
+  expect(withTasks.alt).toContain('Working 1m 42s')
+})

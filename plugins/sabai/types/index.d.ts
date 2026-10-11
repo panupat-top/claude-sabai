@@ -40,7 +40,7 @@ export type AgentRun = {
 
 // The person's choices in the settings pane, kept across sessions.
 export type Prefs = {
-  rows: { info: boolean; tasks: boolean; crew: boolean; usage: boolean; toolbar: boolean }
+  rows: { info: boolean; tasks: boolean; crew: boolean; usage: boolean; toolbar: boolean; live: boolean }
   notify: boolean
   limits: boolean
   guard: boolean
@@ -93,6 +93,8 @@ declare module 'claude-code' {
       guardCaught: number
       lastTurnAt: number
       receipts: Record<string, TurnLog>
+      turnStartedAt: number
+      liveStep: { icon: string; title: string } | null
       usageSamples: Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>
     }
   }
