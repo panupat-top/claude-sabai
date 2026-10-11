@@ -25,27 +25,46 @@ The band appears in every new session, the Code tab included. Mods do not load i
 In the comfortable density (the default) the band is three panels:
 
 ```
-╭─────────┬──────────────────────────────────────────┬──────────────────────────╮
-│  CLAWD  │ 📁 claude-skins  ⎇ main ±1     🛡 guard·2 ⬢ v24 │ LV 5  ●×2  ❤❤♡  ×4 COMBO 1:42│
-│   (×3)  │ CONTEXT ▓▓▓▓▓▓▓░░░░░  743.5k / 1M     74% │ Main    ▬▬▬▬  🦀✏      ⚑ │
-│ working │ 5H      ▓▓▓▓▒▒▒░░░░░  ↻ 19m    27% → ~45% │ Explore ▬▬▬    🦀📖     ⚑ │
-│  1m 42s │ 7D      ▓▓▓░░░░░░░░░  ↻ 4d 11h       18% │ Plan    ▬▬▬       🦀✓  ⚑ │
-╰─────────┴──────────────────────────────────────────┴──────────────────────────╯
+╭─────────┬─────────────────────────────────────────────┬────────────────────────────────╮
+│  CLAWD  │ 📁 claude-skins  ⎇ main ±1   🛡 guard·2  ⬢ v24 │ 3 running · 1 done  ✗1 ✓12 1:42 │
+│   (×3)  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ Main · Editing svg.ts     1:42 │
+│ working │ │ CONTEXT     │ │ 5H          │ │ 7D          │ │ ▬▬▬▬▬     🦀✏            ⚑ │
+│  1m 42s │ │ 74%         │ │ 27%         │ │ 18%         │ │ Explore ×3 · 3 running    0:12 │
+│         │ │ ▓▓▓▓▓▓▓░░░  │ │ ▓▓▓░░░░░░░  │ │ ▓▓░░░░░░░░  │ │ ▬▬      🦀🦀🦀📖          ⚑ │
+│         │ │ 743.5k / 1M │ │ ↻ 19m       │ │ ↻ 4d 11h    │ │ Write tests · bun test… 0:31 │
+╰─────────┴─────────────────────────────────────────────┴────────────────────────────────╯
 ```
 
-- **Clawd**, large, with his mood (`working`, `all green`, `tests failed`, `context full`, `sleeping`, `caught one!`) and the turn's time. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
+- **Clawd**, large, with his mood in a word and why under it:
+  - `ready` · `your turn`;
+  - `working` · the turn's time;
+  - `blocked` · `guard stopped 1`;
+  - `tests failing` · `2 failed`;
+  - `all green` · `12 passed`;
+  - `context full` · `84% · compact?`;
+  - `napping` · `idle 20m`.
+
+  He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
   - the info row: folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted), the `guard` shield (`guard · 2` once it has caught something) and Node;
   - Claude's task list as a progress bar, when it keeps one;
-  - the usage limits as rows: Context, 5H and 7D with reset countdowns, amber and red at your thresholds, and a faint ghost to where 5H and 7D are heading by their reset (`→ ~45%`, `→ full`).
-- **The race**, while Claude or a subagent works. It is a little game:
-  - each member runs its own lane: `Main` and up to three subagents, `+N` for more;
+  - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`).
+  - Pick how they look in Settings → Usage → Style:
+    - **Tiles** (default): a card each with a big percent;
+    - **Rings**;
+    - **Columns**: a pixel column filling from the bottom;
+    - **Rows**: one card with a row each.
+- **The race**, while Claude or a subagent works:
+  - the header counts who is running and done, the turn's calls that worked (`✓`) and failed (`✗`), and the time;
+  - each lane is `Main` or a subagent, named by its task, with its step and its own time on a line above its ground;
+  - more agents of one type than the lanes hold share a lane (`Explore ×3`); `+N` counts any left over;
   - a runner's place is its progress, from Claude's task list or the agent's step reports;
   - the ground is a tile per call (read, edit, command, test, failure);
   - a runner holds the tool of its call in flight (pencil, book, terminal, flask) over a glow in its colour;
-  - a passing test is a coin, a failed command a trip (`OUCH`) and, for Main, a lost heart;
-  - a finished agent waves a green flag, and a failed one is `OUT`;
-  - the header counts the level (one per five calls), coins, hearts, a combo of clean calls and the time.
+  - a failed call trips it (`OUCH`), a passing test throws a coin;
+  - a finished agent reaches a green flag, and a failed one is `OUT`.
+
+  Turning **Activity** off in Settings hides the race.
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
 
@@ -82,12 +101,17 @@ Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are ke
 
 | Group | Choices |
 |---|---|
-| Band | Each row (Info, Tasks, Live, Crew, Usage, Toolbar); each info chip and usage card; amber and red thresholds (60/70/80, 85/90/95); Clawd |
-| Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
+| Layout | Density (comfortable or compact); each row as a toggle: Info, Tasks, Activity (the race or the live strip), Agents (race lanes or the crew row), Usage, Toolbar |
+| Info | Each chip: Folder, Git user, Branch, Node |
+| Usage | Style (Tiles, Rings, Columns, Rows); each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
+| Clawd | Clawd on or off; extras: Accessories (hats and props) and Tricks (waves, yawns, looks) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
+| Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f` or `git checkout`/`restore .` (Ask) |
-| Alerts | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
-| Appearance | Density (comfortable or compact), progress bar style, and ten colour themes (`auto` follows your OS) |
+| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
+| Look | Progress bar style, and ten colour themes (`auto` follows your OS) |
+
+**Reset to defaults**, at the bottom, puts the settings, the skin and the bar style back.
 
 The guard is a safety net, not a sandbox: it catches common slips, not someone set on getting round it.
 

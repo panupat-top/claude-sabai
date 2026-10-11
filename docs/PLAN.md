@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-11): 2.2.0 band แบบ 3 แผง (Clawd · info/usage · race เกมวิ่งของ Main และ agent), คาดการณ์ 5H/7D, เลือกสิ่งที่แสดงใน band, density compact, Clawd ตามเวลา/เทศกาล · 2.1.0 เพิ่ม turn receipt, guard แบบเลือก Block/Ask/Off ทีละ rule (+ rule discard) และอารมณ์ของ Clawd · guard ล้มแบบปิด · 2.0.0 เปลี่ยนชื่อ mod จาก `sabai-band` เป็น **`sabai`** เพราะครอบคลุมมากกว่า band แล้ว · 1.1.0 เพิ่มส่วน Chat (step ของ tool, ผล test, callout, spinner ภาษาไทย, โล่ guard ใน band)
+> สถานะ (2026-10-11): 2.3.0 Clawd บอกอารมณ์พร้อมเหตุผล + ลูกเล่น (โบกมือ หาว มองกล่อง race/limit), usage เต็มความสูง band เลือกได้ 4 แบบ (Tiles/Rings/Columns/Rows) และเอาค่าคาดการณ์ออก, กล่อง race ตัดตัวนับเกมออก ตั้งชื่อ lane ตามงาน รวม agent ชนิดเดียวกัน, settings จัดกลุ่มใหม่ + Reset · 2.2.0 band แบบ 3 แผง (Clawd · info/usage · race เกมวิ่งของ Main และ agent), คาดการณ์ 5H/7D, เลือกสิ่งที่แสดงใน band, density compact, Clawd ตามเวลา/เทศกาล · 2.1.0 เพิ่ม turn receipt, guard แบบเลือก Block/Ask/Off ทีละ rule (+ rule discard) และอารมณ์ของ Clawd · guard ล้มแบบปิด · 2.0.0 เปลี่ยนชื่อ mod จาก `sabai-band` เป็น **`sabai`** เพราะครอบคลุมมากกว่า band แล้ว · 1.1.0 เพิ่มส่วน Chat (step ของ tool, ผล test, callout, spinner ภาษาไทย, โล่ guard ใน band)
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -55,6 +55,6 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | R3 | Live strip: ต่อยอดการทำงานและการแสดงผล | M | |
 | U1 | ปรับปรุงสไตล์ usage แต่ละแบบ (Tiles, Rings, Columns, Rows) ให้เหมาะกับ comfortable และ compact | M | 2.3 ทำแบบ comfortable ก่อน · compact ยังใช้การ์ดบรรทัดเดียว |
 | K1 | Clawd redesign แบบมืออาชีพ ทีละตัว (sprite, ท่าทาง, ของประดับ) และเพิ่มตัวใหม่ในอนาคต | L | ทำเป็นรอบ ทีละตัว |
-| M22 | Minor จาก final review ของ 2.2 | S | `isReadOnly` จัดบางคำสั่งผิด · terminal วาด Clawd สองตัว · `mainWorking` หายเมื่อ reload กลางเทิร์น · `race.calls` ไม่ถูกลบ · out ยังไม่หลับตา, confetti วนทั้งนาที · หัวใจลดทุก call ที่ fail (spec ว่า command) · `replace_all` นับ hunk · ชื่อ lane ยาวทับ tiles · README เรื่อง Live ปิดแล้ว race หาย · `textClass`/`fillColor` ไม่มีใครใช้ · call ขนานใช้ช่อง `doing` ร่วมกัน |
+| M22 | Minor จาก final review ของ 2.2 | S | `isReadOnly` จัดบางคำสั่งผิด · terminal วาด Clawd สองตัว · `mainWorking` หายเมื่อ reload กลางเทิร์น · `race.calls` ไม่ถูกลบ · ~~out ยังไม่หลับตา, confetti วนทั้งนาที~~ (แก้ใน 2.3) · ~~หัวใจลดทุก call ที่ fail~~ (ตัดหัวใจออกใน 2.3) · `replace_all` นับ hunk · ~~ชื่อ lane ยาวทับ tiles~~ (ตัดด้วย fit ใน 2.3) · ~~README เรื่อง Live ปิดแล้ว race หาย~~ (2.3) · `textClass`/`fillColor` ไม่มีใครใช้ · call ขนานใช้ช่อง `doing` ร่วมกัน |
 | S-C | Custom skin (hex), export/import JSON, skin ต่อ project | L | |
 | A1–A4 | ธีมทั้ง transcript | L | เสี่ยงพังเมื่อ Claude Code อัปเดต — ไม่แนะนำ |

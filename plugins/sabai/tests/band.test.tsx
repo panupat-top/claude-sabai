@@ -1497,25 +1497,29 @@ test('settings are nine bordered groups in order: layout, info, usage, Clawd, ag
   }
 })
 
-for (const bar of ['dither', 'blocks', 'solid'] as const) {
-  test(`the widest band, every row on, stays under the tree limit with ${bar} bars`, async ($, on) => {
-    const { clock } = engine(on, { store: { bar } })
-    panes(on)
-    turnStarts(on)
-    await start($)
-    for (let i = 0; i < 3; i++) await spawn($, `job ${i}`)
-    await $.turn.start({ turnId: 'wide' } as never)
-    for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
-    await clock.advance(1000)
-    const ui = await $.ui.mount({
-      plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
-      props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+for (const bar of ['dither', 'blocks', 'solid'] as const)
+  for (const usageStyle of ['tiles', 'rings', 'columns', 'rows'] as const)
+    test(`the widest band, every row on, stays under the limits with ${bar} bars and ${usageStyle}`, async ($, on) => {
+      const { clock } = engine(on, { store: { bar, prefs: { usageStyle } } })
+      panes(on)
+      turnStarts(on)
+      await clock.set(new Date('2026-12-24T12:00:00').getTime())
+      await start($)
+      for (let i = 0; i < 5; i++) await spawn($, `job ${i}`)
+      await $.turn.start({ turnId: 'wide' } as never)
+      for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
+      await clock.advance(1000)
+      const ui = await $.ui.mount({
+        plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
+        props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+      })
+      const source = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+      expect(source).toContain('class="usage"')
+      expect(source).toMatch(/×\d/)
+      expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+      expect(source.length).toBeLessThanOrEqual(131_072)
+      await ui.unmount()
     })
-    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toMatch(/>\d+ running/)
-    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-    await ui.unmount()
-  })
-}
 
 test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) => {
   on('tool.call', { tool: 'Edit' }, () => Promise.reject(new Error('interrupted')))
