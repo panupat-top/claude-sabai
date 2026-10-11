@@ -487,6 +487,9 @@ const MOOD_WORDS: Record<Mood, string> = { idle: 'ready', working: 'working', st
 
 export const USAGE_STYLES: Record<UsageStyle, string> = { tiles: 'Tiles', rings: 'Rings', columns: 'Columns', rows: 'Rows' }
 const USAGE_MIN_H = 50
+// Under this a cell has no room for a label line, a large percent and the details stacked: the
+// percent shares the label's line and only the amount stays under the bar.
+const USAGE_SHORT_H = 80
 // A cell's words: the amount or countdown, then the second detail (what is left, or the reset's
 // clock time), each only when the meter has it.
 const mainOf = (m: Meter) => m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
@@ -509,6 +512,23 @@ function tilesStyle(look: Look, list: readonly Meter[], w: number, h: number, ba
   const { cw, at } = cellsOf(w, list.length)
   const roomy = h >= 110
   const big = pctSize(Math.max(18, Math.min(44, Math.round(h * 0.3))), cw - 28)
+  if (h < USAGE_SHORT_H) {
+    const size = pctSize(16, (cw - 28) / 2)
+    return list
+      .map((m, i) => {
+        const x = at(i)
+        const inner = cw - 28
+        const pctW = monoWidth(`${m.percent}%`, size)
+        return (
+          cardRect(x, cw, h) +
+          utext('m', x + 14, 18, usageLabel(m), 9.5, inner - pctW - 6, ' font-weight="700" letter-spacing=".08em"') +
+          utext(pctClass(m), x + cw - 14, 19, `${m.percent}%`, size, inner, ' font-weight="800" text-anchor="end"') +
+          pixelBar(`sabai-u-${m.kind}`, x + 14, 26, inner, 6, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
+          utext('t', x + 14, Math.min(h - 6, 46), mainOf(m), 10.5, inner, ' font-weight="600"')
+        )
+      })
+      .join('')
+  }
   return list
     .map((m, i) => {
       const x = at(i)
@@ -533,8 +553,9 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
   return list
     .map((m, i) => {
       const x = at(i)
-      const stacked = cw < Math.min(h - 16, cw * 0.52) + 120
-      const d = stacked ? Math.max(40, Math.min(h - 46, cw - 24)) : Math.max(44, Math.min(h - 16, cw * 0.52))
+      // Stacked needs height for a ring and two lines under it; short cells keep words beside.
+      const stacked = h >= 96 && cw < Math.min(h - 16, cw * 0.52) + 120
+      const d = stacked ? Math.max(40, Math.min(h - 46, cw - 24)) : Math.max(24, Math.min(h - 12, cw * 0.52))
       const r = d / 2 - 5
       const sw = Math.max(5, d * 0.09)
       const c = 2 * Math.PI * r
@@ -561,7 +582,8 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
 // label, a large percent and the details beside it.
 function columnsStyle(look: Look, list: readonly Meter[], w: number, h: number, bar: BarStyle, now?: number): string {
   const { cw, at } = cellsOf(w, list.length)
-  const big = pctSize(Math.max(18, Math.min(40, Math.round(h * 0.28))), cw - 52)
+  const short = h < USAGE_SHORT_H
+  const big = pctSize(short ? 15 : Math.max(18, Math.min(40, Math.round(h * 0.28))), cw - 52)
   return list
     .map((m, i) => {
       const x = at(i)
@@ -573,8 +595,8 @@ function columnsStyle(look: Look, list: readonly Meter[], w: number, h: number, 
         cardRect(x, cw, h) +
         column +
         utext('m', x + 40, 20, usageLabel(m), 9.5, inner, ' font-weight="700" letter-spacing=".08em"') +
-        utext(pctClass(m), x + 40, Math.min(h - 26, 20 + big + 2), `${m.percent}%`, big, inner, ' font-weight="800"') +
-        utext('t', x + 40, h - (h >= 110 ? 24 : 10), mainOf(m), 10.5, inner, ' font-weight="600"') +
+        utext(pctClass(m), x + 40, short ? 20 + big + 1 : Math.min(h - 26, 20 + big + 2), `${m.percent}%`, big, inner, ' font-weight="800"') +
+        (short && h < 20 + big + 1 + 14 ? '' : utext('t', x + 40, h - (h >= 110 ? 24 : 6), mainOf(m), short ? 9.5 : 10.5, inner, ' font-weight="600"')) +
         (h >= 110 ? utext('m', x + 40, h - 10, subOf(m, now), 9.5, inner) : '')
       )
     })

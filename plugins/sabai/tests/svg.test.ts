@@ -480,3 +480,37 @@ test('the usage gets its floor with Clawd hidden and no race, and no part withou
   expect(d.source).not.toMatch(/height="(0|-)/)
   expect(bandSvg(undefined, INFO, [], 900, { hero: true, usageStyle: 'tiles' })!.source).not.toContain('class="usage"')
 })
+
+// Every usage text as a box: [x0, x1, top, baseline], in the usage group's coordinates.
+function usageBoxes(source: string) {
+  const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
+  return [...g.matchAll(/<text[^>]*? x="([\d.]+)" y="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+    const x = Number(m[1]), y = Number(m[2]), size = Number(m[3]), w = monoWidth(m[5]!.replace(/&amp;/g, '&'), size)
+    const anchor = m[4]!.match(/text-anchor="(middle|end)"/)?.[1]
+    const [a, b] = anchor === 'end' ? [x - w, x] : anchor === 'middle' ? [x - w / 2, x + w / 2] : [x, x + w]
+    return { a, b, top: y - size * 0.72, y, text: m[5]! }
+  })
+}
+
+for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
+  test(`usage style ${style} lays out in the short heights a working band gives it, words inside and apart`, () => {
+    const now = new Date('2026-10-11T13:00:00').getTime()
+    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+    const tasks = { title: 'Ship it', done: 1, total: 3 }
+    // Clawd shown: about 56 px of usage in 107 px cells; Clawd hidden: about 50 px.
+    for (const clawd of [true, false]) {
+      const d = bandSvg(tasks, INFO, USAGE_LIST as never, 760, { hero: true, clawd, usageStyle: style, now, race: race1 as never })!
+      const top = Number(d.source.match(/<g class="usage" transform="translate\(0,(\d+)\)"/)![1])
+      const h = Number(d.source.match(/height="(\d+)"/)![1]) - top
+      expect([style, clawd, h < 80]).toEqual([style, clawd, true])
+      const boxes = usageBoxes(d.source)
+      for (const t of boxes) expect([style, clawd, t.text, t.top >= 0 && t.y <= h]).toEqual([style, clawd, t.text, true])
+      for (const [i, p] of boxes.entries())
+        for (const q of boxes.slice(i + 1)) {
+          const overlap = p.a < q.b && q.a < p.b && p.top < q.y && q.top < p.y
+          expect([style, clawd, p.text, q.text, overlap]).toEqual([style, clawd, p.text, q.text, false])
+        }
+      for (const pct of ['>74%<', '>27%<', '>18%<']) expect([style, pct, d.source.includes(pct)]).toEqual([style, pct, true])
+    }
+  })
+}
