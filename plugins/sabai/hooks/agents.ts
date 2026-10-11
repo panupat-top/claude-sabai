@@ -1,6 +1,6 @@
 import type { AgentRun, CallKind, RaceLog, Task } from '../types'
 import type { Progress } from './model'
-import { RACE_LANES, SCORE_MS, TRIP_MS, tokens } from './model'
+import { RACE_LANES, RACE_LINGER_MS, SCORE_MS, TRIP_MS, tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -160,7 +160,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     ...(log.doing.main ? { doing: log.doing.main } : {}),
     state: timed('main') ?? (mainWorking && log.doing.main ? 'running' : 'waiting'),
   }
-  const ended = agents.filter(a => a.status !== 'running').sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+  const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   const shown = [...running, ...ended]
   const lanes = shown.slice(0, RACE_LANES).map((a): Lane => {
     const id = a.agentId ?? a.id

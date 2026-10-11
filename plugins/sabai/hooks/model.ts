@@ -189,6 +189,8 @@ export const TRIP_MS = 4000
 export const SCORE_MS = 3000
 export const RACE_TILES = 16
 export const RACE_LANES = 3
+// How long a finished agent keeps its lane, as the crew row keeps it.
+export const RACE_LINGER_MS = 60_000
 
 // One finished call of a member folded into the race: its tile, the shared combo and coins, and
 // Main's lost hearts.

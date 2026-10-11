@@ -196,3 +196,10 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
   expect(ends.hearts).toBe(3)
 })
+
+test('a finished agent stays in the race for the crew’s linger minute, then leaves it', () => {
+  const now = 1_000_000
+  const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
+  expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'Plan'])
+  expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main'])
+})
