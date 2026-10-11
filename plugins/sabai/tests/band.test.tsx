@@ -231,7 +231,8 @@ test('Clawd takes the skin colour and walks only while the turn works', async ($
     return svg?.props.source ?? ''
   }
   expect(await source(false)).toContain('shape-rendering="crispEdges" class="idle"')
-  expect(await source(true)).toContain('shape-rendering="crispEdges" class="run"')
+  // While working beside the race he also looks at it: the run motion stays.
+  expect(await source(true)).toMatch(/shape-rendering="crispEdges" class="run( look-[a-z]+)?"/)
   expect(await source(true)).toContain('fill="#ffb86c"')
 })
 
@@ -1525,4 +1526,43 @@ test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) =
   await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
   const words = (await shown($, 'desktop', true)).words
   expect(words).toContain('Main waiting')
+})
+
+test('Clawd waves when a turn ends and stops after the wave', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  const source = async () => {
+    const ui = await mountBand($, 'desktop')
+    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    await ui.unmount()
+    return s
+  }
+  await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await clock.advance(100)
+  expect(await source()).toContain('class="wave"')
+  await clock.advance(3100)
+  expect(await source()).not.toContain('class="wave"')
+})
+
+test('with tricks off Clawd does not wave', async ($, on) => {
+  const { clock } = engine(on, { store: { prefs: { extras: { accessories: true, tricks: false } } } })
+  panes(on)
+  await start($)
+  await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  await clock.advance(100)
+  const ui = await mountBand($, 'desktop')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('class="wave"')
+  await ui.unmount()
+})
+
+test('a race computed under 760 px is not drawn, so Clawd does not look right', async ($, on) => {
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'n' } as never)
+  const ui = await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 80, rows: 30 }, props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 80, scroll: { offset: 0, bodyRows: 8 }, view: {} } })
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('look-right')
+  await ui.unmount()
 })

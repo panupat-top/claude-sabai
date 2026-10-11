@@ -51,6 +51,8 @@ export type Prefs = {
   warnAt: number
   alertAt: number
   density: 'comfortable' | 'compact'
+  // Clawd's hats and props for the hour and holidays, and his tricks.
+  extras: { accessories: boolean; tricks: boolean }
 }
 
 // What the band shows: each info chip, each usage card, and Clawd.

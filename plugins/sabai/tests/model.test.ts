@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -206,4 +206,18 @@ test('moodLine says why Clawd feels as he does, and nothing when the fact is mis
   for (const mood of ['startled', 'sad', 'celebrating', 'sweating', 'sleeping'] as const) expect([mood, moodLine(mood, {})]).toEqual([mood, undefined])
   expect(moodLine('sleeping', { idleMs: Number.NaN })).toBeUndefined()
   expect(moodLine('working', { idleMs: 1 })).toBeUndefined()
+})
+
+test('trickOf: a wave after a turn, a look at the race or a high limit, a yawn when idle; moods first', () => {
+  const base = { mood: 'idle' as const, now: 1_000_000, lastTurnAt: 1_000_000 - 1000, isWorking: false, raceShown: false, limitHigh: false }
+  expect(trickOf(base)).toBe('wave')
+  expect(trickOf({ ...base, lastTurnAt: base.now - WAVE_MS })).toBeUndefined()
+  expect(trickOf({ ...base, lastTurnAt: 0 })).toBeUndefined()
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, raceShown: true })).toBe('look-right')
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, limitHigh: true })).toBe('look-up')
+  expect(trickOf({ ...base, mood: 'working', isWorking: true, raceShown: true, limitHigh: true })).toBe('look-right')
+  expect(trickOf({ ...base, lastTurnAt: base.now - YAWN_AFTER_MS })).toBe('yawn')
+  expect(trickOf({ ...base, lastTurnAt: base.now - YAWN_AFTER_MS + 1 })).toBeUndefined()
+  // A mood with its own look keeps it.
+  for (const mood of ['startled', 'sad', 'celebrating', 'sweating', 'sleeping'] as const) expect([mood, trickOf({ ...base, mood })]).toEqual([mood, undefined])
 })

@@ -1,7 +1,7 @@
 import type { AgentRun, BarStyle, CallKind } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Race } from './agents'
-import type { Accessory, Chip, Meter, Mood, Progress } from './model'
+import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
 import { countdown, level, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
@@ -225,17 +225,20 @@ const BAND_CONFETTI = [
 ] as const
 
 // Clawd in his mood, in the skin's colour, with confetti while he celebrates.
-function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Accessory): string {
+function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Accessory, trick?: Trick): string {
+  // A wave or a yawn is the whole pose; a look keeps the mood's motion and moves the eyes.
+  const base = MOOD_MODE[mood]
+  const mode = trick === 'wave' || trick === 'yawn' ? trick : trick ? `${base} ${trick}` : base
   const confetti =
     mood === 'celebrating'
       ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
-  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd, undefined, accessory) + confetti
+  return sprite('tasks', x, y, mode, look.clawd, undefined, accessory) + confetti
 }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd shows the session's mood: walking while the turn works, blinking while it waits.
-function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true, accessory?: Accessory): Part {
+function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true, accessory?: Accessory, trick?: Trick): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
@@ -250,7 +253,7 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood, accessory) : '') +
+    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood, accessory, trick) : '') +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
     pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks'), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
@@ -311,7 +314,7 @@ const fitMono = (s: string, size: number, maxW: number) => {
 // The info row: one chip per fact, its mark then its value. The left group runs from the
 // left edge (after Clawd, when the band has no tasks row to hold him), the right group ends at
 // the right edge; left chips that would meet it are left out.
-function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood; accessory?: Accessory }): Part {
+function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
   const width = (c: Chip) => Math.ceil(CHIP_PAD * 2 + ICON + 6 + monoWidth(c.value, 11.5))
   const chip = (c: Chip, x: number) =>
     `<rect class="p" x="${x}" y="${y}" width="${width(c)}" height="${CHIP_H}" rx="6"/>` +
@@ -319,7 +322,7 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
     `<text class="t" x="${x + CHIP_PAD + ICON + 6}" y="${y + CHIP_H / 2 + 4}" font-family="${MONO}" font-size="11.5" font-weight="600">${xml(c.value)}</text>`
   let right = W
   const rightBody = [...info.right].reverse().map(c => chip(c, (right -= width(c) + GAP) + GAP)).join('')
-  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory) : ''
+  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory, clawd.trick) : ''
   let x = clawd ? spriteSize('tasks').width + GAP : 0
   const drawn: Chip[] = []
   const leftBody = info.left
@@ -553,7 +556,7 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
     const cx = (HERO_PANEL_W - cw) / 2 - (accessory === 'coffee' || accessory === 'halloween' || accessory === 'songkran' ? PROP_W : 0)
     panel =
       `<rect class="p" width="${HERO_PANEL_W}" height="${H}" rx="10"/>` +
-      `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory)}</g>` +
+      `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory, opts.trick)}</g>` +
       `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
       (words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
   }
@@ -579,6 +582,7 @@ export type BandOpts = {
   race?: Race
   // Clawd's second line under his headline (moodLine); working shows the turn's time instead.
   clawdLine?: string
+  trick?: Trick
 }
 
 // The turn as it runs, for the live strip.
@@ -587,7 +591,7 @@ const LIVE_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '⚗', pe
 
 // The live strip: Clawd (when he stands here), the turn's elapsed time, the step in flight, and
 // the turn's tallies so far at the right.
-function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood, accessory?: Accessory): Part {
+function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood, accessory?: Accessory, trick?: Trick): Part {
   // Room for Clawd and anything he holds to his right.
   const lead = mood ? spriteSize('tasks').width + PROP_W + 6 : 0
   const time = clock(live.elapsedMs)
@@ -598,7 +602,7 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
   const room = W - stepX - (tallies ? monoWidth(tallies, 11) + 16 : 0)
   const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
   const body =
-    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory) : '') +
+    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory, trick) : '') +
     `<text class="st" x="${lead}" y="${top + 14}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` +
     (title ? `<text class="sm" x="${stepX}" y="${top + 14}" font-family="${SANS}" font-size="12">${xml(title)}</text>` : '') +
     (tallies ? `<text class="sm" x="${W}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11">${xml(tallies)}</text>` : '')
@@ -634,9 +638,9 @@ export function bandSvg(
   const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
   const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && (clawdInLive || (!live && Boolean(p))))
   if (hatted && firstHoldsClawd) y = HAT_H
-  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood, accessory } : undefined))
-  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory))
-  if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory))
+  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
+  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
+  if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
   if (parts.length === 0) return undefined

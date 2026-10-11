@@ -173,6 +173,21 @@ export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
   }
 }
 
+export type Trick = 'wave' | 'yawn' | 'look-right' | 'look-up'
+export const WAVE_MS = 3000
+export const YAWN_AFTER_MS = 2 * 60_000
+// A trick for Clawd when his mood has no look of its own (idle or working): a wave as a turn
+// ends, a look at the race beside him or at a limit running high, a yawn after a quiet while.
+export function trickOf(s: { mood: Mood; now: number; lastTurnAt: number; isWorking: boolean; raceShown: boolean; limitHigh: boolean }): Trick | undefined {
+  if (s.mood !== 'idle' && s.mood !== 'working') return undefined
+  const since = s.lastTurnAt > 0 ? s.now - s.lastTurnAt : undefined
+  if (!s.isWorking && since !== undefined && since < WAVE_MS) return 'wave'
+  if (s.raceShown) return 'look-right'
+  if (s.limitHigh) return 'look-up'
+  if (!s.isWorking && since !== undefined && since >= YAWN_AFTER_MS) return 'yawn'
+  return undefined
+}
+
 export type Accessory = 'newyear' | 'xmas' | 'halloween' | 'songkran' | 'coffee' | 'nightcap'
 // What Clawd wears for the local date and hour: a holiday first, else the time of day.
 export function accessoryOf(d: Date): Accessory | undefined {

@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -34,6 +34,7 @@ const DEFAULT_PREFS: Prefs = {
   warnAt: 70,
   alertAt: 90,
   density: 'comfortable',
+  extras: { accessories: true, tricks: true },
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -46,6 +47,7 @@ const withDefaults = (v: unknown): Prefs => {
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
     show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
+    extras: { ...DEFAULT_PREFS.extras, ...(p.extras ?? {}) },
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -418,6 +420,8 @@ export const register: Register = on => {
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
+      // Clawd waves for WAVE_MS; redraw when the wave ends.
+      $.clock.after(WAVE_MS + 100, () => void tick($))
       mainWorking = false
       await update($, liveStep, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
@@ -1072,6 +1076,10 @@ export const register: Register = on => {
       contextPercent: measured?.contextPercent,
       idleMs: last > 0 ? at - last : undefined,
     })
+    const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
+    // The race shows beside Clawd only in the comfortable band from 760 px (heroBand's rule).
+    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= 760
+    const trick = shownPrefs.extras.tricks ? trickOf({ mood, now: at, lastTurnAt: last, isWorking: e.props.isWorking, raceShown, limitHigh: list.some(m => m.level) }) : undefined
 
     const skinName = await read($, skin)
     const style = await read($, bar)
@@ -1133,7 +1141,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), accessory: accessoryOf(new Date(at)) })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
