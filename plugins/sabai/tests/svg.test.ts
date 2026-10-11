@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -46,7 +46,7 @@ test('cards run side by side when wide, two or one when narrow, 8px apart', () =
   expect(wide?.source).toContain('7D ALL')
   expect(wide?.source.match(/shape-rendering="crispEdges"/g)?.length).toBe(1)
   expect(wide?.source).toContain('↻ 2h 0m')
-  expect(wide?.source).toContain(fillColor(85, '#000'))
+  expect(wide?.source).toContain('#f08a3c')
   expect(wide?.alt).toBe('Context 434.5k / 1M (85%); 5H Limit 7%, resets in 2h 0m; 7D All 3%, resets in 3d 0h')
 })
 
@@ -95,7 +95,6 @@ test('every text colour reads at 4.5:1 on its card, in light and dark', () => {
 })
 
 test('figures take their meter colour, then the warning ones', () => {
-  expect([textClass(10, 'week'), textClass(75, 'week'), textClass(95, 'week')]).toEqual(['c-week', 'c-warn', 'c-alert'])
   expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
@@ -106,11 +105,6 @@ test('a skin colours the cards and bars but draws no background or inset, as aut
   expect(themed?.source).toContain('<g fill="#b4befe">')
   expect(themed?.source).not.toContain('rx="10" fill=')
   expect(themed?.source).not.toContain('translate(10,10)')
-})
-
-test('fill colours step up at the warning thresholds', () => {
-  expect(new Set([fillColor(10, '#123456'), fillColor(75, '#123456'), fillColor(95, '#123456')]).size).toBe(3)
-  expect(fillColor(10, '#123456')).toBe('#123456')
 })
 
 test('bars draw as dither, pixel blocks or a solid fill', () => {
@@ -555,9 +549,17 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
     ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
     ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
   ])
+  // The tag's words sit 8 px from either end.
+  expect(infoRow(d.source)).toContain('width="92.4"')
   // Marks at the right take the muted ink; no chip cards.
   expect(infoRow(d.source)).not.toContain('<rect class="p"')
   expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
+})
+
+test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [], show: true } as const
+  expect(rowTexts(bandSvg(undefined, row, [], 80, { clawd: false })!.source)[1]).toEqual(['s-session', 'abcdef…'])
+  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24']])
 })
 
 test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
@@ -648,7 +650,8 @@ test('when the guard cannot fit even as its shield, the branch name is not left 
 
 test('a guard with nothing caught draws its shield alone, with no empty text', () => {
   const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
-  for (const W of [230, 250, 270]) {
+  // Below 240 px the branch, kept to six characters, leaves the shield no room.
+  for (const W of [240, 250, 270]) {
     const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
     expect([W, row2.match(/<path class="sm"/g)?.length]).toEqual([W, 2])
     expect([W, /<text class="sm"[^>]*><\/text>/.test(row2)]).toEqual([W, false])
@@ -707,6 +710,18 @@ test('a lane’s tiles stop before its flag, however many calls it made', () => 
   const flag = Number(body.match(/<rect class="m" x="([\d.]+)"[^>]*width="1.2"/)![1])
   expect(ends.length).toBeGreaterThan(16)
   expect(Math.max(...ends) <= flag).toBe(true)
+})
+
+test('a stacked ring with nothing beside its label leaves no dangling separator', () => {
+  const list = [{ kind: 'context', label: 'Context', percent: 12 }, { kind: 'session', label: '5H Limit', percent: 30 }, { kind: 'week', label: '7D All', percent: 40 }] as never
+  expect(bandSvg(undefined, { left: [], right: [] }, list, 480, { hero: true, usageStyle: 'rings' })!.source).not.toContain(' · </text>')
+})
+
+test('idle skin swatches and the still bar previews carry no motion stylesheet', () => {
+  expect(skinPreview('nord', 400).source).not.toContain(MOTION)
+  expect(skinPreview('nord', 400, true).source).toContain(MOTION)
+  expect(barPreview('solid', 'nord', 400).source).not.toContain(MOTION)
+  expect(barPreview('dither', 'nord', 400).source).toContain(MOTION)
 })
 
 test('a ring at 0% draws its track and no dot', () => {

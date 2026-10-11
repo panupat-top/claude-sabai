@@ -356,6 +356,15 @@ test('the skins panel previews every skin and a press switches to it', async ($,
   expect(dracula?.props.source).toContain('class="run"')
 })
 
+test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {
+  engine(on, { store: { bar: 'dither', prefs: { guard: true } } })
+  panes(on)
+  await start($)
+  const ui = await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'Pane', requestId: 'sabai-skins', viewport: { columns: 500, rows: 30 }, props: { title: 'Settings', isFocused: false, bodyColumns: 496, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} } })
+  // Headroom for new settings: the engine draws nothing of a tree past 100,000 characters.
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(85_000)
+})
+
 test('the toolbar opens the agents and skins panels and counts running agents', async ($, on) => {
   engine(on)
   const open = panes(on)
@@ -1059,12 +1068,30 @@ test('while the main turn works the band shows the live strip with the step in f
   await settle()
   expect((await shown($, 'desktop', true)).words).toContain('Build it')
   expect((await shown($, 'terminal', true)).words).toContain('Build it')
+  // Clawd's mark leads the live strip, not the info row as well.
+  expect((await shown($, 'terminal', true)).words.split(' | ')).not.toContain('●')
   release()
   await running
   await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
   expect((await shown($, 'desktop', true)).words).not.toContain('Reading a.ts')
   await $.turn.complete({ turnId: 'live', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
   expect((await shown($, 'desktop', false)).words).not.toContain('Working')
+})
+
+test('with the live strip off, the turn’s time still stands under Clawd', async ($, on) => {
+  const { clock } = engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true, live: false } } } })
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'quiet' } as never)
+  await clock.advance(3000)
+  expect((await shown($, 'desktop', true)).words).toContain('3s')
+})
+
+test('stored styles named after Object’s own keys fall back to the defaults', async ($, on) => {
+  engine(on, { store: { bar: 'constructor', prefs: { usageStyle: 'toString' } } })
+  await start($)
+  const source = String((await (await mountBand($, 'desktop')).findAll({ type: 'Svg' }))[0]!.props.source)
+  expect(source).not.toContain('[object')
 })
 
 test('a turn that outlived a reload still counts by the second: its state, not the module, says it works', async ($, on) => {

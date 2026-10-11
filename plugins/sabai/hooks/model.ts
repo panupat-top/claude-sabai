@@ -81,7 +81,7 @@ const branchLine = ({ branch, ahead, behind, changes }: Env) =>
 // `label` is what the drawing says for a reader.
 export function chips(env: Env, show: Partial<Show> = {}): { left: Chip[]; right: Chip[] } {
   const known = (list: { icon: IconKind; label: string; value?: string | false; branch?: string; ahead?: number; behind?: number; changes?: number }[]) =>
-    list.filter(c => Boolean(c.value)).map(c => Object.fromEntries(Object.entries(c).filter(([, v]) => v !== undefined)) as Chip)
+    list.filter(c => Boolean(c.value)) as Chip[]
   const on = (key: keyof Show) => show[key] !== false
   return {
     left: known([
@@ -229,6 +229,12 @@ export const RACE_TILES = 16
 export const RACE_LANES = 3
 // How long a finished agent keeps its lane, as the crew row keeps it.
 export const RACE_LINGER_MS = 60_000
+
+// A new main turn's race: Main and the counts start over, and only agents the race can still show keep their lanes.
+export function nextTurnRace(log: RaceLog, kept: Set<string>): RaceLog {
+  const keep = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => kept.has(k)))
+  return { ...EMPTY_RACE, calls: keep(log.calls), doing: keep(log.doing), fellAt: keep(log.fellAt), scoredAt: keep(log.scoredAt) }
+}
 
 // One finished call of a member folded into the race: its tile, its fall or score, the turn's counts.
 export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: boolean }, at: number): RaceLog {

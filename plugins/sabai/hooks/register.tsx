@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -49,7 +49,7 @@ const withDefaults = (v: unknown): Prefs => {
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
     show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
     extras: { ...DEFAULT_PREFS.extras, ...(p.extras ?? {}) },
-    usageStyle: p.usageStyle && p.usageStyle in USAGE_STYLES ? p.usageStyle : DEFAULT_PREFS.usageStyle,
+    usageStyle: p.usageStyle && Object.hasOwn(USAGE_STYLES, p.usageStyle) ? p.usageStyle : DEFAULT_PREFS.usageStyle,
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -98,7 +98,7 @@ const RUNNING_SHOWN = 6
 // the rest included, must stay under the engine's 100,000.
 const PANE_BUDGET = 70_000
 
-const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && v in BAR_STYLES
+const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && Object.hasOwn(BAR_STYLES, v)
 // The terminal's stand-ins for each style's filled and empty cells.
 const BAR_GLYPHS: Record<BarStyle, [string, string]> = { dither: ['▓', '░'], blocks: ['▰', '▱'], solid: ['█', '░'] }
 
@@ -361,7 +361,7 @@ export const register: Register = on => {
     const known = await $.session.usage().catch(() => undefined)
     if (known) {
       await update($, usage, () => toUsage(known))
-      }
+    }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -669,7 +669,7 @@ export const register: Register = on => {
       await unstep($, e.agentId)
       await racing($, e.agentId, 'edit', called ?? UNFINISHED)
     }
-    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, patch: (called.result as BuiltinToolResults['Edit'] | undefined)?.structuredPatch })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
@@ -1061,9 +1061,9 @@ export const register: Register = on => {
   on('turn.start', async ($, e, next) => {
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
-    // Main's lane and the turn's counts start over; agents' lanes carry on.
-    await update($, race, r => ({ ...EMPTY_RACE, calls: Object.fromEntries(Object.entries(r.calls).filter(([k]) => k !== 'main')), doing: r.doing, fellAt: r.fellAt, scoredAt: r.scoredAt }))
     const began = await $.clock.now()
+    const shown = (await read($, agents)).filter(a => a.status === 'running' || began - (a.endedAt ?? 0) < RACE_LINGER_MS)
+    await update($, race, r => nextTurnRace(r, new Set(shown.map(a => a.agentId ?? a.id))))
     await update($, turnStartedAt, () => began)
     return next(e)
   })
@@ -1121,7 +1121,8 @@ export const register: Register = on => {
     if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
-    const clawdLine = moodLine(mood, {
+    // With the live strip off, the turn's time stands under Clawd's word instead.
+    const clawdLine = mood === 'working' && began !== 0 ? clock(Math.max(0, at - began)) : moodLine(mood, {
       caught: caughtCount,
       passed: turn.test?.passed,
       failed: turn.test?.failed,
@@ -1214,9 +1215,9 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {(info.left.length + info.right.length > 0 || (rows.info && shownPrefs.show.clawd && !p && MOOD_GLYPH[mood])) && (
+        {(info.left.length + info.right.length > 0 || (rows.info && shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
-            {shownPrefs.show.clawd && !p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
+            {shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>

@@ -100,7 +100,13 @@ test('trick modes move the eyes, open the mouth or raise a claw; look modes keep
   expect(eyes(sprite('tasks', 0, 0, 'run look-right'))).toEqual(eyes(plain).map(x => x + 1))
   expect(sprite('tasks', 0, 0, 'run look-right')).toContain('class="run look-right"')
   expect(sprite('tasks', 0, 0, 'idle look-up')).toMatch(/y="1" width="2" height="1" fill="#1F1E1D"/)
+  // Looking up moves the 2×2 eyes a row: their lower row stays where the upper one was.
+  expect(eyes(sprite('tasks', 0, 0, 'idle look-up'))).toEqual(eyes(plain))
+  // The yawn's mark is a small z, its diagonal two pixels, not an I.
+  expect(sprite('tasks', 0, 0, 'yawn')).toContain('<rect x="25" y="2" width="1" height="1" class="sm"/>')
   expect(sprite('tasks', 0, 0, 'yawn')).toMatch(/x="11" y="5" width="2" height="1" fill="#1F1E1D"/)
   expect(sprite('tasks', 0, 0, 'wave')).toContain('class="wv-up"')
+  // Held still, the wave shows its raised claw alone, not both frames at once.
+  expect(sprite('tasks', 0, 0, 'wave')).toContain('(prefers-reduced-motion: reduce){.wave .wv-down{opacity:0}}')
   expect(sprite('tasks', 0, 0, 'out')).not.toMatch(/y="3" width="2" height="1" fill="#1F1E1D"/)
 })

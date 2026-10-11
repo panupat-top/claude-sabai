@@ -2,7 +2,7 @@ import type { AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
-import { countdown, level, resetClock, tokens, value } from './model'
+import { countdown, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
 import { icon } from './icons'
@@ -93,16 +93,6 @@ function fit(s: string, size: number, maxW: number): string {
 const noise = (x: number, y: number): number => {
   const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453
   return s - Math.floor(s)
-}
-
-// The text class for a meter's figures: its own colour, or the warning one past 70 and 90.
-export function textClass(percent: number, kind: string): string {
-  return `c-${level(percent) ?? kind}`
-}
-
-export function fillColor(percent: number, base: string): string {
-  const l = level(percent)
-  return l === 'alert' ? ALERT : l === 'warn' ? WARN : base
 }
 
 // How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
@@ -224,7 +214,7 @@ type Part = { body: string; height: number; alt: string }
 const MOOD_MODE: Record<Mood, string> = { startled: 'startle', sad: 'dizzy', celebrating: 'hop', sweating: 'sweat', working: 'run', sleeping: 'sleep', idle: 'idle' }
 const moodSaid = (mood: Mood) => (mood === 'idle' || mood === 'working' ? '' : `; Clawd is ${mood}`)
 
-// Confetti beside Clawd's head in the band, clear of his face and of the next chip or title.
+// Confetti beside Clawd's head in the band, clear of his face and of the project name or title.
 const BAND_CONFETTI = [
   [25, 1, 'context'],
   [29, 5, 'session'],
@@ -312,14 +302,14 @@ export const monoWidth = (s: string, size: number) => graphemes(s).reduce((w, g)
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
 // Cut on whole characters, never inside a surrogate pair or a joined emoji, which would leave the
 // SVG malformed or a glyph broken.
-const fitMono = (s: string, size: number, maxW: number) => {
+const fitMono = (s: string, size: number, maxW: number, min = 1) => {
   const adv = (g: string) => ((wideEm(g) ?? 0.6) / 0.6) * 0.64 * size
   const chars = graphemes(s)
   if (chars.reduce((w, g) => w + adv(g), 0) <= maxW) return s
   let w = adv('…')
   let n = 0
   while (n < chars.length && w + adv(chars[n]!) <= maxW) w += adv(chars[n++]!)
-  return `${chars.slice(0, Math.max(1, n)).join('')}…`
+  return `${chars.slice(0, Math.max(min, n)).join('')}…`
 }
 
 const INFO_H = 22
@@ -341,7 +331,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   // The right side in its order, each with how long it stays when room is short.
   const items = [
     guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
-    node && { k: 'node' as const, v: node.value.match(/^v?\d+/)?.[0] ?? node.value, keep: 2 },
+    node && { k: 'node' as const, v: node.value.replace(/^v?(\d+).*/, 'v$1'), keep: 2 },
     user && { k: 'git' as const, v: user.value, keep: 1 },
   ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
   const itemW = (i: { v: string }) => 12 + (i.v ? 5 + monoWidth(i.v, 10.5) : 0)
@@ -357,7 +347,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   // push the guard and Node off an otherwise roomy row.
   const fullName = graphemes(branch ? (branch.branch ?? branch.value) : '')
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
-  const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 9
+  const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 8
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
   const leftW = (f: string, b: string) => x0 + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
   let shown = items
@@ -372,7 +362,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   if (guard && !shown.length) {
     shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
     const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
-    if (room < tagW(b)) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), room - tagW('')))
+    if (room < tagW(b)) b = fitMono(b, 11, room - tagW(''), 6)
     // Even the shield does not fit: it goes, and the branch takes back what was cut for it.
     if (leftW(f, b) + 12 > W - rightW(shown)) {
       shown = []
@@ -380,7 +370,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
     }
   }
   // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
-  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), monoWidth(b, 11) - (leftW(f, b) - W)))
+  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
   if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
   let x = x0
   let body = lead
@@ -653,7 +643,7 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
         (m.percent > 0 ? `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>` : '')
       const pct = utext(pctClass(m), cx, cy + fs * 0.35, `${m.percent}%`, fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
       const words = stacked
-        ? utext('t', cx, cy + d / 2 + 16, `${usageLabel(m)} · ${mainOf(m)}`, 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
+        ? utext('t', cx, cy + d / 2 + 16, [usageLabel(m), mainOf(m)].filter(Boolean).join(' · '), 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
           (h - (cy + d / 2) >= 34 ? utext('m', cx, cy + d / 2 + 30, subOf(m, now), 9.5, cw - 12, ' text-anchor="middle"') : '')
         : utext('m', x + 18 + d, h / 2 - 8, usageLabel(m), 9.5, cw - d - 26, ' font-weight="700" letter-spacing=".08em"') +
           utext('t', x + 18 + d, h / 2 + 8, mainOf(m), 10.5, cw - d - 26, ' font-weight="600"') +
@@ -821,7 +811,7 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
 }
 
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
-// surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
+// surface's between two elements. Rows top to bottom: info row, tasks, usage cards.
 export function bandSvg(
   p: Progress | undefined,
   info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },
@@ -888,7 +878,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
     (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
     `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
     bars
-  return swatch(look, w, body, `${THEMES[skin]?.name ?? 'Auto'} skin colours`)
+  return swatch(look, w, body, `${THEMES[skin]?.name ?? 'Auto'} skin colours`, !inUse)
 }
 
 // The picker's sample of a bar style: one bar, part filled, in the skin's task colour.
@@ -896,15 +886,15 @@ export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
   const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
-  return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`)
+  return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`, style !== 'dither')
 }
 
 const strip = (w: number) => `<rect class="p" width="${w}" height="${SWATCH_H}" rx="8"/>`
 
 // The pane has no spacing finer than a row, so the gap under a swatch's name row is drawn here.
-function swatch(look: Look, w: number, body: string, alt: string): Drawing {
+function swatch(look: Look, w: number, body: string, alt: string, still = false): Drawing {
   const h = SWATCH_TOP + SWATCH_H
-  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`), width: w, height: h, alt }
+  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`, still), width: w, height: h, alt }
 }
 
 const drawing = (look: Look, W: number, height: number, body: string, alt: string, still = false): Drawing => ({

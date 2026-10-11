@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, nextTurnRace, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -140,6 +140,12 @@ test('raced keeps each member’s last tiles and counts the turn’s calls and f
   expect([log.total, log.fails, log.fellAt['agent-a']]).toEqual([21, 1, 30])
   log = raced(log, 'main', { kind: 'test', ok: true }, 32)
   expect([log.total, log.fails, log.scoredAt.main]).toEqual([22, 1, 32])
+})
+
+test('a new turn’s race keeps only the lanes of agents it can still show', () => {
+  const c = { kind: 'read', ok: true } as const
+  const log = raced(raced(raced(EMPTY_RACE, 'main', c, 1), 'gone', { kind: 'command', ok: false }, 1), 'live', c, 1)
+  expect(nextTurnRace(log, new Set(['live']))).toEqual({ ...EMPTY_RACE, calls: { live: [c] } })
 })
 
 test('raceOf lays out Main and up to three agents, each in its state, and stays away when idle', () => {
