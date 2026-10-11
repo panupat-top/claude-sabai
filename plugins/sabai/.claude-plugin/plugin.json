@@ -1,6 +1,6 @@
 {
   "name": "sabai",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Pixel-art band above the prompt: folder, git and node; task progress with Clawd and his moods; a crew of subagents; context, 5H and 7D usage; a toolbar. An agents panel with reports, and a settings panel with ten skins, bar styles, alerts and an optional guard with per-rule Block / Ask. In the conversation: tool calls as one-line steps, test results, callout boxes, Thai spinner words and a receipt at the end of each working turn.",
   "author": {
     "name": "Panupat Top",
