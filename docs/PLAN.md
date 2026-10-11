@@ -56,5 +56,6 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | U1 | ปรับปรุงสไตล์ usage แต่ละแบบ (Tiles, Rings, Columns, Rows) ให้เหมาะกับ comfortable และ compact | M | 2.3 ทำแบบ comfortable ก่อน · compact ยังใช้การ์ดบรรทัดเดียว |
 | K1 | Clawd redesign แบบมืออาชีพ ทีละตัว (sprite, ท่าทาง, ของประดับ) และเพิ่มตัวใหม่ในอนาคต | L | ทำเป็นรอบ ทีละตัว |
 | M22 | Minor จาก final review ของ 2.2 | S | `isReadOnly` จัดบางคำสั่งผิด · terminal วาด Clawd สองตัว · `mainWorking` หายเมื่อ reload กลางเทิร์น · `race.calls` ไม่ถูกลบ · ~~out ยังไม่หลับตา, confetti วนทั้งนาที~~ (แก้ใน 2.3) · ~~หัวใจลดทุก call ที่ fail~~ (ตัดหัวใจออกใน 2.3) · `replace_all` นับ hunk · ~~ชื่อ lane ยาวทับ tiles~~ (ตัดด้วย fit ใน 2.3) · ~~README เรื่อง Live ปิดแล้ว race หาย~~ (2.3) · `textClass`/`fillColor` ไม่มีใครใช้ · call ขนานใช้ช่อง `doing` ร่วมกัน |
+| M23 | Minor จาก final review ของ 2.3 | S | ring 0% มีจุด · ring ซ้อนแสดง `5H · ` เมื่อไม่มี reset · ปิด Activity แล้วไม่มีเวลาใต้ `working` · เครื่องหมายหาวดูเป็น I · look-up ตาเหลือ 1 px · `usageStyle in` รับ key ของ prototype · `}` เยื้องเกินใน register.tsx · settings pane ใช้ 97.8k จาก 100k · wave ไม่เคารพ reduced-motion |
 | S-C | Custom skin (hex), export/import JSON, skin ต่อ project | L | |
 | A1–A4 | ธีมทั้ง transcript | L | เสี่ยงพังเมื่อ Claude Code อัปเดต — ไม่แนะนำ |
