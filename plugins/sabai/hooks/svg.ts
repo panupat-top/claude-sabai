@@ -109,8 +109,33 @@ const AUTO: Look = {
   clawd: ICON_COLORS.tasks,
 }
 
+// A skin, or a pair of skins that follows the OS between light and dark.
+export type SkinChoice = string | { light: string; dark: string }
+
+const ROLES = ['tasks', 'context', 'session', 'week', 'warn', 'alert', 'pill', 'clawd'] as const
+// A skin's colours as custom properties on the drawing, for a pair that switches with the OS.
+function vars(look: Look): string {
+  const value = (role: (typeof ROLES)[number]) =>
+    role === 'pill' ? look.pill : role === 'clawd' ? look.clawd : role === 'warn' ? look.bar('tasks', 'warn') : role === 'alert' ? look.bar('tasks', 'alert') : look.bar(role)
+  return `svg{${ROLES.map(r => `--${r}:${value(r)}`).join(';')}}`
+}
+
+// How a skin choice paints: a single skin's own colours, or a pair whose colours are custom
+// properties set by the light skin and again, under the OS's dark mode, by the dark one.
+export function lookOf(choice: SkinChoice): Look {
+  if (typeof choice === 'string') return single(choice)
+  const light = single(choice.light)
+  const dark = single(choice.dark)
+  return {
+    css: `${vars(light)}${light.css}@media (prefers-color-scheme: dark){${vars(dark)}${dark.css}}${wink('var(--clawd)')}`,
+    bar: (kind, lvl) => `var(--${lvl ?? kind})`,
+    pill: 'var(--pill)',
+    clawd: 'var(--clawd)',
+  }
+}
+
 // A theme's own colours; any text colour that would not read on its card is stepped until it does.
-export function lookOf(skin: string): Look {
+function single(skin: string): Look {
   const t = THEMES[skin]
   if (!t) return AUTO
   const card = cardOf(t)
@@ -396,7 +421,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
 // How the band is drawn, past its rows' content.
 export type BandOpts = {
   mood?: Mood
-  skin?: string
+  skin?: SkinChoice
   style?: BarStyle
   crew?: { runs: readonly AgentRun[]; now: number }
   density?: 'comfortable' | 'compact'
@@ -468,7 +493,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
 }
 
 // The picker's sample of a bar style: one bar, part filled, in the skin's task colour.
-export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
+export function barPreview(style: BarStyle, skin: SkinChoice, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
   const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
@@ -574,7 +599,7 @@ const CONFETTI = [
 // opens its report): Clawd in his type's hat with his tool (his report once finished, a plaster
 // if he failed), effort · type · model with the clock and status, own progress or steps with
 // the context, and the band's bar.
-export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto', style: BarStyle = 'dither'): Drawing {
+export function agentCardSvg(a: AgentRun, W: number, now: number, skin: SkinChoice = 'auto', style: BarStyle = 'dither'): Drawing {
   const look = lookOf(skin)
   const { hat, accent, color, hatColor } = hatOf(look, a.type)
   const textCls = accent ? `c-${accent}` : 'm'
@@ -640,7 +665,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
 }
 
 // Three cards: how many agents run and finished, their context together, and the wall time.
-export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'auto'): Drawing {
+export function summarySvg(list: AgentRun[], W: number, now: number, skin: SkinChoice = 'auto'): Drawing {
   const look = lookOf(skin)
   const s = summary(list, now)
   const cells = [
@@ -665,7 +690,7 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'aut
   return drawing(look, W, 44, body, `Agents ${cells[0][1]}; context ${cells[1][1]}; time ${cells[2][1]}`)
 }
 
-export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
+export function emptyAgentsSvg(W: number, skin: SkinChoice = 'auto'): Drawing {
   const look = lookOf(skin)
   const clawd = spriteSize('tasks')
   const body =

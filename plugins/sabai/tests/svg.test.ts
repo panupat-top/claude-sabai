@@ -325,3 +325,17 @@ test('compact density draws the usage cards on one line and the band at least 35
   expect(tight.source).toContain('↻')
   expect(tight.alt).toBe(roomy.alt)
 })
+
+test('a light/dark pair carries both skins, the dark one under the OS’s dark mode', () => {
+  const look = lookOf({ light: 'catppuccin-latte', dark: 'catppuccin-mocha' })
+  expect(look.css).toContain('@media (prefers-color-scheme: dark)')
+  expect(look.bar('session')).toBe('var(--session)')
+  const pair = { light: 'catppuccin-latte', dark: 'catppuccin-mocha' }
+  const d = bandSvg({ title: 't', done: 1, total: 2 }, NONE, LIST, 900, { skin: pair })!
+  expect(d.source).toContain('var(--tasks)')
+  expect(d.height).toBe(bandSvg({ title: 't', done: 1, total: 2 }, NONE, LIST, 900, { skin: 'catppuccin-latte' })!.height)
+  // A single skin is unchanged: plain colours, no variables.
+  expect(lookOf('catppuccin-latte').bar('session')).not.toContain('var(')
+  // Auto with a dark skin carries both text sets.
+  expect(lookOf({ light: 'auto', dark: 'dracula' }).css.match(/\.t\{fill:/g)?.length).toBeGreaterThanOrEqual(2)
+})

@@ -1001,6 +1001,24 @@ test('the density setting switches the band to compact', async ($, on) => {
   expect(await height()).toBeLessThan(roomy)
 })
 
+test('choosing a dark-mode skin draws the band as a pair; Same goes back', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'use-catppuccin-latte' })
+  await pane.press({ key: 'dark-catppuccin-mocha' })
+  const source = async () => {
+    const ui = await mountBand($, 'desktop')
+    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    await ui.unmount()
+    return s
+  }
+  expect(await source()).toContain('@media (prefers-color-scheme: dark){svg{--tasks')
+  await pane.press({ key: 'dark-same' })
+  expect(await source()).not.toContain('var(--tasks)')
+})
+
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
