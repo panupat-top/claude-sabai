@@ -312,7 +312,7 @@ const fitMono = (s: string, size: number, maxW: number) => {
 const INFO_H = 22
 // The info row: the project, its branch as a tinted tag with the sync counts, then at the right
 // the guard, Node and the git user as small marks in the muted ink. Room runs out from the right:
-// the user goes first, then the guard; Node stays; then the branch and folder names are cut.
+// the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
 // The row sits on the surface, so every word takes the surface's inks.
 function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
   const all = [...info.left, ...info.right]
@@ -327,11 +327,11 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   const x0 = clawd ? spriteSize('tasks').width + GAP : 0
   // The right side in its order, each with how long it stays when room is short.
   const items = [
-    guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 2 },
-    node && { k: 'node' as const, v: node.value.match(/^v?\d+/)?.[0] ?? node.value, keep: 3 },
+    guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
+    node && { k: 'node' as const, v: node.value.match(/^v?\d+/)?.[0] ?? node.value, keep: 2 },
     user && { k: 'git' as const, v: user.value, keep: 1 },
   ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
-  const itemW = (i: { v: string }) => 12 + 5 + monoWidth(i.v, 10.5)
+  const itemW = (i: { v: string }) => 12 + (i.v ? 5 + monoWidth(i.v, 10.5) : 0)
   const rightW = (list: typeof items) => list.reduce((n, i) => n + itemW(i), 0) + 16 * Math.max(0, list.length - 1)
   const counts =
     branch && branch.branch !== undefined
@@ -352,9 +352,17 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
     const least = Math.min(...shown.map(i => i.keep))
     shown = shown.filter(i => i.keep !== least)
   }
-  // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
   let b = name
   let f = folder?.value ?? ''
+  // The guard is the band's only sign of it, so it holds on longest: as its shield and count alone,
+  // then by cutting the branch name (to six characters) to make room.
+  if (guard && !shown.length) {
+    shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
+    const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
+    if (room < tagW(b)) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), room - tagW('')))
+    if (leftW(f, b) + 12 > W - rightW(shown)) shown = []
+  }
+  // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
   if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, Math.max(monoWidth(b.slice(0, 6) + '…', 11), monoWidth(b, 11) - (leftW(f, b) - W)))
   if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
   let x = x0

@@ -547,13 +547,14 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
   expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
 })
 
-test('a narrow info row drops the user, then the guard; Node stays; at 240 px the names are cut', () => {
+test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
   const at = (W: number) => rowTexts(bandSvg(undefined, ROW, [], W, { hero: true, clawd: false })!.source).map(t => t[1]!)
   expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24'])
-  expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'v24'])
+  expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7'])
   const tiny = at(240)
   expect(tiny.some(t => t.endsWith('…'))).toBe(true)
   expect(tiny).not.toContain('v24')
+  expect(tiny).not.toContain('guard 7')
 })
 
 test('hidden or unread parts leave no gap; a plain branch chip draws its value; plain guard says guard', () => {
@@ -599,11 +600,14 @@ test('a long branch name is cut before it pushes the guard and Node off a wide r
   expect(texts.find(t => t.startsWith('dependabot'))!.endsWith('…')).toBe(true)
 })
 
-test('at 760 px with the race, the hero keeps the project, the branch and Node; the user and guard give way', () => {
+test('at 760 px with the race, the hero keeps the project, the branch and the guard (as its shield and count); the user and Node give way', () => {
   // Pins what the real layout keeps: the middle is 760 − 116 − 308 = 336 px.
   const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
-  const texts = rowTexts(bandSvg(undefined, ROW, [], 760, { hero: true, race: race as never })!.source).map(t => t[1]!)
-  expect(texts).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'v24'])
+  const src = bandSvg(undefined, ROW, [], 760, { hero: true, race: race as never })!.source
+  const texts = rowTexts(src).map(t => t[1]!)
+  // The guard holds on as its shield and count when its words do not fit.
+  expect(texts).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', '7'])
+  expect(infoRow(src).match(/<path class="sm"/g)!.length).toBe(2)
 })
 
 test('no two info-row texts overlap with Clawd leading the stacked band or the race beside the hero', () => {
