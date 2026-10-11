@@ -1,7 +1,7 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
@@ -212,6 +212,13 @@ async function setBar($: EngineInterface, style: string) {
   if (!isBarStyle(style)) return
   await update($, bar, () => style)
   await $.store.set('bar', style)
+}
+
+// Settings, skin and bar style back to their defaults.
+async function resetAll($: EngineInterface) {
+  await setPrefs($, () => DEFAULT_PREFS)
+  await setSkin($, 'auto')
+  await setBar($, 'dither')
 }
 
 async function setPrefs($: EngineInterface, fn: (p: Prefs) => Prefs) {
@@ -781,8 +788,26 @@ export const register: Register = on => {
         <Button key={`pref-${key}`} label={isOn ? '● On' : '○ Off'} onPress={() => setPrefs($, flip)} />
       </Box>
     )
-    const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
-      toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
+    // Several on/off choices on one row; the desktop draws a Button from its label alone, so the
+    // dot carries the state there.
+    const pills = (items: { key: string; label: string; on: boolean; flip: (p: Prefs) => Prefs }[]) => (
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        {items.map(i => (
+          <Button key={`pref-${i.key}`} label={`${i.on ? '●' : '○'} ${i.label}`} variant={i.on ? 'primary' : 'secondary'} onPress={() => setPrefs($, i.flip)} />
+        ))}
+      </Box>
+    )
+    const rowPill = (key: keyof Prefs['rows'], label: string) => ({ key, label, on: p.rows[key], flip: (x: Prefs) => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }) })
+    const showPill = (key: keyof Prefs['show'], label: string) => ({ key: `show-${key}`, label, on: p.show[key], flip: (x: Prefs) => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }) })
+    const extraPill = (key: keyof Prefs['extras'], label: string) => ({ key: `extras-${key}`, label, on: p.extras[key], flip: (x: Prefs) => ({ ...x, extras: { ...x.extras, [key]: !x.extras[key] } }) })
+    // One of a few values, the current one standing out.
+    const choice = <T extends string>(prefix: string, values: readonly T[], label: (v: T) => string, current: T, pick: (v: T) => void) => (
+      <Box flexDirection="row" columnGap={1} flexWrap="wrap">
+        {values.map(v => (
+          <Button key={`${prefix}-${v}`} label={label(v)} variant={v === current ? 'primary' : 'secondary'} onPress={() => pick(v)} />
+        ))}
+      </Box>
+    )
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
     const showToggle = (key: keyof Prefs['show'], name: string, note: string) =>
       toggle(`show-${key}`, name, note, p.show[key], x => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }))
@@ -833,32 +858,45 @@ export const register: Register = on => {
       <Box flexDirection="column" rowGap={1}>
         <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
         {group(
-          'band',
+          'layout',
           '▤',
-          'Band',
-          'Rows above the prompt',
+          'Layout',
+          'What the band shows',
           <>
-            {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
-            {rowToggle('tasks', 'Tasks', "Claude's own task list")}
-            {rowToggle('live', 'Live', 'What Claude is doing now, while it works')}
-            {rowToggle('crew', 'Crew', 'Subagents at work')}
-            {rowToggle('usage', 'Usage', 'Context and plan limits')}
-            {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
-            {subheading('Info chips', 'What the first row names')}
-            {showToggle('folder', 'Folder', 'The project folder')}
-            {showToggle('gitUser', 'Git user', 'Your git name')}
-            {showToggle('branch', 'Branch', 'Branch, ahead/behind and changes')}
-            {showToggle('node', 'Node', 'The Node version')}
-            {subheading('Usage cards', 'Which limits show, and when they turn amber and red')}
-            {showToggle('context', 'Context', 'How full the conversation is')}
-            {showToggle('session', '5H limit', 'The five-hour plan limit')}
-            {showToggle('week', '7D limit', 'The seven-day plan limit')}
-            {thresholdRow('warn', 'Warn at', [60, 70, 80], p.warnAt)}
-            {thresholdRow('alert', 'Alert at', [85, 90, 95], p.alertAt)}
-            {subheading('Clawd', 'The pixel crab')}
-            {showToggle('clawd', 'Clawd', 'His moods in the band')}
+            {named('Density', 'Comfortable: Clawd, info and usage, and the race while work runs. Compact: one-line rows')}
+            {choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d })))}
+            {subheading('Rows', 'Tap to show or hide')}
+            {pills([rowPill('info', 'Info'), rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('crew', 'Agents'), rowPill('usage', 'Usage'), rowPill('toolbar', 'Toolbar')])}
+            <Text dimColor>Activity is the race in comfortable, the live strip in compact. Agents are lanes in the race, or the crew row.</Text>
           </>,
         )}
+        {group('info', '▣', 'Info', 'The first row', pills([showPill('folder', 'Folder'), showPill('gitUser', 'Git user'), showPill('branch', 'Branch'), showPill('node', 'Node')]))}
+        {group(
+          'usage',
+          '◔',
+          'Usage',
+          'Limits and when they turn amber and red',
+          <>
+            {subheading('Style', 'How the comfortable band draws them')}
+            {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
+            {subheading('Limits', 'Which ones show')}
+            {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
+            {thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt)}
+            {thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt)}
+          </>,
+        )}
+        {group(
+          'clawd',
+          '✻',
+          'Clawd',
+          'The pixel crab',
+          <>
+            {showToggle('clawd', 'Clawd', 'His mood and what it means')}
+            {subheading('Extras', 'Hats and props for the hour and holidays; waves, yawns and looks')}
+            {pills([extraPill('accessories', 'Accessories'), extraPill('tricks', 'Tricks')])}
+          </>,
+        )}
+        {group('agents', '⚙', 'Agents', 'Subagents', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
         {group(
           'chat',
           '❯',
@@ -872,7 +910,6 @@ export const register: Register = on => {
             {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </>,
         )}
-        {group('agents', '✻', 'Agents', 'Subagents and their panel', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
         {group(
           'safety',
           '◈',
@@ -904,7 +941,7 @@ export const register: Register = on => {
         {group(
           'alerts',
           '◔',
-          'Alerts',
+          'Notifications',
           'Outside the band',
           <>
             {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
@@ -914,15 +951,9 @@ export const register: Register = on => {
         {group(
           'look',
           '◐',
-          'Appearance',
-          'The band and panels',
+          'Look',
+          'Colours and bars',
           <>
-            {subheading('Density', 'How tall the band is')}
-            <Box flexDirection="row" columnGap={1}>
-              {(['comfortable', 'compact'] as const).map(d => (
-                <Button key={`density-${d}`} label={d === 'comfortable' ? 'Comfortable' : 'Compact'} variant={p.density === d ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, density: d }))} />
-              ))}
-            </Box>
             {subheading('Progress bar', 'Tasks and usage cards')}
             <Box flexDirection="row" columnGap={1}>
               {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
@@ -934,6 +965,10 @@ export const register: Register = on => {
             <Box flexDirection="column" rowGap={1}>{themes}</Box>
           </>,
         )}
+        <Box flexDirection="row" alignItems="center" columnGap={2}>
+          {named('Reset', 'Back to how sabai started: these settings, the skin and the bar style')}
+          <Button key="reset-defaults" label="Reset to defaults" variant="secondary" onPress={() => void $.clock.after(0, () => void resetAll($))} />
+        </Box>
       </Box>
     )
   })
