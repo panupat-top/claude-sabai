@@ -1,8 +1,8 @@
-import type { AgentRun, BarStyle, CallKind } from '../types'
+import type { AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
-import { countdown, level, tokens, value } from './model'
+import { countdown, level, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
 import { icon } from './icons'
@@ -105,7 +105,7 @@ export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' 
 const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
 
 const AUTO: Look = {
-  css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
+  css: `${css(0)}.k{fill:#e8e8e5}.k-stroke{stroke:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.k-stroke{stroke:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
   bar: (kind, lvl) => (lvl === 'alert' ? ALERT : lvl === 'warn' ? WARN : ICON_COLORS[kind]),
   pill: PILL,
   clawd: ICON_COLORS.tasks,
@@ -119,7 +119,7 @@ export function lookOf(skin: string): Look {
   const ink = (c: string) => readable(c, card)
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}.c-ok{fill:${ink(TEXT.ok[1])}}${wink(t.accents.tasks)}`,
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.k-stroke{stroke:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}.c-ok{fill:${ink(TEXT.ok[1])}}${wink(t.accents.tasks)}`,
     bar: (kind, lvl) => (lvl === 'alert' ? t.alert : lvl === 'warn' ? t.warn : t.accents[kind]),
     pill: readable(t.accents.tasks, '#ffffff'),
     clawd: t.accents.tasks,
@@ -302,7 +302,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
 const CHIP_H = 20
 const CHIP_PAD = 8
 const ICON = 13
-const monoWidth = (s: string, size: number) => s.length * size * 0.6
+export const monoWidth = (s: string, size: number) => s.length * size * 0.6
 // A monospace line cut to `maxW`, with room to spare for the advance of the system's mono face.
 // Cut on whole characters, never inside a surrogate pair, which would leave the SVG malformed.
 const fitMono = (s: string, size: number, maxW: number) => {
@@ -485,42 +485,141 @@ const ROW_GAP = 6
 // What Clawd's panel says under him for each mood.
 const MOOD_WORDS: Record<Mood, string> = { idle: 'ready', working: 'working', startled: 'blocked', sad: 'tests failing', celebrating: 'all green', sweating: 'context full', sleeping: 'napping' }
 
-// The usage limits as rows: label, a long bar, the amount or countdown,
-// the percent and where it is heading.
-function usageRows(look: Look, list: readonly Meter[], W: number, top: number, style: BarStyle): Part {
-  const labelW = 64
-  // One bar length for every row, so the bars line up: room after the widest tail.
-  const tailOf = (m: Meter) => {
-    const detail = m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
-    return { detail, w: monoWidth(detail, 11) + 14 + monoWidth(`${m.percent}%`, 11.5) }
-  }
-  const tails = list.map(tailOf)
-  const barW = Math.max(40, Math.floor(W - labelW - Math.max(...tails.map(t => t.w)) - 12))
-  const detailX = labelW + barW + 10
-  const rows = list.map((m, i) => {
-    const y = top + i * (ROW_H + ROW_GAP)
-    const label = m.kind === 'context' ? 'CONTEXT' : m.label.split(' ')[0]!.toUpperCase()
-    const { detail } = tails[i]!
-    const pct = `${m.percent}%`
-    const right = W
-    return (
-      `<text class="sm" x="0" y="${y + 14}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
-      pixelBar(`sabai-${m.kind}`, labelW, y + 5.5, barW, 9, m.percent / 100, look.bar(m.kind, m.level), 0, style) +
-      `<text class="s-${m.level ?? m.kind}" x="${right}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pct}</text>` +
-      (detail ? `<text class="${m.amount ? 'st' : 'sm'}" x="${detailX}" y="${y + 14}" font-family="${MONO}" font-size="11" font-weight="600">${xml(detail)}</text>` : '')
-    )
-  })
-  const alt = list
-    .map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
-    .join('; ')
-  return { body: rows.join(''), height: list.length * ROW_H + (list.length - 1) * ROW_GAP, alt }
+export const USAGE_STYLES: Record<UsageStyle, string> = { tiles: 'Tiles', rings: 'Rings', columns: 'Columns', rows: 'Rows' }
+const USAGE_MIN_H = 50
+// A cell's words: the amount or countdown, then the second detail (what is left, or the reset's
+// clock time), each only when the meter has it.
+const mainOf = (m: Meter) => m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
+const subOf = (m: Meter, now: number | undefined) => m.left ?? (now === undefined ? undefined : resetClock(m.resetsInMs, now)) ?? ''
+const pctClass = (m: Meter) => `c-${m.level ?? m.kind}`
+const usageLabel = (m: Meter) => (m.kind === 'context' ? 'CONTEXT' : m.label.split(' ')[0]!.toUpperCase())
+// One line of a usage cell, cut to its room.
+const utext = (cls: string, x: number, y: number, s: string, size: number, room: number, extra = '') =>
+  s ? `<text class="${cls}" x="${+x.toFixed(1)}" y="${+y.toFixed(1)}" font-family="${MONO}" font-size="${size}"${extra}>${xml(fitMono(s, size, Math.max(8, room)))}</text>` : ''
+const cellsOf = (w: number, n: number) => {
+  const cw = (w - GAP * (n - 1)) / n
+  return { cw, at: (i: number) => i * (cw + GAP) }
+}
+// A percent's size: what the height allows, never wider than its room for `100%`.
+const pctSize = (fromHeight: number, room: number) => Math.max(12, Math.min(fromHeight, Math.floor(room / monoWidth('100%', 1))))
+const cardRect = (x: number, w: number, h: number) => `<rect class="p" x="${+x.toFixed(1)}" width="${+w.toFixed(1)}" height="${h}" rx="10"/>`
+
+// A card per limit as tall as the usage: the label, a large percent, a bar, then the details.
+function tilesStyle(look: Look, list: readonly Meter[], w: number, h: number, bar: BarStyle, now?: number): string {
+  const { cw, at } = cellsOf(w, list.length)
+  const roomy = h >= 110
+  const big = pctSize(Math.max(18, Math.min(44, Math.round(h * 0.3))), cw - 28)
+  return list
+    .map((m, i) => {
+      const x = at(i)
+      const inner = cw - 28
+      const barY = h - (roomy ? 44 : 30)
+      return (
+        cardRect(x, cw, h) +
+        utext('m', x + 14, 18, usageLabel(m), 9.5, inner, ' font-weight="700" letter-spacing=".08em"') +
+        utext(pctClass(m), x + 14, Math.min(barY - 6, 18 + big + 4), `${m.percent}%`, big, inner, ' font-weight="800"') +
+        pixelBar(`sabai-u-${m.kind}`, x + 14, barY, inner, roomy ? 8 : 6, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
+        utext('t', x + 14, h - (roomy ? 22 : 10), mainOf(m), 10.5, roomy ? inner : inner / 2, ' font-weight="600"') +
+        (roomy ? utext('m', x + 14, h - 8, subOf(m, now), 10, inner) : utext('m', x + cw - 14, h - 10, subOf(m, now), 9.5, inner / 2 - 6, ' text-anchor="end"'))
+      )
+    })
+    .join('')
+}
+
+// A card per limit with a ring sized to the height and the percent inside; the words beside it,
+// or under it when the card is too narrow.
+function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _bar: BarStyle, now?: number): string {
+  const { cw, at } = cellsOf(w, list.length)
+  return list
+    .map((m, i) => {
+      const x = at(i)
+      const stacked = cw < Math.min(h - 16, cw * 0.52) + 120
+      const d = stacked ? Math.max(40, Math.min(h - 46, cw - 24)) : Math.max(44, Math.min(h - 16, cw * 0.52))
+      const r = d / 2 - 5
+      const sw = Math.max(5, d * 0.09)
+      const c = 2 * Math.PI * r
+      const cx = stacked ? x + cw / 2 : x + 10 + d / 2
+      const cy = stacked ? 8 + d / 2 : h / 2
+      const fs = Math.max(12, Math.round(d * 0.24))
+      const at2 = (n: number) => +n.toFixed(1)
+      const ring =
+        `<circle class="k-stroke" cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke-width="${at2(sw)}"/>` +
+        `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>`
+      const pct = utext(pctClass(m), cx, cy + fs * 0.35, `${m.percent}%`, fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
+      const words = stacked
+        ? utext('t', cx, cy + d / 2 + 16, `${usageLabel(m)} · ${mainOf(m)}`, 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
+          (h - (cy + d / 2) >= 34 ? utext('m', cx, cy + d / 2 + 30, subOf(m, now), 9.5, cw - 12, ' text-anchor="middle"') : '')
+        : utext('m', x + 18 + d, h / 2 - 8, usageLabel(m), 9.5, cw - d - 26, ' font-weight="700" letter-spacing=".08em"') +
+          utext('t', x + 18 + d, h / 2 + 8, mainOf(m), 10.5, cw - d - 26, ' font-weight="600"') +
+          (h >= 90 ? utext('m', x + 18 + d, h / 2 + 22, subOf(m, now), 9.5, cw - d - 26) : '')
+      return cardRect(x, cw, h) + ring + pct + words
+    })
+    .join('')
+}
+
+// A card per limit with a column filling from the bottom in the bar style stood upright; the
+// label, a large percent and the details beside it.
+function columnsStyle(look: Look, list: readonly Meter[], w: number, h: number, bar: BarStyle, now?: number): string {
+  const { cw, at } = cellsOf(w, list.length)
+  const big = pctSize(Math.max(18, Math.min(40, Math.round(h * 0.28))), cw - 52)
+  return list
+    .map((m, i) => {
+      const x = at(i)
+      const colH = h - 20
+      const inner = cw - 52
+      // Drawn along the column's height, then turned a quarter so it fills from the bottom.
+      const column = `<g transform="translate(${+(x + 12).toFixed(1)},${10 + colH}) rotate(-90)">${pixelBar(`sabai-c-${m.kind}`, 0, 0, colH, 16, m.percent / 100, look.bar(m.kind, m.level), 0, bar)}</g>`
+      return (
+        cardRect(x, cw, h) +
+        column +
+        utext('m', x + 40, 20, usageLabel(m), 9.5, inner, ' font-weight="700" letter-spacing=".08em"') +
+        utext(pctClass(m), x + 40, Math.min(h - 26, 20 + big + 2), `${m.percent}%`, big, inner, ' font-weight="800"') +
+        utext('t', x + 40, h - (h >= 110 ? 24 : 10), mainOf(m), 10.5, inner, ' font-weight="600"') +
+        (h >= 110 ? utext('m', x + 40, h - 10, subOf(m, now), 9.5, inner) : '')
+      )
+    })
+    .join('')
+}
+
+// One card holding the limits as rows spread over the height: label, bar, details, a large percent.
+function rowsStyle(look: Look, list: readonly Meter[], w: number, h: number, bar: BarStyle, now?: number): string {
+  const rowH = h / list.length
+  const big = Math.max(13, Math.min(26, Math.round(rowH * 0.42)))
+  const pctW = monoWidth('100%', big) + 14
+  const wordsW = Math.min(140, Math.max(60, w * 0.3))
+  const barX = 84
+  const barW = Math.max(20, w - barX - wordsW - pctW - 14)
+  return (
+    cardRect(0, w, h) +
+    list
+      .map((m, i) => {
+        const y = i * rowH
+        const mid = y + rowH / 2
+        return (
+          (i ? `<rect class="k" x="12" y="${+y.toFixed(1)}" width="${w - 24}" height="1"/>` : '') +
+          utext('m', 14, mid + 4, usageLabel(m), 10, barX - 20, ' font-weight="700" letter-spacing=".08em"') +
+          pixelBar(`sabai-r-${m.kind}`, barX, mid - 4, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
+          utext('t', w - pctW - 8, mid + (rowH >= 44 ? -1 : 4), mainOf(m), 10.5, wordsW - 10, ' font-weight="600" text-anchor="end"') +
+          (rowH >= 44 ? utext('m', w - pctW - 8, mid + 13, subOf(m, now), 9.5, wordsW - 10, ' text-anchor="end"') : '') +
+          utext(pctClass(m), w - 14, mid + big * 0.36, `${m.percent}%`, big, pctW, ' font-weight="800" text-anchor="end"')
+        )
+      })
+      .join('')
+  )
+}
+
+const USAGE_DRAW: Record<UsageStyle, (look: Look, list: readonly Meter[], w: number, h: number, bar: BarStyle, now?: number) => string> = { tiles: tilesStyle, rings: ringsStyle, columns: columnsStyle, rows: rowsStyle }
+// The usage limits in the chosen style, filling w × h from (x, y).
+function usagePart(look: Look, list: readonly Meter[], x: number, y: number, w: number, h: number, style: UsageStyle, bar: BarStyle, now?: number): Part {
+  const alt = list.map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`).join('; ')
+  return { body: `<g class="usage" transform="translate(${x},${y})">${USAGE_DRAW[style](look, list, w, h, bar, now)}</g><!--usage-->`, height: h, alt }
 }
 
 // The comfortable band: Clawd large in his own panel at the left, with his mood and the turn's
 // time under him; at the right the info row, then the live strip, tasks and crew when present,
 // then the usage limits as rows.
 function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[] }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine } = opts
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', now } = opts
   // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
   const race = W >= RACE_MIN_W ? opts.race : undefined
   const look = lookOf(skin)
@@ -536,11 +635,13 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
   if (live && !race) add(livePart(look, live, rw, y))
   if (p) add(progressPart(look, p, rw, mood, y, style, false))
   if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
-  if (list.length > 0) add(usageRows(look, list, rw, y + 2, style))
   const middleH = Math.max(0, y - GAP + 2)
   const raced = race ? racePart(look, race, RACE_W, 0) : undefined
-  const H = Math.max(clawd ? 112 : 0, middleH, raced?.height ?? 0)
+  // The usage fills what the band's height leaves under the rows above it.
+  const usageTop = y
+  const H = Math.max(clawd ? 112 : 0, raced?.height ?? 0, list.length ? usageTop + USAGE_MIN_H : middleH)
   if (H === 0) return undefined
+  if (list.length > 0) parts.push(usagePart(look, list, 0, usageTop, rw, H - usageTop, usageStyle, style, now))
   let panel = ''
   const words = mood === 'working' && live ? clock(live.elapsedMs) : (clawdLine ?? '')
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
@@ -558,8 +659,8 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
       `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
       (words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
   }
-  // Shorter than the band, the middle sits in its middle.
-  const dy = Math.max(0, Math.round((H - middleH) / 2))
+  // Shorter than the band, the middle sits in its middle; with the usage it fills the band.
+  const dy = list.length ? 0 : Math.max(0, Math.round((H - middleH) / 2))
   const box = raced ? `<g transform="translate(${W - RACE_W},0)"><rect class="p" width="${RACE_W}" height="${H}" rx="10"/>${raced.body}</g>` : ''
   const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>` + box
   const alt = [...(clawd ? [`Clawd: ${MOOD_WORDS[mood]}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
@@ -581,6 +682,9 @@ export type BandOpts = {
   // Clawd's second line under his headline (moodLine); working shows the turn's time instead.
   clawdLine?: string
   trick?: Trick
+  usageStyle?: UsageStyle
+  // The band's clock, for the reset's clock time.
+  now?: number
 }
 
 // The turn as it runs, for the live strip.

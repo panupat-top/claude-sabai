@@ -6,7 +6,8 @@ export const ALERT_AT = 90
 
 export type MeterKind = 'context' | 'session' | 'week'
 // `amount` is the context's fill in tokens (`434.5k / 1M`); the limits have none.
-export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
+// `left` is what is left of the context window (`256.5k left`).
+export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; left?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -40,7 +41,8 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
   if (usage?.contextPercent !== undefined && shown('context')) {
     const { contextTokens: used, contextWindow: size } = usage
     const amount = used !== undefined && size ? `${tokens(used)} / ${tokens(size)}` : undefined
-    out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount }))
+    const left = used !== undefined && size ? `${tokens(Math.max(0, size - used))} left` : undefined
+    out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount, ...(left ? { left } : {}) }))
   }
   add('session', '5H Limit', 'five_hour')
   add('week', '7D All', 'seven_day')
@@ -171,6 +173,15 @@ export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
     default:
       return undefined
   }
+}
+
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// A limit's reset as a local clock time: `resets 14:30` today, `resets Thu 09:00` past it.
+export function resetClock(resetsInMs: number | undefined, now: number): string | undefined {
+  if (resetsInMs === undefined || !Number.isFinite(resetsInMs)) return undefined
+  const at = new Date(now + resetsInMs)
+  const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  return at.toDateString() === new Date(now).toDateString() ? `resets ${hm}` : `resets ${DAYS[at.getDay()]} ${hm}`
 }
 
 export type Trick = 'wave' | 'yawn' | 'look-right' | 'look-up'

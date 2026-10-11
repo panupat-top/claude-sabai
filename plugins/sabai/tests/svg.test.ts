@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, monoWidth, USAGE_STYLES, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -355,10 +355,6 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   expect(d.source).toContain('>working<')
   expect(d.source).toContain('>1m 42s<')
   expect(d.alt.startsWith('Clawd: working, 1m 42s')).toBe(true)
-  // The usage limits are rows whose bars share one length.
-  const widths = [...d.source.matchAll(/clipPath id="sabai-(context|session|week)"><rect width="(\d+)"/g)].map(m => m[2])
-  expect(widths.length).toBe(3)
-  expect(new Set(widths).size).toBe(1)
   // Under 480 px, or compact, or Clawd hidden: not this layout.
   expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
   expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
@@ -414,7 +410,7 @@ test('no race element carries two class attributes, whatever its runner is doing
   }
 })
 
-test('in the comfortable band the race box’s words take the card’s ink, the usage rows’ the surface’s', () => {
+test('in the comfortable band the race box’s words take the card’s ink', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const race = {
     running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
@@ -426,8 +422,7 @@ test('in the comfortable band the race box’s words take the card’s ink, the 
   const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
-  const rows = middle!.slice(middle!.indexOf('CONTEXT') - 200)
-  expect(rows.match(/<text class="(t|m|c-[a-z]+)"/g)).toBeNull()
+  expect(middle).toContain('class="usage"')
 })
 
 test('the Clawd panel shows his headline and why, the failing count in alert ink', () => {
@@ -439,4 +434,49 @@ test('the Clawd panel shows his headline and why, the failing count in alert ink
   const idle = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
   expect(idle.source).toContain('>ready<')
   expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
+})
+
+const USAGE_LIST = [
+  { kind: 'context', label: 'Context', percent: 74, amount: '743.5k / 1M', left: '256.5k left', level: 'warn' },
+  { kind: 'session', label: '5H Limit', percent: 27, resetsInMs: 1_140_000 },
+  { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
+] as const
+const INFO = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', calls: [], state: 'running' })) }
+// Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
+function usageTexts(source: string, x0: number) {
+  const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
+  return [...g.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+    const x = x0 + Number(m[1]), w = monoWidth(m[4]!.replace(/&amp;/g, '&'), Number(m[2]))
+    const anchor = m[3]!.match(/text-anchor="(middle|end)"/)?.[1]
+    return anchor === 'end' ? [x - w, x] : anchor === 'middle' ? [x - w / 2, x + w / 2] : [x, x + w]
+  })
+}
+
+for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
+  test(`usage style ${style}: fills the height, colours the percent by level, and keeps its words inside at 760 px with the race`, () => {
+    const now = new Date('2026-10-11T13:00:00').getTime()
+    const idle = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now })!
+    const working = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now, race: RACE4 as never })!
+    expect(Number(working.source.match(/height="(\d+)"/)![1])).toBeGreaterThan(Number(idle.source.match(/height="(\d+)"/)![1]))
+    expect(idle.source).toMatch(/class="c-warn"[^>]*>74%</)
+    const group = idle.source.slice(idle.source.indexOf('<g class="usage"'), idle.source.indexOf('</g><!--usage-->'))
+    expect(group).not.toMatch(/class="(st|sm)"/)
+    expect(working.alt).toMatch(/Context [^;]*74%/)
+    const narrow = bandSvg(undefined, INFO, USAGE_LIST as never, 760, { hero: true, usageStyle: style, now, race: RACE4 as never })!.source
+    const left = 116, right = 760 - 300 - 8
+    // The percent is never cut, however narrow the cell.
+    for (const pct of ['>74%<', '>27%<', '>18%<']) expect([style, pct, narrow.includes(pct)]).toEqual([style, pct, true])
+    const texts = usageTexts(narrow, left)
+    expect(texts.length).toBeGreaterThan(5)
+    for (const [a, b] of texts) expect([style, a! >= left - 1 && b! <= right + 1]).toEqual([style, true])
+  })
+}
+
+test('the usage gets its floor with Clawd hidden and no race, and no part without limits', () => {
+  // Review Focus 2.
+  const d = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, clawd: false, usageStyle: 'tiles' })!
+  expect(Number(d.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(28 + 50)
+  expect(d.source).not.toMatch(/height="(0|-)/)
+  expect(bandSvg(undefined, INFO, [], 900, { hero: true, usageStyle: 'tiles' })!.source).not.toContain('class="usage"')
 })

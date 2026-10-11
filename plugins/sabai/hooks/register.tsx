@@ -5,7 +5,7 @@ import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, 
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, STARTLE_MS, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
@@ -35,6 +35,7 @@ const DEFAULT_PREFS: Prefs = {
   alertAt: 90,
   density: 'comfortable',
   extras: { accessories: true, tricks: true },
+  usageStyle: 'tiles',
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -48,6 +49,7 @@ const withDefaults = (v: unknown): Prefs => {
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
     show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
     extras: { ...DEFAULT_PREFS.extras, ...(p.extras ?? {}) },
+    usageStyle: p.usageStyle && p.usageStyle in USAGE_STYLES ? p.usageStyle : DEFAULT_PREFS.usageStyle,
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -1141,7 +1143,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, now: at, ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}

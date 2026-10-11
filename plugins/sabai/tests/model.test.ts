@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -240,4 +240,17 @@ test('raceOf merges agents of one type when more run than lanes hold, and names 
   expect(ended.lanes.map(l => l.who)).toEqual(['Main', 'task b', 'task a'])
   // No description: the type names the lane.
   expect(raceOf(EMPTY_RACE, [run('z', 'Explore', { description: '' })], undefined, now, true, now)!.lanes[1]!.who).toBe('Explore')
+})
+
+test('resetClock names the reset as a local time, with the weekday past today, and nothing without one', () => {
+  const now = new Date('2026-10-11T13:00:00').getTime()
+  expect(resetClock(90 * 60_000, now)).toBe('resets 14:30')
+  // Review Focus 3: past midnight the weekday shows; none without a reset.
+  expect(resetClock(12 * 3_600_000, now)).toBe('resets Mon 01:00')
+  expect(resetClock(undefined, now)).toBeUndefined()
+})
+
+test('the context meter says what is left', () => {
+  const [ctx] = meters({ contextPercent: 74, contextTokens: 743_500, contextWindow: 1_000_000, rateLimits: [] }, 0)
+  expect(ctx!.left).toBe('256.5k left')
 })

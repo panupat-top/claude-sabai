@@ -15,6 +15,9 @@ export type Task = {
 // How the band draws its bars: savvy-progress's dither, square pixel segments, or a solid fill.
 export type BarStyle = 'dither' | 'blocks' | 'solid'
 
+// How the comfortable band draws the usage limits.
+export type UsageStyle = 'tiles' | 'rings' | 'columns' | 'rows'
+
 // One subagent as the agents pane shows it. `tasks`, `effort`, `result` and `reason` are absent
 // on runs from before they were recorded, and while the engine has not said.
 export type AgentRun = {
@@ -53,6 +56,7 @@ export type Prefs = {
   density: 'comfortable' | 'compact'
   // Clawd's hats and props for the hour and holidays, and his tricks.
   extras: { accessories: boolean; tricks: boolean }
+  usageStyle: UsageStyle
 }
 
 // What the band shows: each info chip, each usage card, and Clawd.
