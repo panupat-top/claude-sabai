@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -363,4 +363,20 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
   expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
   expect(bandSvg(undefined, info, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
+})
+
+test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
+  const race = {
+    lv: 5, coins: 2, hearts: 2, combo: 4, elapsedMs: 102_000, more: 1,
+    lanes: [
+      { id: 'main', who: 'Main', note: 'Editing svg.ts', progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
+      { id: 'a', who: 'Explore', type: 'Explore', note: '3/5', progress: 0.6, calls: [{ kind: 'test', ok: true }], state: 'scored' },
+      { id: 'b', who: 'General', type: 'general-purpose', note: 'build failed', calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+    ],
+  } as const
+  const part = racePart(lookOf('auto'), race as never, 300, 0)
+  expect(part.height).toBe(22 + 4 * 28 + 6)
+  for (const s of ['>LV 5<', '>×4 COMBO<', '>1:42<', '>+1<', '>OUCH<', 'class="coin', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"']) expect([s, part.body.includes(s)]).toEqual([s, true])
+  expect(part.alt).toBe('Race: LV 5, 2 coins, 2 hearts, combo 4, 1:42; Main running: Editing svg.ts; Explore scored: 3/5; General tripped: build failed; Plan finished: Done; 1 more')
 })

@@ -1,3 +1,4 @@
+import type { CallKind } from '../types'
 import type { Accessory, MeterKind } from './model'
 
 // Pixel sprites, one character per pixel ('.' is empty). Each colour key may carry a class
@@ -142,6 +143,15 @@ const ACCESSORY_PROPS: Partial<Record<Accessory, { rows: string[]; colors: Recor
   halloween: { rows: ['...g...', '.ooooo.', 'okoook.', 'ooooooo', 'okkkko.', '.ooooo.'], colors: { o: '#f28c28', g: '#3f8f3f', k: '#3a2a1a' }, classes: {} },
   songkran: { rows: ['.......', 'bbbbbb.', 'bbbbbb.', '..bb...', '..b.w.w', '.....w.'], colors: { b: '#3aa0e8', w: '#9fd8ff' }, classes: { w: 'pr-steam' } },
 }
+// In the race, the tool of a runner's call in flight, held in the prop slot: a pencil, a book, a
+// terminal, a flask.
+const TOOLS: Record<CallKind, { rows: string[]; colors: Record<string, string>; classes: Record<string, string> }> = {
+  edit: { rows: ['.....y.', '....y..', '...y...', '..y....', '.k.....'], colors: { y: '#f5c542', k: '#3a3a3c' }, classes: { y: 'pr-scrib', k: 'pr-scrib' } },
+  read: { rows: ['bbbbbb.', 'bwwbww.', 'bwwbww.', 'bwwbww.', 'bbbbbb.'], colors: { b: '#7a4a26', w: '#f8f6f1' }, classes: {} },
+  command: { rows: ['kkkkkk.', 'kgkkkk.', 'kkggkk.', 'kkkkkk.', '..kk...'], colors: { k: '#2a2a2e', g: '#5fe0a0' }, classes: { g: 'pr-steam' } },
+  test: { rows: ['.ggg...', '..g....', '.ggg...', 'gmmmg..', 'gmmmg..', '.ggg...'], colors: { g: '#8e929a', m: '#5fe0a0' }, classes: { m: 'pr-steam' } },
+}
+
 // Songkran's flower shirt across the body rows.
 ACCESSORY_PROPS.coffee = PROPS.beanie
 const SHIRT = { rows: ['....f..r..f..r..f..r....', '.....r..f..r..f..r..f...'], colors: { f: '#f5c542', r: '#e5484d' } as Record<string, string>, y: 9 }
@@ -174,13 +184,13 @@ function draw(rows: string[], px: number, y0: number, paint: (ch: string) => { f
 // eyes (a failed one); for the band's moods, `startle` jolts under a `!`, `sweat` drips a drop
 // and `sleep` shuts the eyes under a rising `z`. `tint` repaints Clawd's body; `hat` sits on top and moves with the body,
 // and with `prop` its type's tool is held to his right.
-export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }, accessory?: Accessory): string {
+export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?: string, hat?: { kind: HatKind; color?: string; prop?: boolean | 'scroll' }, accessory?: Accessory, tool?: CallKind): string {
   const { rows, classes = {}, px = PX } = SPRITES[kind]
   const colors = tint && kind === 'tasks' ? { ...SPRITES[kind].colors, o: tint, l: tint, n: tint } : SPRITES[kind].colors
   // Shut eyes: the lower of the two eye rows is painted as body.
   const body = (mode === 'dizzy' || mode === 'sleep') && kind === 'tasks' ? rows.map((r, i) => (i === 3 ? r.replace(/k/g, 'o') : r)) : rows
   const worn = kind === 'tasks' && !hat && accessory ? accessory : undefined
-  const held = hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : worn ? ACCESSORY_PROPS[worn] : undefined
+  const held = tool ? TOOLS[tool] : hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : worn ? ACCESSORY_PROPS[worn] : undefined
   const cap = worn ? ACCESSORY_HATS[worn] : undefined
   const art =
     (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
