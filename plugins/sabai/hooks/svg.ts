@@ -153,13 +153,14 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
   // otherwise outgrow the engine's limit on a drawing.
   const cellX = Math.max(CELL, w / DOT_COLS)
   const cols = style === 'dither' ? Math.floor(fillW / cellX) : 0
-  const dots: string[] = []
+  // One path per twinkle class, each dot a subpath: a rect per dot made a near-full wide band pass
+  // the tree limit.
+  const dots: string[][] = [[], [], [], []]
+  const dotW = +(cellX - 1).toFixed(1)
   for (let c = 0; c < cols; c++) {
     const density = 0.55 + 0.45 * Math.pow(c / Math.max(1, cols), 1.2)
     for (let r = 0; r < Math.floor(h / CELL); r++) {
-      if (noise(c, r) < density) {
-        dots.push(`<rect class="d${Math.floor(noise(r, c) * 4)}" x="${+(c * cellX + 1).toFixed(1)}" y="${r * CELL + 1}" width="${+(cellX - 1).toFixed(1)}" height="2"/>`)
-      }
+      if (noise(c, r) < density) dots[Math.floor(noise(r, c) * 4)]!.push(`M${+(c * cellX + 1).toFixed(1)} ${r * CELL + 1}h${dotW}v2h-${dotW}z`)
     }
   }
   const marks: string[] = []
@@ -168,7 +169,7 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
     const tx = Math.round((w * i) / steps)
     if (tx > fillW + 4) marks.push(`<rect class="m" x="${tx}" y="${h / 2 - 3}" width="1.5" height="6" rx="0.75"/>`)
   }
-  const fill = style === 'solid' ? `<rect fill="${color}" width="${fillW}" height="${h}"/>` : `<g fill="${color}">${dots.join('')}</g>`
+  const fill = style === 'solid' ? `<rect fill="${color}" width="${fillW}" height="${h}"/>` : `<g fill="${color}">${dots.map((d, i) => (d.length ? `<path class="d${i}" d="${d.join('')}"/>` : '')).join('')}</g>`
   return (
     `<g transform="translate(${x},${y})"><defs><clipPath id="${id}"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
     `<rect class="k" width="${w}" height="${h}" rx="${h / 2}"/>` +

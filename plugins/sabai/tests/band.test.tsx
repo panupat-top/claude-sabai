@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
 // missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '' } = {}) {
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3], contextTokens = 24_500 } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -38,11 +38,11 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
   on('session.usage', () => ({
     value: {
       startedAt: 0,
-      context: { window: 200000, tokens: 24_500, percent: 12 },
+      context: { window: 200000, tokens: contextTokens, percent: percents[0]! },
       rateLimits: hasLimits
         ? [
-            { kind: 'five_hour', percentUsed: 7, resetsAt: '2026-10-10T02:49:00Z' },
-            { kind: 'seven_day', percentUsed: 3, resetsAt: '2026-10-16T02:00:00Z' },
+            { kind: 'five_hour', percentUsed: percents[1]!, resetsAt: '2026-10-10T02:49:00Z' },
+            { kind: 'seven_day', percentUsed: percents[2]!, resetsAt: '2026-10-16T02:00:00Z' },
           ]
         : [],
     },
@@ -75,14 +75,14 @@ const start = async ($: Engine) => {
   return started
 }
 
-const mountBand = ($: Engine, surface: Surface, isWorking = false) =>
+const mountBand = ($: Engine, surface: Surface, isWorking = false, bodyColumns = 115) =>
   $.ui.mount({
     plugin: 'sabai',
     surface,
     component: 'AbovePrompt',
     requestId: 'band',
     viewport: { columns: 120, rows: 30 },
-    props: { hasSurvey: false, isWorking, maxRows: 8, bodyColumns: 115, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+    props: { hasSurvey: false, isWorking, maxRows: 8, bodyColumns, scroll: { offset: 0, bodyRows: 8 }, view: {} },
   })
 
 // Everything the band shows as words: the desktop's drawings by their alt, and every Text.
@@ -1091,6 +1091,28 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
+})
+
+test('a wide band with every limit near full, tasks, agents and the race stays under the tree limit in every usage style', async ($, on) => {
+  engine(on, { percents: [100, 100, 100], contextTokens: 200_000 })
+  panes(on)
+  turnStarts(on)
+  await start($)
+  // Ids are the subjects' lengths: 5 to 16; half are done, so the tasks bar is half full.
+  for (let i = 0; i < 12; i++) await $.tool.call({ tool: 'TaskCreate', subject: `task ${'x'.repeat(i)}`, description: '' })
+  for (let i = 5; i < 11; i++) await $.tool.call({ tool: 'TaskUpdate', taskId: String(i), status: 'completed' })
+  for (let i = 0; i < 9; i++) await spawn($, `job ${i}`)
+  await $.turn.start({ turnId: 'wide' } as never)
+  for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const style of ['tiles', 'rings', 'columns', 'rows']) {
+    await pane.press({ key: `usage-${style}` })
+    for (const columns of [194, 300, 496]) {
+      const ui = await mountBand($, 'desktop', true, columns)
+      expect([style, columns, JSON.stringify(await ui.drawn()).length < 100_000]).toEqual([style, columns, true])
+      await ui.unmount()
+    }
+  }
 })
 
 test('the comfortable band draws the Clawd panel; compact keeps the stacked band', async ($, on) => {
