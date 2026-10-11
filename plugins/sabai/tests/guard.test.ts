@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { riskOf } from '../hooks/guard'
+import { GUARD_FAILED, failClosed, riskOf } from '../hooks/guard'
 
 test('the guard names risky commands and lets ordinary ones through', () => {
   const bash = (command: string) => riskOf('Bash', { command })
@@ -43,4 +43,10 @@ test('a heredoc’s text is data for its command, unless a shell reads it as com
   expect(bash('cat > a.txt <<EOF\nhello\nEOF\ngit push -f origin main')).toBe('force-pushes to main')
   // An unterminated heredoc keeps its text: nothing is skipped on a guess.
   expect(bash("python3 - <<EOF\nrm -rf /")).toBe('deletes the whole disk')
+})
+
+test('a guard that failed refuses the call unless the call already ran', () => {
+  expect(failClosed({ called: false }, () => 'ran')).toEqual({ deny: GUARD_FAILED })
+  expect(failClosed({ called: true }, () => 'ran')).toBe('ran')
+  expect(GUARD_FAILED).toMatch(/could not check this call.*\/sabai-settings/)
 })

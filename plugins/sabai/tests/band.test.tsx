@@ -1116,6 +1116,21 @@ test('each Bash duration is kept under its own id, so one call does not redraw e
   expect(await alt('other')).toEqual(['make, done'])
 })
 
+test('a group of calls drawn as steps unfolds; one with searches stays folded', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  engine(on)
+  await start($)
+  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'ToolGroup', requestId: `mg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
+  await group(1, ['Bash', 'Read', 'Edit', 'Write'])
+  expect(seen.at(-1)).toBe(true)
+  await group(2, ['Bash', 'Glob'])
+  expect(seen.at(-1)).toBe(false)
+})
+
 test('only a run of reads unfolds into steps; a group with searches stays folded', async ($, on) => {
   const seen: boolean[] = []
   on('ui.render', { component: 'ToolGroup' }, ($, e) => {

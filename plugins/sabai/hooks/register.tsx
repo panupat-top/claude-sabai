@@ -5,7 +5,7 @@ import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { riskOf } from './guard'
+import { failClosed, riskOf } from './guard'
 import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
@@ -40,6 +40,8 @@ const withDefaults = (v: unknown): Prefs => {
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
+// The tools a row draws as a one-line step.
+const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
 // call redraws no other row); -1 while unknown. The result carries no duration of its own.
 const durations = atom({ plugin: 'sabai', key: 'durations' } as const, -1)
@@ -504,8 +506,15 @@ export const register: Register = on => {
   // The guard, when turned on: refuse the few commands that are almost never meant.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const risk = await guarded($, 'Bash', e)
-    if (risk) return { deny: risk }
-    // Timed here, as the result carries no duration of its own.
+    return risk ? { deny: risk } : next(e)
+  }).catch(($, e, next) => failClosed(next, () => next(e)))
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    const risk = await guarded($, 'Read', e)
+    return risk ? { deny: risk } : next(e)
+  }).catch(($, e, next) => failClosed(next, () => next(e)))
+  // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
+  // refuses a command.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
@@ -522,10 +531,6 @@ export const register: Register = on => {
         asked.delete(id)
       }
     }
-  })
-  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
-    const risk = await guarded($, 'Read', e)
-    return risk ? { deny: risk } : next(e)
   })
 
   // A subagent reporting its own steps through the mod's tool.
@@ -725,10 +730,10 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // With Tool summaries on, a folded run of reads unfolds into its own steps; a run with
-  // searches or listings stays folded, as those would unfold into their full results.
+  // With Tool summaries on, a folded run of calls drawn as one-line steps unfolds into them; a run
+  // with searches or listings stays folded, as those would unfold into their full results.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
-    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => c.tool === 'Read')
+    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => STEP_TOOLS.has(c.tool))
       ? next({ ...e, props: { ...e.props, isExpanded: true } })
       : next(e),
   )

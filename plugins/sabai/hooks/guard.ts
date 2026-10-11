@@ -2,6 +2,12 @@
 // wiping the disk or the home folder, force-pushing over main, and reading a secrets file.
 // Anything it cannot name passes.
 
+export const GUARD_FAILED = "sabai's guard could not check this call, so it refused it. The person can turn the guard off in /sabai-settings."
+
+// The guard's `.catch`: a guard that failed would be skipped and its call run, so a failure before
+// the call ran refuses it; once it ran, its own result stands.
+export const failClosed = <T>(next: { called: boolean }, run: () => T): T | { deny: string } => (next.called ? run() : { deny: GUARD_FAILED })
+
 const ENV_FILE = /(^|[\s/'"])\.env(\.(?!example\b|sample\b|template\b)[\w.-]+)?(?=$|[\s'";|&)])/
 
 export function riskOf(tool: string, input: { command?: unknown; file_path?: unknown }): string | undefined {
