@@ -19,6 +19,9 @@ export const GUARD_FAILED = "sabai's guard could not check this call, so it refu
 // The guard's `.catch`: a guard that failed would be skipped and its call run, so a failure before
 // the call ran refuses it; once it ran, its own result stands.
 export const failClosed = <T>(next: { called: boolean }, run: () => T): T | { deny: string } => (next.called ? run() : { deny: GUARD_FAILED })
+// The same for a permission decision: a failure before the verdict beneath was reached denies.
+export const checkFailClosed = <T>(next: { called: boolean }, run: () => T): T | { decision: 'deny'; reason: string } =>
+  next.called ? run() : { decision: 'deny', reason: GUARD_FAILED }
 
 const ENV_FILE = /(^|[\s/'"])\.env(\.(?!example\b|sample\b|template\b)[\w.-]+)?(?=$|[\s'";|&)])/
 
@@ -74,7 +77,11 @@ function discards(calls: { sub: string; args: string[] }[]): boolean {
     if (sub === 'reset') return args.includes('--hard')
     if (sub === 'clean') return args.some(a => /^-[a-z]*f/i.test(a) || a === '--force') && !args.some(a => /^-[a-z]*n/i.test(a) || a === '--dry-run')
     if (sub === 'checkout') return whole
-    if (sub === 'restore') return whole && !(args.includes('--staged') && !args.includes('--worktree'))
+    if (sub === 'restore') {
+      const staged = args.includes('--staged') || args.some(a => /^-[A-Za-z]*S/.test(a))
+      const worktree = args.includes('--worktree') || args.some(a => /^-[A-Za-z]*W/.test(a))
+      return whole && !(staged && !worktree)
+    }
     return false
   })
 }

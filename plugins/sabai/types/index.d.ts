@@ -40,13 +40,33 @@ export type AgentRun = {
 
 // The person's choices in the settings pane, kept across sessions.
 export type Prefs = {
-  rows: { info: boolean; tasks: boolean; crew: boolean; usage: boolean; toolbar: boolean }
+  rows: { info: boolean; tasks: boolean; crew: boolean; usage: boolean; toolbar: boolean; live: boolean }
   notify: boolean
   limits: boolean
   guard: boolean
   steps: boolean
   chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
   guardRules: Record<GuardRule, GuardAction>
+  show: Show
+  warnAt: number
+  alertAt: number
+  density: 'comfortable' | 'compact'
+}
+
+// What the band shows: each info chip, each usage card, and Clawd.
+export type Show = { folder: boolean; gitUser: boolean; branch: boolean; node: boolean; context: boolean; session: boolean; week: boolean; clawd: boolean }
+
+// The race: what kind a call is, and each member's calls ('main' or an agentId).
+export type CallKind = 'read' | 'edit' | 'command' | 'test'
+export type RaceLog = {
+  calls: Record<string, { kind: CallKind; ok: boolean }[]>
+  doing: Record<string, CallKind>
+  fellAt: Record<string, number>
+  scoredAt: Record<string, number>
+  combo: number
+  coins: number
+  mainFails: number
+  total: number
 }
 
 export type GuardRule = 'wipe' | 'force' | 'env' | 'discard'
@@ -57,6 +77,8 @@ export type TurnLog = {
   files: Record<string, { added: number; removed: number }>
   commands: number
   failed: number
+  // Commands that only read, counted apart: alone they are no work for a receipt.
+  reads?: number
   // The turn's last test run, with the clock time it ended.
   test?: { passed: number; failed: number; at: number }
   // Clock time of the guard's latest refusal or ask.
@@ -82,6 +104,10 @@ declare module 'claude-code' {
       guardCaught: number
       lastTurnAt: number
       receipts: Record<string, TurnLog>
+      turnStartedAt: number
+      race: RaceLog
+      liveStep: { icon: string; title: string } | null
+      usageSamples: Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>
     }
   }
 }

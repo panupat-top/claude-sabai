@@ -176,6 +176,8 @@ const bare = (command: string) => command.replace(/^(?:cd\s+(?:"[^"]*"|'[^']*'|\
 const errorLine = (text: string) =>
   firstLine(text.replace(/<\/?tool_use_error>/g, '').split('\n').filter(l => !/^Exit code \d+$/.test(l.trim())).join('\n'))
 // Commands that run tests: only their output is read for counts.
+// Whether a command runs tests.
+export const isTestCommand = (command: string) => TEST_COMMAND.test(command)
 const TEST_COMMAND = /(?:^|[\s;&|(])(?:(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?test\b|bunx?\s+test\b|(?:npx\s+|bunx\s+)?(?:jest|vitest)\b|(?:python3?\s+-m\s+)?pytest\b|cargo\s+(?:nextest\s+)?test\b|go\s+test\b|claude\s+plugin\s+test\b)/
 
 type Call = { tool: string; input: unknown; output?: unknown; isRunning: boolean; isErrored: boolean; isInterrupted: boolean; durationMs?: number; tests?: boolean }
@@ -282,29 +284,39 @@ export function stepText(s: Step): string {
   return [s.title, s.detail, words, s.time?.replace(/^\p{Extended_Pictographic}\s*/u, '')].filter(Boolean).join(', ')
 }
 
+// A command that only reads: each part of a chain is a reader, and nothing is written to a file.
+const READERS = /^(?:cat|head|tail|less|more|grep|rg|ls|find|wc|tree|pwd|which|file|stat|du|df|git\s+(?:status|log|diff|show|branch|blame|rev-parse|remote))\b/
+export function isReadOnly(command: string): boolean {
+  if (/[^>]>[^&]|>>|\btee\b|\s-i\b/.test(command)) return false
+  return bare(command).split(/&&|\|\||;|\|/).map(p => p.trim()).filter(Boolean).every(p => READERS.test(p))
+}
+
 export const EMPTY_LOG: TurnLog = { files: {}, commands: 0, failed: 0 }
 
 export type Logged =
-  | { tool: 'Edit'; path: string; oldText: string; newText: string }
+  | { tool: 'Edit'; path: string; oldText: string; newText: string; times?: number }
   | { tool: 'Write'; path: string; content: string }
-  | { tool: 'Bash'; command: string; output: string; isError: boolean; at: number }
+  | { tool: 'Bash'; command: string; output: string; isError: boolean; at: number; readOnly?: boolean }
 
 // One finished call of the main turn folded into its log: a file's added and removed lines, a
 // command and whether it failed, and the counts of the last command that ran tests.
 export function logged(log: TurnLog, c: Logged): TurnLog {
   if (c.tool === 'Bash') {
     const tests = TEST_COMMAND.test(c.command) ? testResult(c.output) : undefined
+    const read = c.readOnly && !c.isError
     return {
       ...log,
-      commands: log.commands + 1,
+      commands: log.commands + (read ? 0 : 1),
+      reads: (log.reads ?? 0) + (read ? 1 : 0),
       failed: log.failed + (c.isError ? 1 : 0),
       ...(tests ? { test: { passed: tests.passed, failed: tests.failed, at: c.at } } : {}),
     }
   }
   const was = log.files[c.path] ?? { added: 0, removed: 0 }
   const change = c.tool === 'Edit' ? asked(c.oldText, c.newText).lines : lines(c.content).map(l => `+${l}`)
-  const added = change.filter(l => l.startsWith('+')).length
-  const removed = change.filter(l => l.startsWith('-')).length
+  const times = c.tool === 'Edit' ? (c.times ?? 1) : 1
+  const added = change.filter(l => l.startsWith('+')).length * times
+  const removed = change.filter(l => l.startsWith('-')).length * times
   return { ...log, files: { ...log.files, [c.path]: { added: was.added + added, removed: was.removed + removed } } }
 }
 
@@ -324,7 +336,9 @@ export function receiptOf(log: TurnLog): Receipt | undefined {
   const all = Object.values(log.files)
   const files = all.length ? { count: all.length, added: all.reduce((n, f) => n + f.added, 0), removed: all.reduce((n, f) => n + f.removed, 0) } : undefined
   const test = log.test ? { passed: log.test.passed, failed: log.test.failed } : undefined
-  const commands = log.commands ? { count: log.commands, failed: log.failed } : undefined
+  // Reads count only beside real work: a turn of `cat` and `grep` alone did nothing to receipt.
+  const reads = files || test ? (log.reads ?? 0) : 0
+  const commands = log.commands + reads ? { count: log.commands + reads, failed: log.failed } : undefined
   if (!files && !test && !commands) return undefined
   const [tone, headline]: [Tone, string] =
     test && test.failed > 0 ? ['bad', 'Tests failing']

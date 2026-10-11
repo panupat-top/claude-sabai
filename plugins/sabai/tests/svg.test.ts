@@ -3,10 +3,10 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, receiptSvg, stepSvg, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, racePart, receiptSvg, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
-  { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
+  { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
   { kind: 'session', label: '5H Limit', percent: 7, resetsInMs: 2 * 3600_000 },
   { kind: 'week', label: '7D All', percent: 3, resetsInMs: 3 * 86_400_000 },
 ] as const
@@ -24,9 +24,9 @@ test('the tasks row escapes its title and stays under the engine limits', () => 
 
 test('Clawd walks while the turn works and waits otherwise, tinted by the skin', () => {
   const mode = (src = '') => src.match(/shape-rendering="crispEdges" class="(\w+)"/)?.[1]
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, 'working')?.source)).toBe('run')
+  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'working' })?.source)).toBe('run')
   expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600)?.source)).toBe('idle')
-  const mocha = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, 'idle', 'catppuccin-mocha')?.source
+  const mocha = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'idle', skin: 'catppuccin-mocha' })?.source
   expect(mocha).toContain('fill="#fab387"')
   expect(mocha).toContain('@keyframes wink{91%,96%{fill:#fab387}}')
   expect(mocha).not.toContain('fill="#D97757"')
@@ -99,7 +99,7 @@ test('figures take their meter colour, then the warning ones', () => {
 })
 
 test('a skin colours the cards and bars but draws no background or inset, as auto does', () => {
-  const themed = bandSvg(undefined, NONE, LIST, 900, 'idle', 'catppuccin-mocha')
+  const themed = bandSvg(undefined, NONE, LIST, 900, { mood: 'idle', skin: 'catppuccin-mocha' })
   expect(themed?.height).toBe(44)
   expect(themed?.source).toContain('.p{fill:#1e1e2e}')
   expect(themed?.source).toContain('<g fill="#b4befe">')
@@ -114,7 +114,7 @@ test('fill colours step up at the warning thresholds', () => {
 
 test('bars draw as dither, pixel blocks or a solid fill', () => {
   const draw = (style: 'dither' | 'blocks' | 'solid') =>
-    bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 800, 'idle', 'auto', style)?.source ?? ''
+    bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 800, { mood: 'idle', skin: 'auto', style: style })?.source ?? ''
   expect(draw('dither')).toMatch(/class="d[0-3]"/)
   const blocks = draw('blocks')
   expect(blocks).not.toMatch(/class="d[0-3]"/)
@@ -130,48 +130,48 @@ const crewRun = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
 
 test('the crew row walks one Clawd per running agent, names the latest, and counts the rest', () => {
   const runs = [crewRun('a', { status: 'done', endedAt: 5000 }), crewRun('b', { tasks: [{ id: '1', subject: 'Read', activeForm: 'Reading', status: 'in_progress' }, { id: '2', subject: 'x', status: 'pending' }] })]
-  const d = bandSvg(undefined, NONE, [], 800, 'idle', 'auto', 'dither', { runs, now: 37_000 })
+  const d = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 37_000 } })
   expect(d?.source).toContain('>job b<')
   expect(d?.source).toContain('0/2 · Reading')
   expect(d?.source.match(/class="run"/g)?.length).toBe(1)
   expect(d?.alt).toBe('Agents: 1 running, 1 done; job b')
-  const many = bandSvg(undefined, NONE, [], 800, 'idle', 'auto', 'dither', { runs: Array.from({ length: 7 }, (_, i) => crewRun(String(i))), now: 1000 })
+  const many = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: Array.from({ length: 7 }, (_, i) => crewRun(String(i))), now: 1000 } })
   expect(many?.source.match(/class="run"/g)?.length).toBe(5)
   expect(many?.source).toContain('>+2<')
   expect(many?.source.length).toBeLessThan(131_072)
-  const idle = bandSvg(undefined, NONE, [], 800, 'idle', 'auto', 'dither', { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'done', endedAt: 2 })], now: 9000 })
+  const idle = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'done', endedAt: 2 })], now: 9000 } })
   expect(idle?.source).toContain('>All 2 done<')
   expect(idle?.source).not.toContain('class="run"')
-  const mixed = bandSvg(undefined, NONE, [], 800, 'idle', 'auto', 'dither', { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'failed', endedAt: 2 })], now: 9000 })
+  const mixed = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'failed', endedAt: 2 })], now: 9000 } })
   expect(mixed?.source).toContain('>1 done · 1 failed<')
   expect(mixed?.alt).toBe('Agents: 1 done, 1 failed; 1 done · 1 failed')
   expect(mixed?.source.match(/>1<\/text>/g)?.length).toBe(2)
-  expect(bandSvg(undefined, NONE, [], 800, 'idle', 'auto', 'dither', { runs: [], now: 0 })).toBeUndefined()
+  expect(bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [], now: 0 } })).toBeUndefined()
 })
 
 test('a dithered band stays inside the engine limits at any width, its dots widening instead of multiplying', () => {
   const list = [{ kind: 'context', label: 'Context', percent: 60, amount: '1k / 1M' }] as const
   for (const W of [800, 2400, 4096]) {
-    const d = bandSvg({ done: 3, total: 5, title: 't' }, NONE, list, W, 'working', 'auto', 'dither')
+    const d = bandSvg({ done: 3, total: 5, title: 't' }, NONE, list, W, { mood: 'working', skin: 'auto', style: 'dither' })
     expect([W, (d?.source.length ?? 0) < 70_000]).toEqual([W, true])
   }
   // Many tasks still draw at most a dozen tick marks.
-  const many = bandSvg({ done: 1, total: 120, title: 't' }, NONE, [], 800, 'idle', 'auto', 'dither')?.source ?? ''
+  const many = bandSvg({ done: 1, total: 120, title: 't' }, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither' })?.source ?? ''
   expect((many.match(/width="1.5" height="6"/g) ?? []).length).toBeLessThanOrEqual(12)
 })
 
 test('a title of emoji is cut on whole characters, never mid-pair', () => {
   const d = bandSvg({ done: 0, total: 1, title: '🚀'.repeat(60) }, NONE, [], 300)?.source ?? ''
   const run = crewRun('x', { description: '🚀'.repeat(60), tasks: [{ id: '1', subject: '🚀'.repeat(60), status: 'in_progress' }] })
-  const crew = bandSvg(undefined, NONE, [], 330, 'idle', 'auto', 'dither', { runs: [run], now: 1 })?.source ?? ''
+  const crew = bandSvg(undefined, NONE, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [run], now: 1 } })?.source ?? ''
   for (const s of [d, crew]) expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)).toBe(false)
 })
 
 test('text the band draws on the bare surface follows the OS, whatever the skin; auto defines every meter class', () => {
   for (const skin of ['auto', 'catppuccin-latte', 'nord']) {
-    const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, NONE, [], 600, 'idle', skin)?.source ?? ''
+    const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, NONE, [], 600, { mood: 'idle', skin: skin })?.source ?? ''
     expect([skin, d.includes('<text class="st"'), d.includes('.st{fill:#1f1f1f}'), d.includes('prefers-color-scheme: dark){.st')]).toEqual([skin, true, true, true])
-    const crew = bandSvg(undefined, NONE, [], 600, 'idle', skin, 'dither', { runs: [crewRun('a')], now: 1 })?.source ?? ''
+    const crew = bandSvg(undefined, NONE, [], 600, { mood: 'idle', skin: skin, style: 'dither', crew: { runs: [crewRun('a')], now: 1 } })?.source ?? ''
     expect(crew).toContain('<text class="st"')
   }
   expect(lookOf('auto').css).toContain('.c-tasks{')
@@ -179,7 +179,7 @@ test('text the band draws on the bare surface follows the OS, whatever the skin;
 
 test('on a narrow band the crew walks fewer Clawds and drops words it has no room for, never overlapping the counts', () => {
   const runs = [...Array.from({ length: 5 }, (_, i) => crewRun(String(i))), crewRun('f', { status: 'failed', endedAt: 1 })]
-  const d = bandSvg(undefined, NONE, [], 330, 'idle', 'auto', 'dither', { runs, now: 1000 })?.source ?? ''
+  const d = bandSvg(undefined, NONE, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 1000 } })?.source ?? ''
   expect((d.match(/class="run"/g) ?? []).length).toBeLessThan(5)
   const titleX = Number(d.match(/<text class="st" x="([\d.]+)"[^>]*font-size="12.5"/)?.[1] ?? 0)
   const firstCount = Math.min(...[...d.matchAll(/<text class="st" x="([\d.]+)"[^>]*font-size="11.5"/g)].map(m => Number(m[1])))
@@ -287,21 +287,21 @@ test('an Important callout’s title is the colour of its border', () => {
 test('Clawd sits in the tasks row when there is one, else at the left of the info row', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Folder', value: 'work' }], right: [], show: true }
   const p = { title: 'Doing a', done: 1, total: 2 }
-  const withTasks = bandSvg(p, info, [], 600, 'sad', 'auto', 'dither')!
+  const withTasks = bandSvg(p, info, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })!
   expect(withTasks.source.match(/class="dizzy"/g)?.length).toBe(1)
   expect(withTasks.alt).toContain('Clawd is sad')
-  const noTasks = bandSvg(undefined, info, [], 600, 'sleeping', 'auto', 'dither')!
+  const noTasks = bandSvg(undefined, info, [], 600, { mood: 'sleeping', skin: 'auto', style: 'dither' })!
   expect(noTasks.source.match(/class="sleep"/g)?.length).toBe(1)
   expect(noTasks.alt).toContain('Clawd is sleeping')
   // The folder chip moves right of Clawd.
   expect(noTasks.source).toMatch(/<rect class="p" x="(3[2-9]|[4-9]\d)/)
   // Idle and working say nothing extra; an info row turned off has no Clawd.
-  expect(bandSvg(undefined, info, [], 600, 'idle', 'auto', 'dither')!.alt).not.toContain('Clawd')
-  expect(bandSvg(undefined, { left: [], right: [], show: false }, [], 600, 'sad', 'auto', 'dither')).toBeUndefined()
+  expect(bandSvg(undefined, info, [], 600, { mood: 'idle', skin: 'auto', style: 'dither' })!.alt).not.toContain('Clawd')
+  expect(bandSvg(undefined, { left: [], right: [], show: false }, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })).toBeUndefined()
   // An info row with no chips still holds Clawd.
-  expect(bandSvg(undefined, { left: [], right: [], show: true }, [], 600, 'sweating', 'auto', 'dither')!.source).toContain('class="sweat"')
+  expect(bandSvg(undefined, { left: [], right: [], show: true }, [], 600, { mood: 'sweating', skin: 'auto', style: 'dither' })!.source).toContain('class="sweat"')
   // Celebrating hops with confetti.
-  expect(bandSvg(undefined, info, [], 600, 'celebrating', 'auto', 'dither')!.source).toContain('class="cf"')
+  expect(bandSvg(undefined, info, [], 600, { mood: 'celebrating', skin: 'auto', style: 'dither' })!.source).toContain('class="cf"')
 })
 
 test('a receipt is one minimal line: its icon, a headline and muted parts, fixed in size', () => {
@@ -314,4 +314,115 @@ test('a receipt is one minimal line: its icon, a headline and muted parts, fixed
   expect(failing.source).toContain('class="s-bad an-shake"')
   expect(failing.alt).toBe('Turn receipt: Tests failing; 3 files +40 −12; 2 of 98 failed; 4 commands · 1 failed')
   for (const words of ['3 files ', '+40', ' −12', '2 of 98 failed', '4 commands', ' · 1 failed']) expect([words, failing.source.includes(`>${words}<`)]).toEqual([words, true])
+})
+
+test('compact density draws the usage cards on one line and the band at least 35% shorter', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const roomy = bandSvg(undefined, info, LIST, 900, {})!
+  const tight = bandSvg(undefined, info, LIST, 900, { density: 'compact' })!
+  expect(tight.height).toBeLessThanOrEqual(Math.floor(roomy.height * 0.65))
+  // The reset countdown still shows on a wide band.
+  expect(tight.source).toContain('↻')
+  expect(tight.alt).toBe(roomy.alt)
+})
+
+test('the live strip shows the turn’s time, step and tallies, and takes Clawd when there are no tasks', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 2, commands: 5, test: { passed: 178, failed: 0 } }
+  const d = bandSvg(undefined, info, [], 800, { mood: 'working', live })!
+  expect(d.alt).toContain('Working 1m 42s: Editing svg.ts; 2 files, 5 commands, 178 passed')
+  expect(d.source.match(/class="run"/g)?.length).toBe(1)
+  // With a tasks row, Clawd stays there.
+  const withTasks = bandSvg({ title: 't', done: 1, total: 2 }, info, [], 800, { mood: 'working', live })!
+  expect(withTasks.source.match(/class="run"/g)?.length).toBe(1)
+  expect(withTasks.alt).toContain('Working 1m 42s')
+})
+
+test('on the narrowest band the live strip keeps the step and lets the tallies go', () => {
+  const info = { left: [], right: [{ icon: 'node' as const, label: 'Node', value: 'v24.21.0' }], show: true }
+  const live = { elapsedMs: 31_000, step: { icon: 'terminal' as const, title: 'Wait eight seconds so the live strip can be seen' }, files: 0, commands: 2, test: { passed: 200, failed: 0 } }
+  const d = bandSvg(undefined, info, [], 200, { mood: 'working', live })!
+  expect(d.source).toContain('› Wait eight')
+  // Wide enough, both show.
+  expect(bandSvg(undefined, info, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
+})
+
+test('the comfortable band puts Clawd large in his own panel, with his mood and the turn’s time', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, files: 0, commands: 0 }
+  const d = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live })!
+  expect(d.source).toMatch(/scale\(3\)/)
+  expect(d.source).toContain('>working<')
+  expect(d.source).toContain('>1m 42s<')
+  expect(d.alt.startsWith('Clawd is working, 1m 42s')).toBe(true)
+  // The usage limits are rows whose bars share one length.
+  const widths = [...d.source.matchAll(/clipPath id="sabai-(context|session|week)"><rect width="(\d+)"/g)].map(m => m[2])
+  expect(widths.length).toBe(3)
+  expect(new Set(widths).size).toBe(1)
+  // Under 480 px, or compact, or Clawd hidden: not this layout.
+  expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, info, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
+})
+
+test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
+  const race = {
+    lv: 5, coins: 2, hearts: 2, combo: 4, elapsedMs: 102_000, more: 1,
+    lanes: [
+      { id: 'main', who: 'Main', note: 'Editing svg.ts', progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
+      { id: 'a', who: 'Explore', type: 'Explore', note: '3/5', progress: 0.6, calls: [{ kind: 'test', ok: true }], state: 'scored' },
+      { id: 'b', who: 'General', type: 'general-purpose', note: 'build failed', calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+    ],
+  } as const
+  const part = racePart(lookOf('auto'), race as never, 300, 0)
+  expect(part.height).toBe(22 + 4 * 28 + 6)
+  for (const s of ['>LV 5<', '>×4 COMBO<', '>1:42<', '>+1<', '>OUCH<', 'class="coin', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"']) expect([s, part.body.includes(s)]).toEqual([s, true])
+  expect(part.alt).toBe('Race: LV 5, 2 coins, 2 hearts, combo 4, 1:42; Main running: Editing svg.ts; Explore scored: 3/5; General tripped: build failed; Plan finished: Done; 1 more')
+})
+
+test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
+  const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
+  const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
+  const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
+  const wide = bandSvg(undefined, info, LIST, 900, opts)!
+  expect(wide.alt).toContain('Race: LV 1')
+  expect(wide.alt).not.toContain('Working 1m 42s:')
+  expect(wide.alt).not.toContain('Agents:')
+  const mid = bandSvg(undefined, info, LIST, 600, opts)!
+  expect(mid.alt).not.toContain('Race:')
+  expect(mid.alt).toContain('Working 1m 42s: Editing svg.ts')
+  expect(mid.alt).toContain('Agents:')
+  expect(bandSvg(undefined, info, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
+  // Clawd hidden: no panel, the race stays.
+  const noClawd = bandSvg(undefined, info, LIST, 900, { ...opts, clawd: false })!
+  expect(noClawd.source).not.toMatch(/scale\(3\)/)
+  expect(noClawd.alt).toContain('Race: LV 1')
+})
+
+test('no race element carries two class attributes, whatever its runner is doing', () => {
+  for (const doing of ['read', 'edit', 'command', 'test'] as const) {
+    const race = { lv: 1, coins: 0, hearts: 3, combo: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', note: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const body = racePart(lookOf('auto'), race as never, 300, 0).body
+    const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
+    expect([doing, twice]).toEqual([doing, null])
+  }
+})
+
+test('in the comfortable band the race box’s words take the card’s ink, the usage rows’ the surface’s', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
+  const race = {
+    lv: 1, coins: 1, hearts: 3, combo: 2, elapsedMs: 1000, more: 1,
+    lanes: [
+      { id: 'main', who: 'Main', note: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
+      { id: 'c', who: 'Plan', type: 'Plan', note: 'Done', progress: 1, calls: [], state: 'finished' },
+    ],
+  }
+  const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
+  const [middle, box] = source.split('translate(600,0)')
+  expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
+  const rows = middle!.slice(middle!.indexOf('CONTEXT') - 200)
+  expect(rows.match(/<text class="(t|m|c-[a-z]+)"/g)).toBeNull()
 })

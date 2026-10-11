@@ -1,5 +1,6 @@
 import { expect, test } from 'claude-code/testing'
-import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import type { TurnLog } from '../types'
+import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -230,4 +231,21 @@ test('a receipt’s parts and mood: all green, failing tests, a failed command, 
   expect(receiptOf({ files: {}, commands: 1, failed: 1, test: { passed: 7, failed: 2, at: 0 } })).toMatchObject({ tone: 'bad', headline: 'Tests failing' })
   expect(receiptOf({ files, commands: 3, failed: 1 })).toMatchObject({ tone: 'warn', headline: '1 command failed' })
   expect(receiptOf({ files, commands: 0, failed: 0 })).toMatchObject({ tone: 'edit', headline: 'Done', files: { count: 2, added: 40, removed: 12 } })
+})
+
+test('read-only commands are told apart from ones that change things', () => {
+  for (const c of ['cat a.ts', 'ls -la', 'grep -n x a.ts', 'rg foo', 'git status', 'git log --oneline -3', 'git diff', 'head -5 a', 'wc -l a', 'find . -name x', 'cd x && git show HEAD'])
+    expect([c, isReadOnly(c)]).toEqual([c, true])
+  for (const c of ['bun test', 'git commit -m x', 'rm a', 'ls && npm i', 'cat a > b', 'echo x >> f', 'sed -i s/a/b/ f'])
+    expect([c, isReadOnly(c)]).toEqual([c, false])
+})
+
+test('reads do not fill a receipt alone; with an edit or a test run they count', () => {
+  const read = (log: TurnLog) => logged(log, { tool: 'Bash', command: 'cat a', output: '', isError: false, at: 1, readOnly: true })
+  expect(receiptOf(read(read(EMPTY_LOG)))).toBeUndefined()
+  const edited = logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'a', newText: 'b' })
+  expect(receiptOf(read(edited))?.commands).toEqual({ count: 1, failed: 0 })
+  expect(receiptOf(logged(EMPTY_LOG, { tool: 'Bash', command: 'cat nope', output: 'No such file', isError: true, at: 1, readOnly: true }))?.commands).toEqual({ count: 1, failed: 1 })
+  // replace_all: the change counted once per occurrence.
+  expect(logged(EMPTY_LOG, { tool: 'Edit', path: 'a', oldText: 'x', newText: 'y', times: 3 }).files.a).toEqual({ added: 3, removed: 3 })
 })

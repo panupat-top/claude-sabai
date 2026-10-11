@@ -69,3 +69,25 @@ test('Clawd startles with a mark, sweats a drop and sleeps with shut eyes and a 
   // Each mark's animation is in the stylesheet.
   for (const cls of ['startle', 'bang', 'drop', 'zz']) expect([cls, SPRITE_CSS.includes(`.${cls}`)]).toEqual([cls, true])
 })
+
+test('each accessory draws on Clawd: hats above him, held things to his right, a shirt across him', () => {
+  for (const a of ['newyear', 'xmas', 'nightcap'] as const) {
+    const px = pixels(sprite('tasks', 0, 0, 'idle', '#ff0000', undefined, a))
+    expect([a, [...px.keys()].some(k => Number(k.split(',')[1]) < 0)]).toEqual([a, true])
+  }
+  for (const a of ['halloween', 'coffee'] as const) {
+    const px = pixels(sprite('tasks', 0, 0, 'idle', '#ff0000', undefined, a))
+    expect([a, [...px.keys()].some(k => Number(k.split(',')[0]) >= 24)]).toEqual([a, true])
+  }
+  const shirt = pixels(sprite('tasks', 0, 0, 'idle', '#ff0000', undefined, 'songkran'))
+  expect(shirt.get('10,9')).toBe('#f5c542')
+})
+
+test('a runner holds the tool of its call in flight, in place of its type’s prop', () => {
+  for (const tool of ['read', 'edit', 'command', 'test'] as const) {
+    const px = pixels(sprite('tasks', 0, 0, 'run', '#ff0000', { kind: 'explorer', color: '#00ff00', prop: true }, undefined, tool))
+    expect([tool, [...px.keys()].some(k => Number(k.split(',')[0]) >= 24)]).toEqual([tool, true])
+  }
+  // The explorer's magnifier (#8e929a glass, #a0703f handle) is gone when a tool is held.
+  expect(sprite('tasks', 0, 0, 'run', '#ff0000', { kind: 'explorer', prop: true }, undefined, 'edit')).not.toContain('#a0703f')
+})

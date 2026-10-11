@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { GUARD_FAILED, failClosed, riskOf, risksOf } from '../hooks/guard'
+import { GUARD_FAILED, checkFailClosed, failClosed, riskOf, risksOf } from '../hooks/guard'
 
 test('the guard names risky commands and lets ordinary ones through', () => {
   const bash = (command: string) => riskOf('Bash', { command })?.reason
@@ -107,4 +107,16 @@ test('discards and force pushes are caught past git’s global options, subshell
   expect(rule('git -C x push --force origin main')).toBe('force')
   expect(rule('git -C repo checkout -- src/a.ts')).toBeUndefined()
   expect(rule('(cd repo && git status)')).toBeUndefined()
+})
+
+test('git restore -S . only unstages and passes; -W . or plain . discards', () => {
+  const rule = (command: string) => riskOf('Bash', { command })?.rule
+  expect(rule('git restore -S .')).toBeUndefined()
+  expect(rule('git restore -S -W .')).toBe('discard')
+  expect(rule('git restore -W .')).toBe('discard')
+})
+
+test('a tool.check guard that failed denies unless the decision beneath was reached', () => {
+  expect(checkFailClosed({ called: false }, () => 'beneath')).toEqual({ decision: 'deny', reason: GUARD_FAILED })
+  expect(checkFailClosed({ called: true }, () => 'beneath')).toBe('beneath')
 })

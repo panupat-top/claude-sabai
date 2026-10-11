@@ -1,6 +1,7 @@
-import type { AgentRun, BarStyle } from '../types'
+import type { AgentRun, BarStyle, CallKind } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
-import type { Chip, Meter, Mood, Progress } from './model'
+import type { Race } from './agents'
+import type { Accessory, Chip, Meter, Mood, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
@@ -32,6 +33,7 @@ export const TEXT = {
   week: ['#8a5700', '#f0b44a'],
   warn: ['#a8490a', '#ff9d57'],
   alert: ['#c0262c', '#ff7377'],
+  ok: ['#1a7f37', '#56d364'],
 } as const
 // The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
 // a skin's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
@@ -98,13 +100,13 @@ export function fillColor(percent: number, base: string): string {
 
 // How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
 // and Clawd's tint. No skin paints a background: the band sits on the surface's own, as `auto` does.
-export type Look = { css: string; bar: (kind: MeterKind | 'tasks', percent: number) => string; pill: string; clawd: string }
+export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' | 'alert') => string; pill: string; clawd: string }
 
 const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
 
 const AUTO: Look = {
   css: `${css(0)}.k{fill:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
-  bar: (kind, percent) => fillColor(percent, ICON_COLORS[kind]),
+  bar: (kind, lvl) => (lvl === 'alert' ? ALERT : lvl === 'warn' ? WARN : ICON_COLORS[kind]),
   pill: PILL,
   clawd: ICON_COLORS.tasks,
 }
@@ -117,11 +119,8 @@ export function lookOf(skin: string): Look {
   const ink = (c: string) => readable(c, card)
   const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
   return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}${wink(t.accents.tasks)}`,
-    bar: (kind, percent) => {
-      const l = level(percent)
-      return l === 'alert' ? t.alert : l === 'warn' ? t.warn : t.accents[kind]
-    },
+    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}.c-ok{fill:${ink(TEXT.ok[1])}}${wink(t.accents.tasks)}`,
+    bar: (kind, lvl) => (lvl === 'alert' ? t.alert : lvl === 'warn' ? t.warn : t.accents[kind]),
     pill: readable(t.accents.tasks, '#ffffff'),
     clawd: t.accents.tasks,
   }
@@ -129,20 +128,23 @@ export function lookOf(skin: string): Look {
 
 const CELL = 3
 const DOT_COLS = 200
+// Blocks stop multiplying past this and grow wider instead, for the same reason as DOT_COLS.
+const MAX_BLOCKS = 80
 const MAX_TICKS = 12
 
 export const BAR_STYLES: Record<BarStyle, string> = { dither: 'Dither', blocks: 'Pixel blocks', solid: 'Solid' }
 
 // A rounded track and its fill, drawn in `style`: dither (sparse at the start, dense toward the
 // head), square segments as tall as the bar, or one solid run. `id` must be unique in the page.
-function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio: number, color: string, ticks = 0, style: BarStyle = 'dither'): string {
+function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio: number, color: string, ticks = 0, style: BarStyle = 'dither', ghost?: { ratio: number; color: string }): string {
   const fillW = Math.round(w * Math.max(0, Math.min(1, ratio)))
   if (style === 'blocks') {
-    const count = Math.max(1, Math.floor((w + 2) / (h + 2)))
+    const count = Math.min(MAX_BLOCKS, Math.max(1, Math.floor((w + 2) / (h + 2))))
     const seg = (w - 2 * (count - 1)) / count
     const filled = Math.round(count * Math.max(0, Math.min(1, ratio)))
     const cells = Array.from({ length: count }, (_, i) => {
-      const paint = i < filled ? `fill="${color}"` : 'class="k"'
+      const ahead = ghost ? Math.round(count * Math.max(0, Math.min(1, ghost.ratio))) : 0
+      const paint = i < filled ? `fill="${color}"` : i < ahead ? `fill="${ghost!.color}" opacity=".3"` : 'class="k"'
       return `<rect ${paint} x="${(i * (seg + 2)).toFixed(1)}" width="${seg.toFixed(1)}" height="${h}" rx="1.5"/>`
     })
     return `<g transform="translate(${x},${y})">${cells.join('')}</g>`
@@ -167,16 +169,20 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
     if (tx > fillW + 4) marks.push(`<rect class="m" x="${tx}" y="${h / 2 - 3}" width="1.5" height="6" rx="0.75"/>`)
   }
   const fill = style === 'solid' ? `<rect fill="${color}" width="${fillW}" height="${h}"/>` : `<g fill="${color}">${dots.join('')}</g>`
+  // Where the bar is heading, faint, from its fill on.
+  const ghostW = ghost ? Math.round(w * Math.max(0, Math.min(1, ghost.ratio))) - fillW : 0
+  const shade = ghost && ghostW > 0 ? `<rect fill="${ghost.color}" opacity=".3" x="${fillW}" width="${ghostW}" height="${h}"/>` : ''
   return (
     `<g transform="translate(${x},${y})"><defs><clipPath id="${id}"><rect width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
     `<rect class="k" width="${w}" height="${h}" rx="${h / 2}"/>` +
-    `<g clip-path="url(#${id})">${fill}${marks.join('')}</g></g>`
+    `<g clip-path="url(#${id})">${fill}${shade}${marks.join('')}</g></g>`
   )
 }
 
 // Text drawn straight on the surface, with no card behind it, takes the OS's light or dark ink
 // whatever the skin: a skin's ink is only checked against its own card.
-const SURFACE_INK = `.st{fill:${TEXT.t[0]}}.sm{fill:${TEXT.m[0]}}@media (prefers-color-scheme: dark){.st{fill:${TEXT.t[1]}}.sm{fill:${TEXT.m[1]}}}`
+const surfaceCss = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.s${k.length > 1 ? `-${k}` : k}{fill:${v[i]}}`).join('')
+const SURFACE_INK = `${surfaceCss(0)}@media (prefers-color-scheme: dark){${surfaceCss(1)}}`
 
 // `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
 const svg = (look: Look, w: number, h: number, body: string, still = false) =>
@@ -186,6 +192,30 @@ const ROW_H = 20
 const GAP = 8
 const PAD = 10
 const CARD_H = 44
+const CARD_H_COMPACT = 22
+// A forecast in words: `~74%`, or `full` at 100.
+const forecastWords = (f: number) => (f >= 100 ? 'full' : `~${f}%`)
+// The faint run to where a limit is heading, in the colour it will reach.
+const ghostOf = (look: Look, m: Meter) => (m.forecast === undefined ? undefined : { ratio: m.forecast / 100, color: look.bar(m.kind, m.forecastLevel) })
+
+// A usage card on one line, for the compact band: its mark (context only), label, bar, percent,
+// and the reset countdown when there is room.
+function compactCard(look: Look, m: Meter, x: number, y: number, w: number, style: BarStyle): string {
+  const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
+  const label = m.kind === 'context' ? 'CTX' : m.label.split(' ')[0]!.toUpperCase()
+  const countdownText = m.resetsInMs === undefined ? '' : ` ↻${countdown(m.resetsInMs).replace(' ', '')}`
+  const room = (tail: string) => x + w - PAD - monoWidth(tail, 11) - 8 - (labelX + monoWidth(label, 10) + 8)
+  const tail = room(`${m.percent}%${countdownText}`) >= 40 ? `${m.percent}%${countdownText}` : `${m.percent}%`
+  const barX = labelX + monoWidth(label, 10) + 8
+  const barW = Math.max(30, room(tail))
+  return (
+    `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H_COMPACT}" rx="6"/>` +
+    (m.kind === 'context' ? sprite('context', x + PAD + 1, y + CARD_H_COMPACT / 2 - spriteSize('context').height / 2) : '') +
+    `<text class="m" x="${labelX}" y="${y + 15}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+    pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style, ghostOf(look, m)) +
+    `<text class="c-${m.level ?? m.kind}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
+  )
+}
 
 type Part = { body: string; height: number; alt: string }
 
@@ -203,21 +233,21 @@ const BAND_CONFETTI = [
 ] as const
 
 // Clawd in his mood, in the skin's colour, with confetti while he celebrates.
-function clawdAt(look: Look, x: number, y: number, mood: Mood): string {
+function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Accessory): string {
   const confetti =
     mood === 'celebrating'
-      ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      ? BAND_CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${x + cx}" y="${y + cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
-  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd) + confetti
+  return sprite('tasks', x, y, MOOD_MODE[mood], look.clawd, undefined, accessory) + confetti
 }
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd shows the session's mood: walking while the turn works, blinking while it waits.
-function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle): Part {
+function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: number, style: BarStyle, withClawd = true, accessory?: Accessory): Part {
   const ratio = p.done / p.total
   const percent = `${Math.round(ratio * 100)}%`
   const clawd = spriteSize('tasks')
-  const titleX = clawd.width + 10
+  const titleX = withClawd ? clawd.width + 10 : 0
   const title = fit(p.title, 13, Math.max(60, W * 0.35))
   const barX = Math.round(titleX + textWidth(title, 13) + 14)
   const barH = 14
@@ -228,29 +258,34 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
   const pillX = barX + Math.max(0, Math.min(barW - pillW, fillW - pillW))
   const y0 = (ROW_H - barH) / 2
   const body =
-    clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood) +
+    (withClawd ? clawdAt(look, 0, (ROW_H - clawd.height) / 2, mood, accessory) : '') +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
-    pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
+    pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks'), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
     `<text class="sm" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
-  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}${moodSaid(mood)}` }
+  return { body: `<g transform="translate(0,${top})">${body}</g>`, height: ROW_H, alt: `${p.title}: ${pill} tasks, ${percent}${withClawd ? moodSaid(mood) : ''}` }
 }
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
 // first, the pixel bar and its percent on the second. Four across, two or one when narrow.
-function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle): Part {
+function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle, compact = false): Part {
   const cols = Math.min(list.length, W >= 720 ? 4 : W >= 400 ? 2 : 1)
   const rows = Math.ceil(list.length / cols)
-  const cardW = Math.floor((W - GAP * (cols - 1)) / cols)
+  const gap = compact ? 4 : GAP
+  const cardH = compact ? CARD_H_COMPACT : CARD_H
+  const cardW = Math.floor((W - gap * (cols - 1)) / cols)
   const cards = list.map((m, i) => {
-    const x = (i % cols) * (cardW + GAP)
-    const y = y0 + Math.floor(i / cols) * (CARD_H + GAP)
+    const x = (i % cols) * (cardW + gap)
+    const y = y0 + Math.floor(i / cols) * (cardH + gap)
+    if (compact) return compactCard(look, m, x, y, cardW, style)
     const right = x + cardW - PAD
     const top = y + 14
     const bottom = y + 31
     const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
-    const color = look.bar(m.kind, m.percent)
+    const color = look.bar(m.kind, m.level)
+    const ahead = m.forecast === undefined ? '' : ` → ${forecastWords(m.forecast)}`
+    const aheadW = ahead ? monoWidth(ahead, 10.5) : 0
     const detail = m.amount
       ? `<text class="t" x="${right}" y="${top + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${m.amount}</text>`
       : m.resetsInMs === undefined
@@ -261,14 +296,15 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
       (m.kind === 'context' ? sprite('context', x + PAD + 1, top - spriteSize('context').height / 2) : '') +
       `<text class="m" x="${labelX}" y="${top + 3.5}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(m.label.toUpperCase())}</text>` +
       detail +
-      pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
-      `<text class="${textClass(m.percent, m.kind)}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
+      pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44 - aheadW, 9, m.percent / 100, color, 0, style, ghostOf(look, m)) +
+      (ahead ? `<text class="m" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
+      `<text class="c-${m.level ?? m.kind}" x="${right - aheadW}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
     )
   })
   const alt = list
-    .map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
+    .map(m => `${m.label} ${value(m)}${m.forecast === undefined ? '' : `, ${forecastWords(m.forecast)} by reset`}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
     .join('; ')
-  return { body: cards.join(''), height: rows * CARD_H + (rows - 1) * GAP, alt }
+  return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
 }
 
 const CHIP_H = 20
@@ -286,7 +322,7 @@ const fitMono = (s: string, size: number, maxW: number) => {
 // The info row: one chip per fact, its mark then its value. The left group runs from the
 // left edge (after Clawd, when the band has no tasks row to hold him), the right group ends at
 // the right edge; left chips that would meet it are left out.
-function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood }): Part {
+function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, clawd?: { look: Look; mood: Mood; accessory?: Accessory }): Part {
   const width = (c: Chip) => Math.ceil(CHIP_PAD * 2 + ICON + 6 + monoWidth(c.value, 11.5))
   const chip = (c: Chip, x: number) =>
     `<rect class="p" x="${x}" y="${y}" width="${width(c)}" height="${CHIP_H}" rx="6"/>` +
@@ -294,7 +330,7 @@ function chipsPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: n
     `<text class="t" x="${x + CHIP_PAD + ICON + 6}" y="${y + CHIP_H / 2 + 4}" font-family="${MONO}" font-size="11.5" font-weight="600">${xml(c.value)}</text>`
   let right = W
   const rightBody = [...info.right].reverse().map(c => chip(c, (right -= width(c) + GAP) + GAP)).join('')
-  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood) : ''
+  const lead = clawd ? clawdAt(clawd.look, 0, y + (CHIP_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory) : ''
   let x = clawd ? spriteSize('tasks').width + GAP : 0
   const drawn: Chip[] = []
   const leftBody = info.left
@@ -373,6 +409,214 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
+// The race's motion, carried only by the race box: the ground scrolls, far hills drift, dust and
+// speed lines trail, coins spin and rise, flags flutter, confetti pops, the glow pulses.
+const RACE_MOTION =
+  '.scroll{animation:rsc 1s linear infinite}@keyframes rsc{to{transform:translateX(-10px)}}' +
+  '.far{animation:rfar 1s linear infinite}@keyframes rfar{to{transform:translateX(-3px)}}' +
+  '.dust{animation:rdu .5s ease-out infinite}.dust2{animation-delay:-.25s}@keyframes rdu{0%{opacity:.7}100%{opacity:0;transform:translate(-5px,-2px)}}' +
+  '.speed{animation:rsp .4s linear infinite}@keyframes rsp{0%{opacity:.8}100%{opacity:0;transform:translateX(-8px)}}' +
+  '.coin{transform-box:fill-box;transform-origin:center;animation:rcn .6s steps(2) infinite}@keyframes rcn{50%{transform:scaleX(.35)}}' +
+  '.rise{animation:rrs 1s ease-out infinite}@keyframes rrs{70%{transform:translateY(-6px);opacity:.25}}' +
+  '.flag{transform-box:fill-box;transform-origin:0 50%;animation:rfl .5s steps(2) infinite}@keyframes rfl{50%{transform:scaleY(.8)}}' +
+  '.conf{animation:rcf .8s ease-out infinite}@keyframes rcf{60%{transform:translateY(-5px);opacity:.3}}' +
+  '.glow{animation:rgl 1s ease-in-out infinite}@keyframes rgl{50%{opacity:.35}}' +
+  '@media (prefers-reduced-motion: reduce){.scroll,.far,.dust,.speed,.coin,.rise,.flag,.conf,.glow{animation:none}}'
+const RACE_W = 300
+const RACE_HEAD = 22
+const LANE_H = 28
+const RACE_BODY = '#b9b9b4'
+const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
+const pixelHeart = (x: number, y: number, full: boolean, look: Look) =>
+  `<g transform="translate(${x},${y})" ${full ? `fill="${look.bar('tasks', 'alert')}"` : 'class="k"'}><rect x="1" y="0" width="3" height="2"/><rect x="6" y="0" width="3" height="2"/><rect x="0" y="2" width="10" height="3"/><rect x="1" y="5" width="8" height="2"/><rect x="3" y="7" width="4" height="2"/></g>`
+
+// The race: a header (level, coins, hearts, combo, more, time), then a lane per member: its name
+// and note at the left, its call tiles on the ground, its runner at its progress (the middle when
+// unknown) holding the tool of its call in flight over a glow, and its flag at the right.
+export function racePart(look: Look, race: Race, W: number, top: number): Part {
+  // A kind's colour as attributes, merged with the element's own classes: two class attributes on
+  // one element make the drawing invalid, and the desktop then draws nothing.
+  const kindFill = (k: CallKind, ok: boolean, cls = '') => {
+    const paint = !ok ? { fill: look.bar('tasks', 'alert') } : k === 'read' ? { fill: look.bar('context') } : k === 'edit' ? { fill: look.bar('session') } : { cls: k === 'test' ? 'c-ok' : 'm' }
+    const classes = [cls, paint.cls].filter(Boolean).join(' ')
+    return `${classes ? `class="${classes}"` : ''}${paint.fill ? ` fill="${paint.fill}"` : ''}`
+  }
+  const time = mmss(race.elapsedMs)
+  const head =
+    `<text class="t" x="10" y="${top + 15}" font-family="${MONO}" font-size="11" font-weight="800">LV ${race.lv}</text>` +
+    `<circle class="coin" cx="54" cy="${top + 11}" r="3.5" fill="#e0a030"/><text class="t" x="60" y="${top + 15}" font-family="${MONO}" font-size="9.5" font-weight="700">×${race.coins}</text>` +
+    [0, 1, 2].map(i => pixelHeart(86 + i * 13, top + 7, i < race.hearts, look)).join('') +
+    (race.combo >= 2 ? `<text class="c-warn" x="${W / 2 + 46}" y="${top + 15}" text-anchor="middle" font-family="${MONO}" font-size="9.5" font-weight="800">×${race.combo} COMBO</text>` : '') +
+    (race.more ? `<text class="m" x="${W - 46}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">+${race.more}</text>` : '') +
+    `<text class="m" x="${W - 10}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="10">${time}</text>`
+  const laneX = 50
+  const laneW = W - laneX - 20
+  const lanes = race.lanes.map((l, i) => {
+    const y = top + RACE_HEAD + i * LANE_H
+    const ground = y + LANE_H - 5
+    const moving = l.state === 'running' || l.state === 'scored'
+    const tiles = (l.calls.length ? [...l.calls, ...(moving ? l.calls : [])] : []).map((c, j) => `<rect x="${laneX + j * 10}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
+    const hills = moving ? `<g class="far" opacity=".5">${Array.from({ length: Math.ceil(laneW / 10) + 1 }, (_, j) => `<rect class="k" x="${laneX + j * 10}" y="${ground - 3 - ((j * 7) % 4)}" width="10" height="${3 + ((j * 7) % 4)}"/>`).join('')}</g>` : ''
+    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? 0.5))
+    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : 'idle'
+    const hat = l.type ? hatOf(look, l.type) : undefined
+    const body = l.state === 'out' ? RACE_BODY : look.clawd
+    const runner = `<g transform="translate(${rx},${ground - 18}) scale(.85)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'waiting' ? l.doing : undefined)}</g>`
+    const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
+    const dust = l.state === 'running' ? `<circle class="dust k" cx="${rx}" cy="${ground - 1}" r="1.5"/><circle class="dust dust2 k" cx="${rx + 3}" cy="${ground - 2}" r="1.2"/>` : ''
+    const speed = l.state === 'running' && l.doing === 'command' ? `<g class="speed m"><rect x="${rx - 12}" y="${ground - 12}" width="6" height="1"/><rect x="${rx - 15}" y="${ground - 8}" width="8" height="1"/></g>` : ''
+    const flagX = laneX + laneW + 3
+    const flag = `<rect class="m" x="${flagX}" y="${ground - 16}" width="1.2" height="17"/><path class="flag${l.state === 'finished' ? ' c-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 16}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    const marks =
+      l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
+      l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 10}" cy="${ground - 22}" r="3" fill="#e0a030"/>` :
+      l.state === 'finished' ? [0, 1, 2, 3].map(j => `<rect class="conf" style="animation-delay:-${j * 0.2}s" x="${flagX - 14 + j * 4}" y="${ground - 20 + (j % 2) * 4}" width="2" height="2" fill="${[`#e0a030`, look.bar('session'), look.bar('context'), look.bar('tasks', 'alert')][j]}"/>`).join('') + `<text class="c-ok" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="800">✓</text>` :
+      l.state === 'out' ? `<text class="c-alert" x="${rx + 10}" y="${ground - 20}" text-anchor="middle" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
+    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : l.state === 'finished' ? 'c-ok' : 't'
+    const note = l.note.length > 7 ? `${l.note.slice(0, 6)}…` : l.note
+    return (
+      hills +
+      `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>` +
+      `<g${moving ? ' class="scroll"' : ''}>${tiles}</g>` +
+      flag + glow + dust + speed + runner + marks +
+      `<text class="${nameClass}" x="10" y="${y + 13}" font-family="${MONO}" font-size="10" font-weight="800">${xml(l.who)}</text>` +
+      `<text class="m" x="10" y="${y + 24}" font-family="${SANS}" font-size="9">${xml(note)}</text>`
+    )
+  })
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+  const alt = [`Race: LV ${race.lv}, ${plural(race.coins, 'coin')}, ${plural(race.hearts, 'heart')}, combo ${race.combo}, ${time}`, ...race.lanes.map(l => `${l.who} ${l.state}: ${l.note}`), ...(race.more ? [`${race.more} more`] : [])].join('; ')
+  return { body: `<style>${RACE_MOTION}</style>` + head + lanes.join(''), height: RACE_HEAD + race.lanes.length * LANE_H + 6, alt }
+}
+
+const HERO_MIN_W = 480
+const RACE_MIN_W = 760
+const HERO_PANEL_W = 108
+const ROW_GAP = 6
+// What Clawd's panel says under him for each mood.
+const MOOD_WORDS: Record<Mood, string> = { idle: 'idle', working: 'working', startled: 'caught one!', sad: 'tests failed', celebrating: 'all green', sweating: 'context full', sleeping: 'sleeping' }
+
+// The usage limits as rows: label, a long bar with its forecast ghost, the amount or countdown,
+// the percent and where it is heading.
+function usageRows(look: Look, list: readonly Meter[], W: number, top: number, style: BarStyle): Part {
+  const labelW = 64
+  // One bar length for every row, so the bars line up: room after the widest tail.
+  const tailOf = (m: Meter) => {
+    const detail = m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
+    const ahead = m.forecast === undefined ? '' : ` → ${forecastWords(m.forecast)}`
+    return { detail, ahead, w: monoWidth(detail, 11) + 14 + monoWidth(`${m.percent}%`, 11.5) + monoWidth(ahead, 10.5) }
+  }
+  const tails = list.map(tailOf)
+  const barW = Math.max(40, Math.floor(W - labelW - Math.max(...tails.map(t => t.w)) - 12))
+  const detailX = labelW + barW + 10
+  const rows = list.map((m, i) => {
+    const y = top + i * (ROW_H + ROW_GAP)
+    const label = m.kind === 'context' ? 'CONTEXT' : m.label.split(' ')[0]!.toUpperCase()
+    const { detail, ahead } = tails[i]!
+    const pct = `${m.percent}%`
+    const right = W
+    return (
+      `<text class="sm" x="0" y="${y + 14}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
+      pixelBar(`sabai-${m.kind}`, labelW, y + 5.5, barW, 9, m.percent / 100, look.bar(m.kind, m.level), 0, style, ghostOf(look, m)) +
+      (ahead ? `<text class="sm" x="${right}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(ahead)}</text>` : '') +
+      `<text class="s-${m.level ?? m.kind}" x="${right - monoWidth(ahead, 10.5)}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pct}</text>` +
+      (detail ? `<text class="${m.amount ? 'st' : 'sm'}" x="${detailX}" y="${y + 14}" font-family="${MONO}" font-size="11" font-weight="600">${xml(detail)}</text>` : '')
+    )
+  })
+  const alt = list
+    .map(m => `${m.label} ${value(m)}${m.forecast === undefined ? '' : `, ${forecastWords(m.forecast)} by reset`}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
+    .join('; ')
+  return { body: rows.join(''), height: list.length * ROW_H + (list.length - 1) * ROW_GAP, alt }
+}
+
+// The comfortable band: Clawd large in his own panel at the left, with his mood and the turn's
+// time under him; at the right the info row, then the live strip, tasks and crew when present,
+// then the usage limits as rows.
+function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[] }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true } = opts
+  // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
+  const race = W >= RACE_MIN_W ? opts.race : undefined
+  const look = lookOf(skin)
+  const x0 = clawd ? HERO_PANEL_W + GAP : 0
+  const rw = W - x0 - (race ? RACE_W + GAP : 0)
+  const parts: Part[] = []
+  let y = 0
+  const add = (part: Part) => {
+    parts.push(part)
+    y += part.height + GAP
+  }
+  if (info.left.length + info.right.length > 0) add(chipsPart(info, rw, y))
+  if (live && !race) add(livePart(look, live, rw, y))
+  if (p) add(progressPart(look, p, rw, mood, y, style, false))
+  if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
+  if (list.length > 0) add(usageRows(look, list, rw, y + 2, style))
+  const middleH = Math.max(0, y - GAP + 2)
+  const raced = race ? racePart(look, race, RACE_W, 0) : undefined
+  const H = Math.max(clawd ? 96 : 0, middleH, raced?.height ?? 0)
+  if (H === 0) return undefined
+  let panel = ''
+  const words = live ? clock(live.elapsedMs) : ''
+  if (clawd) {
+    const scale = 3
+    const hat = accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap' ? HAT_H * scale : 0
+    const cw = spriteSize('tasks').width * scale
+    const ch = spriteSize('tasks').height * scale
+    const block = hat + ch + 8 + 14 + (words ? 13 : 0)
+    const cy = Math.max(6, (H - block) / 2) + hat
+    const cx = (HERO_PANEL_W - cw) / 2 - (accessory === 'coffee' || accessory === 'halloween' || accessory === 'songkran' ? PROP_W : 0)
+    panel =
+      `<rect class="p" width="${HERO_PANEL_W}" height="${H}" rx="10"/>` +
+      `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory)}</g>` +
+      `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
+      (words ? `<text class="m" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${words}</text>` : '')
+  }
+  // Shorter than the band, the middle sits in its middle.
+  const dy = Math.max(0, Math.round((H - middleH) / 2))
+  const box = raced ? `<g transform="translate(${W - RACE_W},0)"><rect class="p" width="${RACE_W}" height="${H}" rx="10"/>${raced.body}</g>` : ''
+  const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>` + box
+  const alt = [...(clawd ? [`Clawd is ${mood}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
+  return drawing(look, W, H, body, alt.join('; '))
+}
+
+// How the band is drawn, past its rows' content.
+export type BandOpts = {
+  mood?: Mood
+  skin?: string
+  style?: BarStyle
+  crew?: { runs: readonly AgentRun[]; now: number }
+  density?: 'comfortable' | 'compact'
+  clawd?: boolean
+  live?: LiveStrip
+  accessory?: Accessory
+  hero?: boolean
+  race?: Race
+}
+
+// The turn as it runs, for the live strip.
+export type LiveStrip = { elapsedMs: number; step?: { icon: StepIcon; title: string }; files: number; commands: number; test?: { passed: number; failed: number } }
+const LIVE_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '⚗', pen: '✎', file: '+', read: '≡', stop: '■' }
+
+// The live strip: Clawd (when he stands here), the turn's elapsed time, the step in flight, and
+// the turn's tallies so far at the right.
+function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood, accessory?: Accessory): Part {
+  // Room for Clawd and anything he holds to his right.
+  const lead = mood ? spriteSize('tasks').width + PROP_W + 6 : 0
+  const time = clock(live.elapsedMs)
+  const allTallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
+  const stepX = lead + monoWidth(time, 11.5) + 12
+  // On a narrow band the step outranks the tallies: they go first when both would not fit.
+  const tallies = live.step && W - stepX - monoWidth(allTallies, 11) - 16 < 80 ? '' : allTallies
+  const room = W - stepX - (tallies ? monoWidth(tallies, 11) + 16 : 0)
+  const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
+  const body =
+    (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory) : '') +
+    `<text class="st" x="${lead}" y="${top + 14}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` +
+    (title ? `<text class="sm" x="${stepX}" y="${top + 14}" font-family="${SANS}" font-size="12">${xml(title)}</text>` : '') +
+    (tallies ? `<text class="sm" x="${W}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11">${xml(tallies)}</text>` : '')
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
+  const words = [live.files && plural(live.files, 'file'), live.commands && plural(live.commands, 'command'), live.test && (live.test.failed ? `${live.test.failed} failed` : `${live.test.passed} passed`)].filter(Boolean).join(', ')
+  return { body: `<g>${body}</g>`, height: ROW_H, alt: `Working ${time}${live.step ? `: ${live.step.title}` : ''}${words ? `; ${words}` : ''}` }
+}
+
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
 // surface's between two elements. Rows top to bottom: info chips, tasks, usage cards.
 export function bandSvg(
@@ -380,26 +624,33 @@ export function bandSvg(
   info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },
   list: readonly Meter[],
   W: number,
-  mood: Mood = 'idle',
-  skin = 'auto',
-  style: BarStyle = 'dither',
-  crew?: { runs: readonly AgentRun[]; now: number },
+  opts: BandOpts = {},
 ): Drawing | undefined {
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live, accessory } = opts
+  const compact = opts.density === 'compact'
+  if (opts.hero && !compact && W >= HERO_MIN_W) return heroBand(p, info, list, W, opts)
+  const gap = compact ? 4 : GAP
   const look = lookOf(skin)
   const parts: Part[] = []
   let y = 0
   const add = (part: Part) => {
     parts.push(part)
-    y += part.height + GAP
+    y += part.height + gap
   }
-  // Clawd stands in the info row when there is no tasks row to hold him.
-  const clawdInInfo = !p && Boolean(info.show)
-  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood } : undefined))
-  if (p) add(progressPart(look, p, W, mood, y, style))
+  // One Clawd: the tasks row holds him, else the live strip, else the info row.
+  const clawdInLive = !p && Boolean(live) && clawd
+  const clawdInInfo = !p && !live && Boolean(info.show) && clawd
+  // A hat rises above Clawd: when he stands in the first row, the band starts lower to show it.
+  const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
+  const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && (clawdInLive || (!live && Boolean(p))))
+  if (hatted && firstHoldsClawd) y = HAT_H
+  if (info.left.length + info.right.length > 0 || clawdInInfo) add(chipsPart(info, W, y, clawdInInfo ? { look, mood, accessory } : undefined))
+  if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory))
+  if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
-  if (list.length > 0) add(cardsPart(look, list, W, y, style))
+  if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
   if (parts.length === 0) return undefined
-  return drawing(look, W, y - GAP, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
+  return drawing(look, W, y - gap, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
 }
 
 // The skin picker's swatch: a strip of the skin's card colour with its text colours (`Aa`) and
@@ -424,7 +675,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
     .map((kind, i) =>
       Array.from({ length: SEGMENTS }, (_, j) => {
         const x = (cardX + PAD + i * (barW + GAP) + j * segW).toFixed(1)
-        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind, 0)}"` : 'class="k"'
+        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind)}"` : 'class="k"'
         return `<rect ${paint} x="${x}" y="${SWATCH_H / 2 - 3}" width="${(segW - 2).toFixed(1)}" height="6" rx="1"/>`
       }).join(''),
     )
@@ -441,7 +692,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
 export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
-  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks', 0), 5, style)
+  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
   return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`)
 }
 
@@ -464,7 +715,7 @@ const drawing = (look: Look, W: number, height: number, body: string, alt: strin
 // takes the deeper pill clay.
 function hatOf(look: Look, type: string) {
   const { hat, accent } = typeStyle(type)
-  const color = accent ? look.bar(accent, 0) : look.bar('session', 0)
+  const color = accent ? look.bar(accent) : look.bar('session')
   return { hat, accent, color, hatColor: accent === 'tasks' ? look.pill : accent ? color : undefined }
 }
 
@@ -474,8 +725,8 @@ function statusMark(look: Look, status: AgentRun['status'], x: number, y: number
   if (status === 'running')
     return `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}"/><circle class="ripple" cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${color}" stroke-width="1.2"/>`
   if (status === 'done')
-    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context', 0)}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
-  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 100)}" stroke-width="1.8" stroke-linecap="round"/></g>`
+    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context')}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
+  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 'alert')}" stroke-width="1.8" stroke-linecap="round"/></g>`
 }
 
 const AGENT_H = 52
@@ -544,7 +795,7 @@ const CONFETTI = [
 // opens its report): Clawd in his type's hat with his tool (his report once finished, a plaster
 // if he failed), effort · type · model with the clock and status, own progress or steps with
 // the context, and the band's bar.
-export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto', style: BarStyle = 'dither'): Drawing {
+export function agentCardSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', style: BarStyle = 'dither'): Drawing {
   const look = lookOf(skin)
   const { hat, accent, color, hatColor } = hatOf(look, a.type)
   const textCls = accent ? `c-${accent}` : 'm'
@@ -571,7 +822,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const barY = 38
   const barW = right - textX
   const uid = a.id.replace(/\W/g, '_')
-  const failedColor = look.bar('tasks', 100)
+  const failedColor = look.bar('tasks', 'alert')
   // A failed run's bar takes the alert colour, so a full bar never reads as success.
   const barColor = a.status === 'failed' ? failedColor : color
   const bar = line
@@ -586,7 +837,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
       : cardBar(look, uid, textX, barY, barW, 1, barColor, style)
   const confetti =
     a.status === 'done' && fresh
-      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind, 0)}"/>`).join('')
+      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
       : ''
   const body =
     `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
@@ -610,7 +861,7 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
 }
 
 // Three cards: how many agents run and finished, their context together, and the wall time.
-export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'auto'): Drawing {
+export function summarySvg(list: AgentRun[], W: number, now: number, skin: string = 'auto'): Drawing {
   const look = lookOf(skin)
   const s = summary(list, now)
   const cells = [
@@ -635,7 +886,7 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin = 'aut
   return drawing(look, W, 44, body, `Agents ${cells[0][1]}; context ${cells[1][1]}; time ${cells[2][1]}`)
 }
 
-export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
+export function emptyAgentsSvg(W: number, skin: string = 'auto'): Drawing {
   const look = lookOf(skin)
   const clawd = spriteSize('tasks')
   const body =

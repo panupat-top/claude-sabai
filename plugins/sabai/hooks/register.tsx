@@ -1,13 +1,13 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
+import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage } from '../types'
 import type { Mood } from './model'
-import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
-import { CELEBRATE_MS, STARTLE_MS, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
+import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
+import { CELEBRATE_MS, EMPTY_RACE, RECENT_MS, STARTLE_MS, accessoryOf, blocks, moodOf, raced, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
-import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
+import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
@@ -23,13 +23,17 @@ const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
 const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
 const DEFAULT_PREFS: Prefs = {
-  rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true },
+  rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true, live: true },
   notify: true,
   limits: true,
   guard: false,
   steps: true,
   chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
   guardRules: DEFAULT_GUARD_RULES,
+  show: { folder: true, gitUser: true, branch: true, node: true, context: true, session: true, week: true, clawd: true },
+  warnAt: 70,
+  alertAt: 90,
+  density: 'comfortable',
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -41,6 +45,7 @@ const withDefaults = (v: unknown): Prefs => {
     rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
     chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
     guardRules: { ...DEFAULT_GUARD_RULES, ...(p.guardRules ?? {}) },
+    show: { ...DEFAULT_PREFS.show, ...(p.show ?? {}) },
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
@@ -53,6 +58,15 @@ const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // receipt card; the engine names no turn on a reply, but its text is the answer's.
 const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
 const RECEIPTS_KEPT = 40
+// The main turn as it runs, for the live strip: when it began, and the step in flight.
+const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
+const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string } | null)
+// Each member's calls for the race: its tiles, its call in flight, its last fall and score.
+const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
+// Whether the main conversation is mid-turn, so the clock ticks by the second for the strip.
+let mainWorking = false
+// Each plan limit's readings in its current window, for its forecast.
+const usageSamples = atom({ plugin: 'sabai', key: 'usageSamples' } as const, {} as Record<string, { resetsAt?: string; points: { at: number; percent: number }[] }>)
 // The tools a row draws as a one-line step.
 const STEP_TOOLS = new Set(['Bash', 'Edit', 'Write', 'Read'])
 // How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
@@ -237,6 +251,54 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
+// Each limit's readings in its current window, for the forecast; a new window starts over.
+async function sample($: EngineInterface, limits: readonly { kind: string; percentUsed: number; resetsAt?: string }[]) {
+  const at = await $.clock.now()
+  await update($, usageSamples, all => {
+    const next = { ...all }
+    for (const l of limits) {
+      if (l.kind !== 'five_hour' && l.kind !== 'seven_day') continue
+      const was = next[l.kind]
+      const points = (was && was.resetsAt === l.resetsAt ? was.points : []).filter(p => at - p.at < RECENT_MS)
+      // About one reading a minute: measure fires on every response, and a busy turn would
+      // otherwise crowd the window into a few minutes, too short for a forecast.
+      const crowded = points.length > 1 && at - points[points.length - 2]!.at < 60_000
+      next[l.kind] = { resetsAt: l.resetsAt, points: [...(crowded ? points.slice(0, -1) : points), { at, percent: l.percentUsed }] }
+    }
+    return next
+  })
+}
+
+// The main turn's step in flight, for the live strip: the step's running title; a subagent's
+// calls leave it alone.
+async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
+  if (agentId !== undefined) return
+  const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
+  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title } : null))
+}
+
+// A call that never came back (it threw): only its in-flight mark is cleared.
+const UNFINISHED = { deny: 'unfinished' }
+
+// A member's call for the race: in flight before it runs, then its tile once it finished; a
+// refused or unfinished call leaves only the in-flight mark cleared.
+async function racing($: EngineInterface, agentId: string | undefined, kind: CallKind, called?: { deny?: string; isError?: boolean }, ok?: boolean) {
+  const member = agentId ?? 'main'
+  if (called === undefined && ok === undefined) {
+    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: kind } }))
+    return
+  }
+  const at = await $.clock.now()
+  await update($, race, r => {
+    const { [member]: _, ...doing } = r.doing
+    return !called || called.deny !== undefined ? { ...r, doing } : raced({ ...r, doing }, member, { kind, ok: ok ?? !called.isError }, at)
+  })
+}
+
+async function unstep($: EngineInterface, agentId: string | undefined) {
+  if (agentId === undefined) await update($, liveStep, () => null)
+}
+
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
@@ -305,13 +367,16 @@ export const register: Register = on => {
     await tick($)
     // session.measure fires only on the next response, so a fresh load reads what is known now.
     const known = await $.session.usage().catch(() => undefined)
-    if (known) await update($, usage, () => toUsage(known))
+    if (known) {
+      await update($, usage, () => toUsage(known))
+      await sample($, known.rateLimits)
+    }
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
     $.clock.every(1000, () => {
       void (async () => {
-        if ((await read($, agents)).some(a => a.status === 'running')) await tick($)
+        if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
       })()
     })
     // git and node last, and not waited on: a slow repository must not hold the session.
@@ -374,12 +439,14 @@ export const register: Register = on => {
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
+      mainWorking = false
+      await update($, liveStep, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
       // gets it as the notice under it instead.
       const log = await read($, turnLog)
       if ((await read($, prefs)).chat.receipt && receiptOf(log)) {
         const answer = e.answer.trim()
-        if (!answer) return { ...completed, text: receiptText(log)! }
+        if (!answer) return { ...completed, text: completed.text ? `${completed.text}\n${receiptText(log)!}` : receiptText(log)! }
         await update($, receipts, all => Object.fromEntries([...Object.entries(all).filter(([k]) => k !== answer), [answer, log]].slice(-RECEIPTS_KEPT)))
       }
     } else {
@@ -434,7 +501,7 @@ export const register: Register = on => {
     // ink follows the OS theme, which a fixed skin colour behind them could not.
     const reportColor = (a: AgentRun) => {
       const { accent } = typeStyle(a.type)
-      return a.status === 'failed' ? look.bar('tasks', 100) : look.bar(accent ?? 'session', 0)
+      return a.status === 'failed' ? look.bar('tasks', 'alert') : look.bar(accent ?? 'session')
     }
     const drawings = new Map<string, ReturnType<typeof agentCardSvg>>()
     const drawnOf = (a: AgentRun) => {
@@ -542,6 +609,7 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
+    await sample($, e.rateLimits)
     if ((await read($, prefs)).limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
@@ -568,20 +636,48 @@ export const register: Register = on => {
   // The guard's Ask: the permission decision becomes an ask with the guard's reason, which opens
   // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
   // A deny decided beneath (a settings rule, a classic hook) stands: the guard only tightens.
-  on('tool.check', async ($, e, next) => {
+  on('tool.check', { tool: ['Bash', 'Read'] }, async ($, e, next) => {
     const decided = await next(e)
     const risk = e.tool_use_id === undefined || decided.decision === 'deny' ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
     if (!risk) return decided
     await caught($)
     return { decision: 'ask' as const, reason: `sabai's guard: this ${risk.reason}` }
-  }).catch(($, e, next) => (next.called ? next(e) : { decision: 'deny' as const, reason: GUARD_FAILED }))
+  }).catch(($, e, next) => checkFailClosed(next, () => next(e)))
+  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    await stepping($, e.agentId, 'Read', e)
+    await racing($, e.agentId, 'read')
+    let called: { deny?: string; isError?: boolean } | undefined
+    try {
+      called = await next(e)
+      return called as never
+    } finally {
+      await unstep($, e.agentId)
+      await racing($, e.agentId, 'read', called ?? UNFINISHED)
+    }
+  })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
-    const called = await next(e)
-    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string })
+    await stepping($, e.agentId, 'Edit', e)
+    await racing($, e.agentId, 'edit')
+    let called: Awaited<ReturnType<typeof next>> | undefined
+    try {
+      called = await next(e)
+    } finally {
+      await unstep($, e.agentId)
+      await racing($, e.agentId, 'edit', called ?? UNFINISHED)
+    }
+    if (!called.isError) await logCall($, e.agentId, called, { tool: 'Edit', path: e.file_path, oldText: e.old_string, newText: e.new_string, times: e.replace_all ? (called.result as { structuredPatch?: unknown[] } | undefined)?.structuredPatch?.length : undefined })
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
-    const called = await next(e)
+    await stepping($, e.agentId, 'Write', e)
+    await racing($, e.agentId, 'edit')
+    let called: Awaited<ReturnType<typeof next>> | undefined
+    try {
+      called = await next(e)
+    } finally {
+      await unstep($, e.agentId)
+      await racing($, e.agentId, 'edit', called ?? UNFINISHED)
+    }
     if (!called.isError) await logCall($, e.agentId, called, { tool: 'Write', path: e.file_path, content: e.content })
     return called
   })
@@ -591,6 +687,10 @@ export const register: Register = on => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
+    await stepping($, e.agentId, 'Bash', e)
+    const kind: CallKind = isTestCommand(e.command) ? 'test' : 'command'
+    await racing($, e.agentId, kind)
+    let raceDone = false
     try {
       const called = await next(e)
       if (id && !asked.has(id)) {
@@ -600,7 +700,10 @@ export const register: Register = on => {
       const r = called.result as { stdout?: string; stderr?: string } | string | undefined
       const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
       const at = await $.clock.now()
-      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at })
+      await logCall($, e.agentId, called, { tool: 'Bash', command: e.command, output, isError: Boolean(called.isError), at, readOnly: isReadOnly(e.command) })
+      // A test run scores only when no test failed.
+      await racing($, e.agentId, kind, called, !called.isError && (kind !== 'test' || (testResult(output)?.failed ?? 0) === 0))
+      raceDone = true
       // This call just set the turn's test result: redraw now, and again when the celebration ends.
       if (e.agentId === undefined && (await read($, turnLog)).test?.at === at) {
         await update($, now, () => at)
@@ -612,6 +715,8 @@ export const register: Register = on => {
         inFlight.delete(id)
         asked.delete(id)
       }
+      await unstep($, e.agentId)
+      if (!raceDone) await racing($, e.agentId, kind, UNFINISHED)
     }
   })
 
@@ -695,6 +800,18 @@ export const register: Register = on => {
     const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
       toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const showToggle = (key: keyof Prefs['show'], name: string, note: string) =>
+      toggle(`show-${key}`, name, note, p.show[key], x => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }))
+    const thresholdRow = (key: 'warn' | 'alert', name: string, values: number[], current: number) => (
+      <Box key={`row-${key}`} flexDirection="row" alignItems="center" columnGap={2}>
+        {named(name, key === 'warn' ? 'Amber from this percent' : 'Red from this percent')}
+        <Box flexDirection="row" columnGap={1}>
+          {values.map(v => (
+            <Button key={`${key}-${v}`} label={`${v}%`} variant={v === current ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, [key === 'warn' ? 'warnAt' : 'alertAt']: v }))} />
+          ))}
+        </Box>
+      </Box>
+    )
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
@@ -721,7 +838,7 @@ export const register: Register = on => {
                 ) : (
                   <Text>
                     {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
-                      <Text key={kind} color={kLook.bar(kind, 0)}>{'▰▰▰ '}</Text>
+                      <Text key={kind} color={kLook.bar(kind)}>{'▰▰▰ '}</Text>
                     ))}
                   </Text>
                 )}
@@ -739,9 +856,23 @@ export const register: Register = on => {
           <>
             {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
             {rowToggle('tasks', 'Tasks', "Claude's own task list")}
+            {rowToggle('live', 'Live', 'What Claude is doing now, while it works')}
             {rowToggle('crew', 'Crew', 'Subagents at work')}
             {rowToggle('usage', 'Usage', 'Context and plan limits')}
             {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
+            {subheading('Info chips', 'What the first row names')}
+            {showToggle('folder', 'Folder', 'The project folder')}
+            {showToggle('gitUser', 'Git user', 'Your git name')}
+            {showToggle('branch', 'Branch', 'Branch, ahead/behind and changes')}
+            {showToggle('node', 'Node', 'The Node version')}
+            {subheading('Usage cards', 'Which limits show, and when they turn amber and red')}
+            {showToggle('context', 'Context', 'How full the conversation is')}
+            {showToggle('session', '5H limit', 'The five-hour plan limit')}
+            {showToggle('week', '7D limit', 'The seven-day plan limit')}
+            {thresholdRow('warn', 'Warn at', [60, 70, 80], p.warnAt)}
+            {thresholdRow('alert', 'Alert at', [85, 90, 95], p.alertAt)}
+            {subheading('Clawd', 'The pixel crab')}
+            {showToggle('clawd', 'Clawd', 'His moods in the band')}
           </>,
         )}
         {group(
@@ -802,13 +933,19 @@ export const register: Register = on => {
           'Appearance',
           'The band and panels',
           <>
+            {subheading('Density', 'How tall the band is')}
+            <Box flexDirection="row" columnGap={1}>
+              {(['comfortable', 'compact'] as const).map(d => (
+                <Button key={`density-${d}`} label={d === 'comfortable' ? 'Comfortable' : 'Compact'} variant={p.density === d ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, density: d }))} />
+              ))}
+            </Box>
             {subheading('Progress bar', 'Tasks and usage cards')}
             <Box flexDirection="row" columnGap={1}>
               {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
                 <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
               ))}
             </Box>
-            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks')}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
             {subheading('Color theme', 'Ten looks')}
             <Box flexDirection="column" rowGap={1}>{themes}</Box>
           </>,
@@ -892,6 +1029,11 @@ export const register: Register = on => {
     turnSeed = seedOf(e.turnId)
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
+    // Main's lane and the turn's counts start over; agents' lanes carry on.
+    await update($, race, r => ({ ...EMPTY_RACE, calls: Object.fromEntries(Object.entries(r.calls).filter(([k]) => k !== 'main')), doing: r.doing, fellAt: r.fellAt, scoredAt: r.scoredAt }))
+    mainWorking = true
+    const began = await $.clock.now()
+    await update($, turnStartedAt, () => began)
     return next(e)
   })
 
@@ -923,8 +1065,13 @@ export const register: Register = on => {
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
-    const list = rows.usage ? meters(measured, at) : []
-    const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
+    const samples = await read($, usageSamples)
+    // The latest reading may be newer than the band's clock tick.
+    const latest = Math.max(at, ...Object.values(samples).flatMap(s => s.points.map(p => p.at)))
+    const list = rows.usage
+      ? meters(measured, latest, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt, samples: Object.fromEntries(Object.entries(samples).map(([k, v]) => [k, v.points])) })
+      : []
+    const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
     if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
@@ -933,7 +1080,16 @@ export const register: Register = on => {
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
     const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
     const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
-    if (!p && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
+    // The live strip: the main turn's time, step in flight and tallies, while it works.
+    const turn = await read($, turnLog)
+    // The contract types the icon as a string; the hooks only ever write a StepIcon.
+    const step = (await read($, liveStep)) as { icon: StepIcon; title: string } | null
+    const live = rows.live && e.props.isWorking
+      ? { elapsedMs: Math.max(0, at - (await read($, turnStartedAt))), ...(step ? { step } : {}), files: Object.keys(turn.files).length, commands: turn.commands, ...(turn.test ? { test: turn.test } : {}) }
+      : undefined
+    // The race: Main and the agents at work, while any work runs.
+    const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, await read($, turnStartedAt), step?.title) : undefined
+    if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
     const mood = moodOf({ log: await read($, turnLog), contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: await read($, lastTurnAt) })
 
     const skinName = await read($, skin)
@@ -984,7 +1140,7 @@ export const register: Register = on => {
         </Button>
         {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
         <Button key="skins" label={'⚙\uFE0E Settings'} variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
-          {tile('⚙', look.bar('session', 0))}
+          {tile('⚙', look.bar('session'))}
           <Text bold> Settings</Text>
         </Button>
       </Box>
@@ -996,7 +1152,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), mood, skinName, style, { runs, now: at })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), accessory: accessoryOf(new Date(at)) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -1009,9 +1165,9 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {(info.left.length + info.right.length > 0 || (rows.info && !p && MOOD_GLYPH[mood])) && (
+        {(info.left.length + info.right.length > 0 || (rows.info && shownPrefs.show.clawd && !p && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
-            {!p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
+            {shownPrefs.show.clawd && !p && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>
@@ -1024,13 +1180,23 @@ export const register: Register = on => {
             )}
           </Box>
         )}
+        {live && (
+          <Text wrap="truncate-end">
+            <Text color={look.clawd}>{`${(shownPrefs.show.clawd && !p && MOOD_GLYPH[mood]) || '●'} `}</Text>
+            <Text bold>{clock(live.elapsedMs)}</Text>
+            {live.step ? <Text>{`  ${live.step.title}`}</Text> : null}
+            <Text dimColor>
+              {`   ${[live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join(' · ')}`}
+            </Text>
+          </Text>
+        )}
         {p && (
           <Box flexDirection="row" columnGap={2}>
             <Text wrap="truncate-end">
-              <Text color={look.bar('tasks', 0)}>{`${MOOD_GLYPH[mood] ?? '●'} `}</Text>
+              <Text color={look.bar('tasks')}>{`${(shownPrefs.show.clawd && MOOD_GLYPH[mood]) || '●'} `}</Text>
               {p.title}
             </Text>
-            <Text color={look.bar('tasks', 0)}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
+            <Text color={look.bar('tasks')}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
             <Text bold>{`${p.done}/${p.total}`}</Text>
             <Text dimColor>{`${Math.round((p.done / p.total) * 100)}%`}</Text>
           </Box>
@@ -1049,7 +1215,8 @@ export const register: Register = on => {
             {list.map(m => (
               <Text key={m.kind}>
                 <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
-                <Text color={look.bar(m.kind, m.percent)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
+                <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
+                {m.forecast === undefined ? null : <Text dimColor>{` → ${m.forecast >= 100 ? 'full' : `~${m.forecast}%`}`}</Text>}
                 {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
               </Text>
             ))}

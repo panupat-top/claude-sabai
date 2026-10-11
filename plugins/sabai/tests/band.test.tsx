@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
 // missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[] } = {}) {
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '' } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -34,7 +34,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     const fails = failing.some(f => cmd.startsWith(f))
     return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('turn.complete', () => ({ text: '' }))
+  on('turn.complete', () => ({ text: completeText }))
   on('session.usage', () => ({
     value: {
       startedAt: 0,
@@ -109,7 +109,7 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd is \w+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -118,7 +118,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^Directory work; Context/)
+  expect(words).toMatch(/^(Clawd is \w+; )?Directory work; Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -552,7 +552,8 @@ test('a wide pane in pixel blocks with eight finished agents open stays under th
 })
 
 test('the band shows the crew while agents work, on both surfaces, and drops it once cleared', async ($, on) => {
-  engine(on)
+  // Compact keeps the crew row; the comfortable band carries agents in its race instead.
+  engine(on, { store: { prefs: { density: 'compact' } } })
   panes(on)
   await start($)
   await spawn($, 'scan the hooks')
@@ -938,7 +939,9 @@ test('a working turn’s last reply carries its receipt card; other replies, pla
   await turn($, () => $.tool.call({ tool: 'Read', file_path: '/w/a.ts' } as Parameters<typeof $.tool.call>[0]), 'Read it.')
   expect(await receiptUnder($, 'desktop', 'Read it.')).not.toContain('Turn receipt')
   // A turn that ends with no words of its own falls back to the notice under it.
-  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('› 1 command')
+  expect((await turn($, () => bash($, 'npm run build'), '')).text).toBe('› 1 command')
+  // Reads alone are no work to receipt.
+  expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
 })
 
 test('a subagent’s calls stay out of the main turn’s receipt, and the toggle turns it off', async ($, on) => {
@@ -953,6 +956,165 @@ test('a subagent’s calls stay out of the main turn’s receipt, and the toggle
   await turn($, () => bash($, 'ls'), 'Ran ls.')
   expect(await receiptUnder($, 'desktop', 'Ran ls.')).not.toContain('Turn receipt')
   expect((await turn($, () => bash($, 'ls'), '')).text).toBe('')
+})
+
+test('a receipt that falls back to the notice keeps text another plugin left there', async ($, on) => {
+  engine(on, { completeText: 'from beneath' })
+  turnStarts(on)
+  await start($)
+  expect((await turn($, () => bash($, 'npm run build'), '')).text).toBe('from beneath\n› 1 command')
+})
+
+test('settings choose the band’s chips, cards, thresholds and Clawd; old prefs keep everything', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Git user Panupat')
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'pref-show-gitUser' })
+  await pane.press({ key: 'pref-show-week' })
+  await pane.press({ key: 'warn-60' })
+  const after = (await shown($, 'desktop')).words
+  expect(after).not.toContain('Git user')
+  expect(after).not.toContain('7D All')
+  for (const key of ['pref-show-folder', 'pref-show-node', 'pref-show-context', 'pref-show-session', 'pref-show-clawd', 'alert-95']) expect([key, await pane.find({ key })]).not.toEqual([key, undefined])
+})
+
+test('with every chip and Clawd hidden and nothing else to show, the band is left to the engine', async ($, on) => {
+  engine(on, { hasLimits: false, store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: false, toolbar: false }, show: { folder: false, gitUser: false, branch: false, node: false, clawd: false } } } })
+  await start($)
+  for (const surface of SURFACES) expect((await shown($, surface)).words).toBe('stock row')
+})
+
+test('the density setting switches the band to compact', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const height = async () => {
+    const ui = await mountBand($, 'desktop')
+    const svg = (await ui.findAll({ type: 'Svg' }))[0]
+    await ui.unmount()
+    return Number(String(svg?.props.source).match(/height="(\d+)"/)?.[1])
+  }
+  const roomy = await height()
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'density-compact' })
+  expect(await height()).toBeLessThan(roomy)
+})
+
+test('a rising 5H limit gets a ghost to where it is heading and words for it; a reset starts it over', async ($, on) => {
+  const { clock } = engine(on)
+  await start($)
+  const at = (percent: number, resetsAt = '2026-10-10T05:00:00Z') =>
+    $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: percent, resetsAt }], changed: ['rateLimits'] })
+  await at(20)
+  await clock.advance(5 * 60_000)
+  await at(25)
+  await clock.advance(5 * 60_000)
+  await at(30)
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/5H Limit 30%, (~\d+%|full) by reset/)
+  expect((await shown($, 'terminal')).words).toMatch(/→ (~\d+%|full)/)
+  // A new window: one reading, no forecast.
+  await at(2, '2026-10-10T10:00:00Z')
+  await settle()
+  expect((await shown($, 'desktop')).words).not.toContain('by reset')
+})
+
+test('while the main turn works the band shows the live strip with the step in flight; a subagent’s calls do not', async ($, on) => {
+  let release: () => void = () => undefined
+  on('tool.call', { tool: 'Bash' }, () => new Promise(r => (release = () => r({ result: { stdout: '', stderr: '', interrupted: false } }))))
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'live' } as never)
+  const running = $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build it' } as Parameters<typeof $.tool.call>[0])
+  await settle()
+  expect((await shown($, 'desktop', true)).words).toContain('Build it')
+  expect((await shown($, 'terminal', true)).words).toContain('Build it')
+  release()
+  await running
+  await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
+  expect((await shown($, 'desktop', true)).words).not.toContain('Reading a.ts')
+  await $.turn.complete({ turnId: 'live', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop', false)).words).not.toContain('Working')
+})
+
+test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
+  const { clock } = engine(on)
+  await clock.set(new Date('2026-10-31T12:00:00').getTime())
+  await start($)
+  await clock.advance(30_000)
+  const ui = await mountBand($, 'desktop')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('#f28c28')
+  await ui.unmount()
+})
+
+test('every row on, nine agents, the race with 60 calls, a forecast and a hat stay under the tree limit', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await clock.set(new Date('2026-12-24T12:00:00').getTime())
+  await start($)
+  for (let i = 0; i < 9; i++) await spawn($, `job ${i}`)
+  await $.turn.start({ turnId: 'big' } as never)
+  for (let i = 0; i < 60; i++) await bash($, `npm run step-${i}`)
+  const ui = await mountBand($, 'desktop', true)
+  // The race is in it, and Main's lane keeps only its last 16 tiles.
+  const svg = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+  expect(svg).toContain('>LV 13<')
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
+  await ui.unmount()
+})
+
+test('the comfortable band draws the Clawd panel; compact keeps the stacked band', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const source = async () => {
+    const ui = await mountBand($, 'desktop')
+    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    await ui.unmount()
+    return s
+  }
+  expect(await source()).toMatch(/scale\(3\)/)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'density-compact' })
+  expect(await source()).not.toMatch(/scale\(3\)/)
+})
+
+test('each member’s calls land in its own lane; a failed Main command costs a heart; a passing test is a coin', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) =>
+    (e as { command: string }).command === 'bun test'
+      ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
+      : (e as { command: string }).command === 'false'
+        ? ({ result: 'Exit code 1', isError: true } as never)
+        : { result: { stdout: '', stderr: '', interrupted: false } },
+  )
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await spawn($, 'x')
+  await $.turn.start({ turnId: 'r' } as never)
+  await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
+  await bash($, 'bun test')
+  await bash($, 'false')
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toMatch(/Race: LV 1, 1 coin, 2 hearts, combo 0/)
+  expect(words).toMatch(/Main (tripped|running|waiting)/)
+  expect(words).toContain('Explore running')
+})
+
+test('the race leaves when the turn ends and no agent runs', async ($, on) => {
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'x' } as never)
+  expect((await shown($, 'desktop', true)).words).toContain('Race:')
+  await $.turn.complete({ turnId: 'x', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
+  expect((await shown($, 'desktop', false)).words).not.toContain('Race:')
 })
 
 test('Clawd’s mood shows in the band: sad after failing tests, startled by the guard', async ($, on) => {
@@ -1338,4 +1500,47 @@ test('settings are six bordered groups in order: band, conversation, agents, saf
     for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
     await pane.unmount()
   }
+})
+
+for (const bar of ['dither', 'blocks', 'solid'] as const) {
+  test(`the widest band, every row on, stays under the tree limit with ${bar} bars`, async ($, on) => {
+    const { clock } = engine(on, { store: { bar } })
+    panes(on)
+    turnStarts(on)
+    await start($)
+    for (let i = 0; i < 3; i++) await spawn($, `job ${i}`)
+    await $.turn.start({ turnId: 'wide' } as never)
+    for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
+    await clock.advance(1000)
+    const ui = await $.ui.mount({
+      plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
+      props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
+    })
+    expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('>LV ')
+    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
+    await ui.unmount()
+  })
+}
+
+test('a 5H limit read every few seconds while work runs still gets its forecast', async ($, on) => {
+  const { clock } = engine(on)
+  await start($)
+  for (let i = 0; i <= 120; i++) {
+    await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 20 + Math.floor(i / 10), resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+    await clock.advance(5000)
+  }
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/5H Limit \d+%, (~\d+%|full) by reset/)
+})
+
+test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) => {
+  on('tool.call', { tool: 'Edit' }, () => Promise.reject(new Error('interrupted')))
+  engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'cut' } as never)
+  await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toContain('Main waiting')
 })

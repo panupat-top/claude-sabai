@@ -22,22 +22,34 @@ The band appears in every new session, the Code tab included. Mods do not load i
 
 ### The band, above the prompt
 
-| Row | Shows |
-|---|---|
-| Info | Folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted) and Node, plus a shield `guard` chip while the guard is on (`guard · 2` once it has caught something), and Clawd when there is no task list |
-| Tasks | Claude's task list as a progress bar, with Pixel Clawd, who walks while Claude works and shows how it's going |
-| Crew | A small Clawd per running subagent, with its task and the running, done and failed counts |
-| Usage | Context, 5H and 7D limits with reset countdowns (amber from 70%, red from 90%) |
-| Toolbar | `/review`, `/compact`, `/rewind`, `/resume`, and the `✻ Agents` and `⚙ Settings` buttons |
+In the comfortable density (the default) the band is three panels:
 
-Clawd's moods, the most pressing first:
-- **startled:** the guard just caught a command;
-- **sad:** the turn's last test run failed;
-- **celebrating:** the last test run passed;
-- **sweating:** the context is 90% full;
-- **sleeping:** nothing has happened for five minutes.
+```
+╭─────────┬──────────────────────────────────────────┬──────────────────────────╮
+│  CLAWD  │ 📁 claude-skins  ⎇ main ±1     🛡 guard·2 ⬢ v24 │ LV 5  ●×2  ❤❤♡  ×4 COMBO 1:42│
+│   (×3)  │ CONTEXT ▓▓▓▓▓▓▓░░░░░  743.5k / 1M     74% │ Main    ▬▬▬▬  🦀✏      ⚑ │
+│ working │ 5H      ▓▓▓▓▒▒▒░░░░░  ↻ 19m    27% → ~45% │ Explore ▬▬▬    🦀📖     ⚑ │
+│  1m 42s │ 7D      ▓▓▓░░░░░░░░░  ↻ 4d 11h       18% │ Plan    ▬▬▬       🦀✓  ⚑ │
+╰─────────┴──────────────────────────────────────────┴──────────────────────────╯
+```
 
-It fills itself in as you work. Tasks show when Claude keeps a task list, and agents when it hands work to subagents.
+- **Clawd**, large, with his mood (`working`, `all green`, `tests failed`, `context full`, `sleeping`, `caught one!`) and the turn's time. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
+- **The middle:**
+  - the info row: folder, git user, branch (`↑` ahead, `↓` behind, `±` uncommitted), the `guard` shield (`guard · 2` once it has caught something) and Node;
+  - Claude's task list as a progress bar, when it keeps one;
+  - the usage limits as rows: Context, 5H and 7D with reset countdowns, amber and red at your thresholds, and a faint ghost to where 5H and 7D are heading by their reset (`→ ~45%`, `→ full`).
+- **The race**, while Claude or a subagent works. It is a little game:
+  - each member runs its own lane: `Main` and up to three subagents, `+N` for more;
+  - a runner's place is its progress, from Claude's task list or the agent's step reports;
+  - the ground is a tile per call (read, edit, command, test, failure);
+  - a runner holds the tool of its call in flight (pencil, book, terminal, flask) over a glow in its colour;
+  - a passing test is a coin, a failed command a trip (`OUCH`) and, for Main, a lost heart;
+  - a finished agent waves a green flag, and a failed one is `OUT`;
+  - the header counts the level (one per five calls), coins, hearts, a combo of clean calls and the time.
+
+On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
+
+Under it, the toolbar: `/review`, `/compact`, `/rewind`, `/resume`, and the `✻ Agents` and `⚙ Settings` buttons.
 
 ### The agents panel
 
@@ -60,7 +72,7 @@ Press **Report** on a finished agent to read what it found, and **Clear** to tid
 - **Test results:** runs of bun, jest, vitest, pytest, cargo or go show their pass and fail counts.
 - **Callouts:** `> [!NOTE]`, `[!TIP]`, `[!WARNING]` and the other GitHub alerts in a reply become coloured boxes.
 - **Spinner words:** Thai words while Claude works (`กำลังคิด`, `กำลังลงมือทำ`).
-- **Turn receipt:** a turn that changed files, ran tests or ran commands ends with one line under its last reply: how it went (`All green`, `Tests failing`, `1 command failed`, `Done`), then its files `+40 −12`, tests and commands.
+- **Turn receipt:** a turn that changed files, ran tests or ran commands ends with one line under its last reply: how it went (`All green`, `Tests failing`, `1 command failed`, `Done`), then its files `+40 −12`, tests and commands. Commands that only read (`cat`, `grep`, `git status` …) count only beside real work.
 
 Want the native rows that expand to output and diffs? Turn **Tool summaries** off.
 
@@ -70,12 +82,12 @@ Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are ke
 
 | Group | Choices |
 |---|---|
-| Band | Show or hide each row |
+| Band | Each row (Info, Tasks, Live, Crew, Usage, Toolbar); each info chip and usage card; amber and red thresholds (60/70/80, 85/90/95); Clawd |
 | Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
 | Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f` or `git checkout`/`restore .` (Ask) |
 | Alerts | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
-| Appearance | Progress bar style, and ten colour themes (`auto` follows your OS) |
+| Appearance | Density (comfortable or compact), progress bar style, and ten colour themes (`auto` follows your OS) |
 
 The guard is a safety net, not a sandbox: it catches common slips, not someone set on getting round it.
 
