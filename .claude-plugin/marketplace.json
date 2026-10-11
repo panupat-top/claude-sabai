@@ -9,10 +9,10 @@
   },
   "plugins": [
     {
-      "name": "sabai-band",
-      "source": "./plugins/sabai-band",
+      "name": "sabai",
+      "source": "./plugins/sabai",
       "description": "Mod: pixel-art band above the prompt (info, tasks, crew, usage, toolbar), an agents panel with reports, settings with ten skins, alerts and a guard, and touches to the conversation (tool summaries, test results, callouts, Thai spinner words).",
-      "version": "1.1.0",
+      "version": "2.0.0",
       "category": "mod"
     }
   ]

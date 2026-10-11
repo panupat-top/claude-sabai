@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Claude Code plugin marketplace (`claude-sabai`, `.claude-plugin/marketplace.json`) holding **mods**: plugins built on Claude Code's function-hooks API (Claude Code ≥ 2.1.287). Each mod lives in its own folder under `plugins/`. Today there is one, `plugins/sabai-band`. The plan, decisions and backlog are in `docs/PLAN.md` (written in Thai).
+A Claude Code plugin marketplace (`claude-sabai`, `.claude-plugin/marketplace.json`) holding **mods**: plugins built on Claude Code's function-hooks API (Claude Code ≥ 2.1.287). Each mod lives in its own folder under `plugins/`. Today there is one, `plugins/sabai`. The plan, decisions and backlog are in `docs/PLAN.md` (written in Thai).
 
 ## Commands
 
@@ -12,22 +12,22 @@ Run from the repo root; each mod is checked on its own folder.
 
 ```bash
 claude plugin validate .claude-plugin/marketplace.json   # marketplace manifest
-claude plugin validate plugins/sabai-band                # manifest + what the hooks module hooks/calls, and anything the engine would refuse
-claude plugin test plugins/sabai-band                    # runs every *.test.ts(x) under the folder (no per-test filter)
-tsc -p plugins/sabai-band                                 # type-check; needs the engine-laid types (see below)
-claude --plugin-dir plugins/sabai-band                    # run the mod in a session; saving a file hot-reloads it
+claude plugin validate plugins/sabai                # manifest + what the hooks module hooks/calls, and anything the engine would refuse
+claude plugin test plugins/sabai                    # runs every *.test.ts(x) under the folder (no per-test filter)
+tsc -p plugins/sabai                                 # type-check; needs the engine-laid types (see below)
+claude --plugin-dir plugins/sabai                    # run the mod in a session; saving a file hot-reloads it
 git config core.hooksPath .githooks                       # once per clone: pre-commit validates, type-checks and tests
 ```
 
-- `plugins/sabai-band/tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes beside a mod only after it has loaded it (hot reload or `--plugin-dir`). That folder is gitignored and absent on a fresh clone, so `tsc` works only after one load. CI (`.github/workflows/check.yml`) therefore only validates and tests; the pre-commit hook type-checks when the types exist.
+- `plugins/sabai/tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes beside a mod only after it has loaded it (hot reload or `--plugin-dir`). That folder is gitignored and absent on a fresh clone, so `tsc` works only after one load. CI (`.github/workflows/check.yml`) therefore only validates and tests; the pre-commit hook type-checks when the types exist.
 - The API reference is that laid file, `.claude-plugin/types/claude-code/index.d.ts` (~14k lines, every event, `$` noun and element prop). Grep it rather than guessing an API.
 
-## sabai-band architecture
+## sabai architecture
 
 A band above the prompt (info row, task progress with an animated Pixel Clawd, a crew of subagents, usage cards, and a toolbar of Buttons under it), two panes (agents: cards and reports; settings: band rows, bar style, alerts, chat, the guard, step reports, ten skins), and touches to the conversation (tool calls drawn as one-line steps, test results, callouts, Thai spinner words, a guard label).
 
 - `hooks/register.tsx` is the only module that touches `$`. It hooks engine events (`session.start`, `session.measure`, `tool.call` on `TaskCreate`/`TaskUpdate`/`TodoWrite`, `agent.spawn`, `turn.step`, `turn.complete`, `turn.start`, `prompt.compose`, `classic.SessionStart`), writes state, registers `/sabai-settings` and `/sabai-agents`, and renders `AbovePrompt` (the band), `Pane` (agents, settings) and the conversation rows `ToolUse`, `AssistantMessage`, `Spinner` and `SessionMode`.
-- **State** lives in `$.state` atoms declared in the contract `types/index.d.ts` (`interface PluginState['sabai-band']`); a draw `read`s them and redraws when an `update` writes. Module variables (e.g. `cwd`) are only for things `session.start` re-sets, since a reload starts the module over. The chosen skin is also persisted with `$.store`.
+- **State** lives in `$.state` atoms declared in the contract `types/index.d.ts` (`interface PluginState['sabai']`); a draw `read`s them and redraws when an `update` writes. Module variables (e.g. `cwd`) are only for things `session.start` re-sets, since a reload starts the module over. The chosen skin is also persisted with `$.store`.
 - **Pure logic** — `model.ts` (meters, chips, task reducers, formatting), `agents.ts` (subagent run reducers, `progressOf`, type styles), `chat.ts` (tool summary lines, test-output parsers, callout splitting, spinner words), `themes.ts` (palettes, `contrast`, `readable`), `guard.ts` (`riskOf`, the commands the guard refuses) — takes plain values and is unit-tested directly.
 - **Drawing** — `svg.ts` builds the desktop SVGs (`bandSvg`, `agentsSvg`) from a `Look` (`lookOf(skin)`: stylesheet, bar colours, pill, Clawd tint; no skin paints a background, so the band sits on the surface like `auto`); `sprites.ts` holds pixel sprites and their CSS animations; `icons.ts` holds the info-row marks (Octicons / Simple Icons path data), and `strokes.ts` the chat's Lucide stroke icons (animated by CSS in `svg.ts`), generated once from Lucide's files.
 - Desktop and other SVG-capable surfaces get one SVG per site; the terminal gets `Box`/`Text` rows built in `register.tsx`.
@@ -38,7 +38,7 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, a
 
 - `$` cannot be passed across an import: any helper taking `$` must be declared in `register.tsx` itself.
 - The terminal's element table lists `Svg` but cannot draw it — branch on `e.surface !== 'terminal'`, not on `'Svg' in ui`.
-- The desktop draws an `Svg` as an image and wraps sibling elements onto new lines, so each site is a single SVG. With no `width` prop the surface scales a wider markup down to the slot (never up), hence drawing at `bodyColumns × 8.25`. Svg width/height must be 1–4096 px and its source ≤ 131,072 characters; clip-path ids must be unique (`sabai-band-*`).
+- The desktop draws an `Svg` as an image and wraps sibling elements onto new lines, so each site is a single SVG. With no `width` prop the surface scales a wider markup down to the slot (never up), hence drawing at `bodyColumns × 8.25`. Svg width/height must be 1–4096 px and its source ≤ 131,072 characters; clip-path ids must be unique (`sabai-*`).
 - The desktop draws a `Button` as a native button from its `label` alone (children, colours and `hover` are ignored; a `hotkey` shows as a keycap), and a `Button` cannot hold an `Svg`. Put what the desktop should show in `label`; the terminal draws the children. Of the common commands the Code tab offers `/clear` and `/compact`, not `/rewind` or `/resume`.
 - SVG animations: the desktop draws each drawing as an image and redraws the agents pane every second while an agent runs, restarting its animations. Keep loops ≤ 1s, and start every animation from a visible frame (an image can sit on its first frame); a `stroke-dashoffset` draw-in never runs there, so use transforms or opacity.
 - Native `Text`, `Button` and `Markdown` keep the surface's own ink, which follows the OS light/dark theme; `Button` and `Markdown` take no colour. Never put them on a fixed skin colour (a `Box` `backgroundColor`): the ink may not read on it.

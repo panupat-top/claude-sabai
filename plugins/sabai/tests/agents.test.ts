@@ -177,7 +177,7 @@ test('a finished card waves its report and keeps no headline; a failed bar turns
   expect(live.source).toContain('<pattern')
   expect(live.source).toContain('mask="url(#')
   expect(live.source).toContain('>1/3<')
-  expect(agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }] }), 420, 5000, 'auto', 'blocks').source).toContain('fill="url(#sabai-band-cells-c)"')
+  expect(agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }] }), 420, 5000, 'auto', 'blocks').source).toContain('fill="url(#sabai-cells-c)"')
   expect(agentCardSvg(run('d', { status: 'done', endedAt: 4000, result: 'ok.' }), 420, 5000).source).toContain('class="cf')
 })
 

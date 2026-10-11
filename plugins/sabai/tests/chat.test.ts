@@ -146,7 +146,7 @@ test('read ranges follow the tool: offset 0 is line 1, an offset alone reads on 
 
 test('paths of either kind give the file as the title and its folder as the detail', () => {
   expect(call('Edit', { file_path: 'C:\\Users\\me\\proj\\src\\a.ts', new_string: 'x' }, undefined)).toMatchObject({ title: 'Edited a.ts', detail: '…/proj/src/' })
-  expect(call('Edit', { file_path: '/repo/plugins/sabai-band/hooks/svg.ts', new_string: 'x' }, undefined)?.detail).toBe('…/sabai-band/hooks/')
+  expect(call('Edit', { file_path: '/repo/plugins/sabai/hooks/svg.ts', new_string: 'x' }, undefined)?.detail).toBe('…/sabai/hooks/')
   expect(call('Read', { file_path: 'README.md' }, undefined)?.detail).toBe('')
 })
 

@@ -208,7 +208,7 @@ function progressPart(look: Look, p: Progress, W: number, isWorking: boolean, to
   const body =
     sprite('tasks', 0, (ROW_H - clawd.height) / 2, isWorking ? 'run' : 'idle', look.clawd) +
     `<text class="st" x="${titleX}" y="${ROW_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="500">${xml(title)}</text>` +
-    pixelBar('sabai-band-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
+    pixelBar('sabai-tasks', barX, y0, barW, barH, ratio, look.bar('tasks', 0), p.total, style) +
     `<rect x="${pillX}" y="${y0}" width="${pillW}" height="${barH}" rx="${barH / 2}" fill="${look.pill}"/>` +
     `<text x="${pillX + pillW / 2}" y="${y0 + barH / 2 + 3.8}" text-anchor="middle" font-family="${MONO}" font-size="10" font-weight="700" fill="#ffffff">${pill}</text>` +
     `<text class="sm" x="${W}" y="${ROW_H / 2 + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="600">${percent}</text>`
@@ -239,7 +239,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
       (m.kind === 'context' ? sprite('context', x + PAD + 1, top - spriteSize('context').height / 2) : '') +
       `<text class="m" x="${labelX}" y="${top + 3.5}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(m.label.toUpperCase())}</text>` +
       detail +
-      pixelBar(`sabai-band-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
+      pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
       `<text class="${textClass(m.percent, m.kind)}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
     )
   })
@@ -415,7 +415,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
 export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
-  const body = strip(w) + pixelBar(`sabai-band-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks', 0), 5, style)
+  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks', 0), 5, style)
   return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`)
 }
 
@@ -476,23 +476,23 @@ function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio
     const pattern = (id: string, paint: string) =>
       `<pattern id="${id}" width="${cell.toFixed(2)}" height="${h}" patternUnits="userSpaceOnUse" x="${x}" y="${y}"><rect ${paint} width="${(cell - 2).toFixed(2)}" height="${h}" rx="1.5"/></pattern>`
     bar =
-      `<defs>${pattern(`sabai-band-cells-${uid}`, 'class="k"')}${pattern(`sabai-band-on-${uid}`, `fill="${color}"`)}</defs>` +
-      `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#sabai-band-cells-${uid})"/>` +
-      `<rect x="${x}" y="${y}" width="${Math.min(w, filled).toFixed(1)}" height="${h}" fill="url(#sabai-band-on-${uid})"/>`
+      `<defs>${pattern(`sabai-cells-${uid}`, 'class="k"')}${pattern(`sabai-on-${uid}`, `fill="${color}"`)}</defs>` +
+      `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="url(#sabai-cells-${uid})"/>` +
+      `<rect x="${x}" y="${y}" width="${Math.min(w, filled).toFixed(1)}" height="${h}" fill="url(#sabai-on-${uid})"/>`
   } else {
     const fill =
       style === 'solid'
         ? `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="${color}"/>`
-        : `<defs><pattern id="sabai-band-dots-${uid}" width="6" height="6" patternUnits="userSpaceOnUse" x="${x}" y="${y}">` +
+        : `<defs><pattern id="sabai-dots-${uid}" width="6" height="6" patternUnits="userSpaceOnUse" x="${x}" y="${y}">` +
           // Still dots: the pane restarts every animation each second, which would make them snap.
           [0, 1, 2, 3].map(i => `<rect x="${(i % 2) * 3 + 0.5}" y="${Math.floor(i / 2) * 3 + 0.5}" width="2" height="2" fill="${color}"/>`).join('') +
-          `</pattern><linearGradient id="sabai-band-fade-${uid}"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
-          `<mask id="sabai-band-mask-${uid}"><rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-fade-${uid})"/></mask></defs>` +
-          `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-band-dots-${uid})" mask="url(#sabai-band-mask-${uid})"/>`
+          `</pattern><linearGradient id="sabai-fade-${uid}"><stop offset="0" stop-color="#fff" stop-opacity=".45"/><stop offset="1" stop-color="#fff"/></linearGradient>` +
+          `<mask id="sabai-mask-${uid}"><rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-fade-${uid})"/></mask></defs>` +
+          `<rect x="${x}" y="${y}" width="${fillW}" height="${h}" fill="url(#sabai-dots-${uid})" mask="url(#sabai-mask-${uid})"/>`
     bar =
-      `<defs><clipPath id="sabai-band-clip-${uid}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
+      `<defs><clipPath id="sabai-clip-${uid}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/></clipPath></defs>` +
       `<rect class="k" x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>` +
-      `<g clip-path="url(#sabai-band-clip-${uid})">${fill}</g>`
+      `<g clip-path="url(#sabai-clip-${uid})">${fill}</g>`
   }
   if (!pill) return bar + ticks
   const pillW = Math.round(10 + pill.length * 4.8)
@@ -550,9 +550,9 @@ export function agentCardSvg(a: AgentRun, W: number, now: number, skin = 'auto',
   const bar = line
     ? cardBar(look, uid, textX, barY, barW, line.done / line.total, barColor, style, line.total, `${line.done}/${line.total}`)
     : a.status === 'running'
-      ? `<defs><clipPath id="sabai-band-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/></clipPath></defs>` +
+      ? `<defs><clipPath id="sabai-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/></clipPath></defs>` +
         `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/>` +
-        `<g clip-path="url(#sabai-band-sw-${uid})"><rect class="sweep" x="${textX}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
+        `<g clip-path="url(#sabai-sw-${uid})"><rect class="sweep" x="${textX}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
         // One sweep per second, starting in view: the pane redraws each second while an agent
         // runs, restarting it, and a frozen first frame must still show the bar moving.
         `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 0.7)}px)}}</style>`

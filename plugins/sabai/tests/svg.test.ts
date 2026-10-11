@@ -41,7 +41,7 @@ test('cards run side by side when wide, two or one when narrow, 8px apart', () =
   const wide = bandSvg(undefined, NONE, LIST, 900)
   expect(wide?.source.match(/class="p"/g)?.length).toBe(3)
   expect(bandSvg(undefined, NONE, LIST.slice(0, 2), 900)?.source).toContain('width="446"')
-  for (const id of ['context', 'session', 'week']) expect(wide?.source).toContain(`id="sabai-band-${id}"`)
+  for (const id of ['context', 'session', 'week']) expect(wide?.source).toContain(`id="sabai-${id}"`)
   expect(wide?.source).toContain('7D ALL')
   expect(wide?.source.match(/shape-rendering="crispEdges"/g)?.length).toBe(1)
   expect(wide?.source).toContain('↻ 2h 0m')
