@@ -51,8 +51,6 @@ export type Prefs = {
   warnAt: number
   alertAt: number
   density: 'comfortable' | 'compact'
-  // The theme while the OS is dark; null keeps the one theme in both.
-  darkSkin: string | null
 }
 
 // What the band shows: each info chip, each usage card, and Clawd.

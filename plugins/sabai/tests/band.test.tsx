@@ -1001,24 +1001,6 @@ test('the density setting switches the band to compact', async ($, on) => {
   expect(await height()).toBeLessThan(roomy)
 })
 
-test('choosing a dark-mode skin draws the band as a pair; Same goes back', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  const pane = await mountPane($, 'desktop', 'sabai-skins')
-  await pane.press({ key: 'use-catppuccin-latte' })
-  await pane.press({ key: 'dark-catppuccin-mocha' })
-  const source = async () => {
-    const ui = await mountBand($, 'desktop')
-    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
-    await ui.unmount()
-    return s
-  }
-  expect(await source()).toContain('@media (prefers-color-scheme: dark){svg{--tasks')
-  await pane.press({ key: 'dark-same' })
-  expect(await source()).not.toContain('var(--tasks)')
-})
-
 test('a rising 5H limit gets a ghost to where it is heading and words for it; a reset starts it over', async ($, on) => {
   const { clock } = engine(on)
   await start($)
@@ -1067,16 +1049,13 @@ test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   await ui.unmount()
 })
 
-test('every row on, nine agents, a forecast, the live strip, a hat and a skin pair stay under the tree limit', async ($, on) => {
+test('every row on, nine agents, a forecast, the live strip and a hat stay under the tree limit', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
   turnStarts(on)
   await clock.set(new Date('2026-12-24T12:00:00').getTime())
   await start($)
   for (let i = 0; i < 9; i++) await spawn($, `job ${i}`)
-  const pane = await mountPane($, 'desktop', 'sabai-skins')
-  await pane.press({ key: 'use-catppuccin-latte' })
-  await pane.press({ key: 'dark-catppuccin-mocha' })
   await $.turn.start({ turnId: 'big' } as never)
   const ui = await mountBand($, 'desktop', true)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)

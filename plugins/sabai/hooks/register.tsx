@@ -5,7 +5,6 @@ import type { AgentRun, BarStyle, Env, GuardAction, GuardRule, Prefs, Task, Turn
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { CELEBRATE_MS, STARTLE_MS, accessoryOf, blocks, moodOf, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import type { SkinChoice } from './svg'
 import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_RULES, checkFailClosed, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -35,7 +34,6 @@ const DEFAULT_PREFS: Prefs = {
   warnAt: 70,
   alertAt: 90,
   density: 'comfortable',
-  darkSkin: null,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -51,8 +49,6 @@ const withDefaults = (v: unknown): Prefs => {
   }
 }
 const STEP_TOOL = 'mcp__sabai__step'
-// The drawings' skin: the chosen one, or a light/dark pair when a different dark-mode theme is set.
-const choiceOf = (name: string, dark: string | null): SkinChoice => (dark && dark !== name ? { light: name, dark } : name)
 const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
 // What the guard refused or asked about this session; not stored.
 const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
@@ -454,7 +450,6 @@ export const register: Register = on => {
     const list = await read($, agents)
     const at = await read($, now)
     const skinName = await read($, skin)
-    const choice = choiceOf(skinName, (await read($, prefs)).darkSkin)
     const style = await read($, bar)
     const isOpen = await read($, finishedOpen)
     const opened = await read($, openResults)
@@ -466,7 +461,7 @@ export const register: Register = on => {
     const look = lookOf(skinName)
 
     if (list.length === 0) {
-      const empty = emptyAgentsSvg(W, choice)
+      const empty = emptyAgentsSvg(W, skinName)
       return Svg ? (
         <Svg source={empty.source} alt={empty.alt} />
       ) : (
@@ -487,7 +482,7 @@ export const register: Register = on => {
     }
     const drawings = new Map<string, ReturnType<typeof agentCardSvg>>()
     const drawnOf = (a: AgentRun) => {
-      const d = drawings.get(a.id) ?? agentCardSvg(a, W, at, choice, style)
+      const d = drawings.get(a.id) ?? agentCardSvg(a, W, at, skinName, style)
       drawings.set(a.id, d)
       return d
     }
@@ -536,7 +531,7 @@ export const register: Register = on => {
       )
     }
 
-    const sum = Svg && summarySvg(list, W, at, choice)
+    const sum = Svg && summarySvg(list, W, at, skinName)
     // Newest cards first while their drawings fit the budget; the rest are counted.
     let spent = sum ? sum.source.length : 0
     const fitting = (runs: AgentRun[], cap: number) => {
@@ -771,7 +766,7 @@ export const register: Register = on => {
     )
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
-    const preview = Svg && barPreview(style, choiceOf(current, p.darkSkin), W)
+    const preview = Svg && barPreview(style, current, W)
     // The color themes, each with its swatch and a Use button: the longest list, so last.
     const themes = SKINS.map(k => {
             const t = THEMES[k]
@@ -905,13 +900,6 @@ export const register: Register = on => {
             {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks')}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
             {subheading('Color theme', 'Ten looks')}
             <Box flexDirection="column" rowGap={1}>{themes}</Box>
-            {subheading('In dark mode', 'The theme while your OS is dark')}
-            <Box flexDirection="row" flexWrap="wrap" columnGap={1} rowGap={1}>
-              <Button key="dark-same" label={p.darkSkin ? 'Same' : '✓ Same'} variant={p.darkSkin ? 'secondary' : 'primary'} onPress={() => setPrefs($, x => ({ ...x, darkSkin: null }))} />
-              {SKINS.filter(k => k !== 'auto').map(k => (
-                <Button key={`dark-${k}`} label={p.darkSkin === k ? `✓ ${THEMES[k]!.name}` : THEMES[k]!.name} variant={p.darkSkin === k ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, darkSkin: k }))} />
-              ))}
-            </Box>
           </>,
         )}
       </Box>
@@ -1112,7 +1100,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: choiceOf(skinName, shownPrefs.darkSkin), style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, ...(live ? { live } : {}), accessory: accessoryOf(new Date(at)) })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25))), { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, ...(live ? { live } : {}), accessory: accessoryOf(new Date(at)) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
