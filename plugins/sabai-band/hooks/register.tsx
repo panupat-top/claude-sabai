@@ -1,11 +1,13 @@
-import { atom, read, update } from 'claude-code'
-import type { BuiltinToolResults, EngineInterface, Register } from 'claude-code'
+import { atom, memberOf, read, update } from 'claude-code'
+import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, Env, Prefs, Task, Usage } from '../types'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks } from './agents'
 import { blocks, chips, countdown, created, fromTodos, meters, progress, tokens, toUsage, updated, value } from './model'
-import { BAR_STYLES, agentCardSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, agentCardSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { riskOf } from './guard'
+import { CALLOUT_HINT, isGenericWord, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import type { Step, StepIcon, Tone } from './chat'
 import { SKINS, THEMES, contrast } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
@@ -24,14 +26,33 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
+  chat: { spinner: true, tools: true, tests: true, callouts: true },
 }
 const prefs = atom({ plugin: 'sabai-band', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
 const withDefaults = (v: unknown): Prefs => {
   const p = (v && typeof v === 'object' ? v : {}) as Partial<Prefs>
-  return { ...DEFAULT_PREFS, ...p, rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) } }
+  return {
+    ...DEFAULT_PREFS,
+    ...p,
+    rows: { ...DEFAULT_PREFS.rows, ...(p.rows ?? {}) },
+    chat: { ...DEFAULT_PREFS.chat, ...(p.chat ?? {}) },
+  }
 }
 const STEP_TOOL = 'mcp__sabai-band__step'
+// How long each Bash call ran, one member per tool_use_id (a row reads only its own, so a new
+// call redraws no other row); -1 while unknown. The result carries no duration of its own.
+const durations = atom({ plugin: 'sabai-band', key: 'durations' } as const, -1)
+// Bash calls in flight, by id, and those that waited on the permission dialog: their time would
+// be the person's, not the command's. The auto-mode classifier's ask is quick and keeps it.
+const inFlight = new Map<string, string>()
+const asked = new Set<string>()
+// A reply longer than this is left to the engine: redrawn, it could outgrow the tree limit.
+const REPLY_REDRAW_MAX = 90_000
+// The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
+const SVG_IN_CHAT = true
+// Theme keys for each tone: the conversation follows the person's light or dark theme.
+const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning', edit: 'suggestion', read: 'suggestion' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 const LIMIT_WARN_AT = 90
@@ -65,10 +86,14 @@ const CREW_LINGER_MS = 60_000
 // A hung git (a network drive, a stale lock) gives up rather than hold the band.
 const GIT_TIMEOUT_MS = 5000
 // The terminal's stand-ins for the desktop's marks.
-const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢' } as const
+const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: '◈' } as const
+// The terminal's stand-ins for a step's icon.
+const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
+// The spinner's word is picked once per turn, so it does not change on every redraw.
+let turnSeed = 0
 let lastBranch: string | undefined
 let reading: Promise<void> | undefined
 let quick: string[] = []
@@ -170,6 +195,30 @@ async function guarded($: EngineInterface, tool: string, input: { command?: unkn
 async function setSkin($: EngineInterface, name: string) {
   await update($, skin, () => name)
   await $.store.set('skin', name)
+}
+
+// A tool call as a step: one fixed-size SVG on the desktop, two Text rows in theme keys elsewhere.
+function stepView($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], step: Step) {
+  const ui = $.ui.resolve(e)
+  const { Box, Text } = ui
+  if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
+    const d = stepSvg(step)
+    return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
+  }
+  return (
+    <Text wrap="truncate-end">
+      <Text color={TONE_KEY[step.tone]}>{`${STEP_GLYPH[step.icon]} `}</Text>
+      <Text bold>{step.title}</Text>
+      {step.detail ? <Text dimColor>{`  ${step.detail}`}</Text> : null}
+      {'  '}
+      {step.result.map((p, i) => (
+        <Text key={`r${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
+          {p.text}
+        </Text>
+      ))}
+      {step.time ? <Text dimColor>{` · ${step.time}`}</Text> : null}
+    </Text>
+  )
 }
 
 export const register: Register = on => {
@@ -455,7 +504,24 @@ export const register: Register = on => {
   // The guard, when turned on: refuse the few commands that are almost never meant.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const risk = await guarded($, 'Bash', e)
-    return risk ? { deny: risk } : next(e)
+    if (risk) return { deny: risk }
+    // Timed here, as the result carries no duration of its own.
+    const id = (e as { tool_use_id?: string }).tool_use_id
+    const startedAt = await $.clock.now()
+    if (id) inFlight.set(id, e.command)
+    try {
+      const called = await next(e)
+      if (id && !asked.has(id)) {
+        const ms = (await $.clock.now()) - startedAt
+        await update($, memberOf(durations, { requestId: id }), () => ms)
+      }
+      return called
+    } finally {
+      if (id) {
+        inFlight.delete(id)
+        asked.delete(id)
+      }
+    }
   })
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     const risk = await guarded($, 'Read', e)
@@ -507,9 +573,21 @@ export const register: Register = on => {
     const { Box, Button, Text } = ui
     const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
-    const heading = (title: string, note: string) => (
+    // One group: a bordered card with its mark, title and what it is about, then its rows.
+    const group = (key: string, mark: string, title: string, note: string, rows: RenderNode) => (
+      <Box key={`group-${key}`} borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
+        <Text>
+          <Text bold>{`${mark}  ${title}`}</Text>
+          <Text dimColor>{`  ${note}`}</Text>
+        </Text>
+        {rows}
+      </Box>
+    )
+    const subheading = (title: string, note: string) => (
       <Text>
-        <Text bold>{title}</Text>
+        <Text bold dimColor>
+          {title}
+        </Text>
         <Text dimColor>{`  ${note}`}</Text>
       </Text>
     )
@@ -530,40 +608,11 @@ export const register: Register = on => {
     const rowToggle = (key: keyof Prefs['rows'], name: string, note: string) =>
       toggle(key, name, note, p.rows[key], x => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }))
     const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
+      toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
-    return (
-      <Box flexDirection="column" rowGap={2}>
-        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Band', 'Rows above the prompt')}
-          {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
-          {rowToggle('tasks', 'Tasks', "Claude's own task list")}
-          {rowToggle('crew', 'Crew', 'Subagents at work')}
-          {rowToggle('usage', 'Usage', 'Context and plan limits')}
-          {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Progress bar', 'Tasks and usage cards')}
-          <Box flexDirection="row" columnGap={1}>
-            {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
-              <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
-            ))}
-          </Box>
-          {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Alerts', 'Outside the band')}
-          {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
-          {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Agents and safety', '')}
-          {flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session')}
-          {flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files')}
-        </Box>
-        <Box flexDirection="column" rowGap={1}>
-          {heading('Color theme', 'The band and panels')}
-          {SKINS.map(k => {
+    // The color themes, each with its swatch and a Use button: the longest list, so last.
+    const themes = SKINS.map(k => {
             const t = THEMES[k]
             const tone = t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'
             const kLook = lookOf(k)
@@ -591,21 +640,166 @@ export const register: Register = on => {
                 )}
               </Box>
             )
-          })}
-        </Box>
+          })
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
+        {group(
+          'band',
+          '▤',
+          'Band',
+          'Rows above the prompt',
+          <>
+            {rowToggle('info', 'Info', 'Folder, git user, branch and Node')}
+            {rowToggle('tasks', 'Tasks', "Claude's own task list")}
+            {rowToggle('crew', 'Crew', 'Subagents at work')}
+            {rowToggle('usage', 'Usage', 'Context and plan limits')}
+            {rowToggle('toolbar', 'Toolbar', 'Command and panel buttons')}
+          </>,
+        )}
+        {group(
+          'chat',
+          '❯',
+          'Conversation',
+          "How Claude's work shows in the chat",
+          <>
+            {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
+            {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
+            {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
+            {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
+          </>,
+        )}
+        {group('agents', '✻', 'Agents', 'Subagents and their panel', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
+        {group(
+          'safety',
+          '◈',
+          'Safety',
+          'What Claude may not run',
+          flag('guard', 'Guard', 'Refuse rm -rf / or ~, force-pushing to main, reading .env files; a shield in the band while on'),
+        )}
+        {group(
+          'alerts',
+          '◔',
+          'Alerts',
+          'Outside the band',
+          <>
+            {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
+            {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
+          </>,
+        )}
+        {group(
+          'look',
+          '◐',
+          'Appearance',
+          'The band and panels',
+          <>
+            {subheading('Progress bar', 'Tasks and usage cards')}
+            <Box flexDirection="row" columnGap={1}>
+              {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
+                <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
+              ))}
+            </Box>
+            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks', 0)}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+            {subheading('Color theme', 'Ten looks')}
+            <Box flexDirection="column" rowGap={1}>{themes}</Box>
+          </>,
+        )}
       </Box>
     )
+  })
+
+  // A tool call drawn as a step in place of its row: what it was about, what it did, how it ended.
+  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    const { chat } = await read($, prefs)
+    const p = e.props
+    if (!chat.tools) return next(e)
+    const measured = p.tool === 'Bash' ? await read($, memberOf(durations, e)) : -1
+    const step = stepOf({ ...p, ...(measured >= 0 ? { durationMs: measured } : {}), tests: chat.tests })
+    return step ? stepView($, e, step) : next(e)
+  })
+
+  // The permission dialog opened for a Bash call: mark the calls in flight that it is for.
+  on('classic.PermissionRequest', async ($, e, next) => {
+    const input = e.tool_input as { command?: unknown } | undefined
+    if (e.tool_name === 'Bash') for (const [id, command] of inFlight) if (command === input?.command) asked.add(id)
+    return next(e)
+  })
+
+  // With Tool summaries on, a folded run of reads unfolds into its own steps; a run with
+  // searches or listings stays folded, as those would unfold into their full results.
+  on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
+    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => c.tool === 'Read')
+      ? next({ ...e, props: { ...e.props, isExpanded: true } })
+      : next(e),
+  )
+
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !(await read($, prefs)).chat.callouts) return next(e)
+    const parts = splitCallouts(e.props.text)
+    if (!parts.some(s => s.kind === 'callout')) return next(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Markdown, Text } = ui
+    const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    return (
+      <Box flexDirection="column" rowGap={1}>
+        {parts.map((s, i) => {
+          if (s.kind === 'md') return s.text.trim() ? <Markdown key={`md${i}`} text={s.text} /> : null
+          const k = CALLOUT_KINDS[s.type]
+          const title = Svg ? calloutTitleSvg(s.type) : undefined
+          return (
+            <Box key={`co${i}`} borderStyle="round" borderColor={k.key} paddingX={1} flexDirection="column">
+              {Svg && title ? (
+                <Svg source={title.source} alt={title.alt} width={title.width} height={title.height} />
+              ) : (
+                <Text color={k.key} bold>
+                  {`${k.glyph} ${k.title}`}
+                </Text>
+              )}
+              <Markdown text={s.body} />
+            </Box>
+          )
+        })}
+      </Box>
+    )
+  })
+
+  on('turn.start', async ($, e, next) => {
+    turnSeed = seedOf(e.turnId)
+    return next(e)
+  })
+
+  // Thai words in the spinner; the desktop keeps a word that names the step.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    if (!(await read($, prefs)).chat.spinner) return next(e)
+    if (e.surface !== 'terminal' && !isGenericWord(e.props.word)) return next(e)
+    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, turnSeed) } })
+  })
+
+  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
+    const p = await read($, prefs)
+    // The desktop draws no footer for these; the band's info row carries the guard there.
+    if (!p.guard || e.surface !== 'terminal') return next(e)
+    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '◈ guard'] } })
+  })
+
+  on('prompt.compose', async ($, e, next) => {
+    const composed = await next(e)
+    if (!(await read($, prefs)).chat.callouts) return composed
+    return { sections: [...composed.sections, { id: 'sabai-band:callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
 
-    const { rows } = await read($, prefs)
+    const shownPrefs = await read($, prefs)
+    const { rows } = shownPrefs
     const p = rows.tasks ? progress(await read($, tasks)) : undefined
     const measured = await read($, usage)
     const at = await read($, now)
     const list = rows.usage ? meters(measured, at) : []
     const info = rows.info ? chips(await read($, env)) : { left: [], right: [] }
+    // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
+    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
@@ -630,10 +824,10 @@ export const register: Register = on => {
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
 
-    // Common commands on the left as framed buttons, the mod's panels on the right as icons. The
-    // desktop draws a Button's `label` alone, its hotkey as a keycap, so the icon is the label; the
-    // terminal draws the children: a pixel tile of half blocks round the glyph on the skin's
-    // colour. Hotkeys work while the band holds the focus.
+    // Common commands on the left, the mod's panels on the right, all framed buttons. The desktop
+    // draws a Button's `label` alone (and a hotkey as a keycap, so these take none), so the glyph
+    // and the word are the label; the terminal draws the children: a pixel tile of half blocks
+    // round the glyph on the skin's colour, then the word.
     const tile = (glyph: string, color: string) => (
       <Text>
         <Text color={color}>▐</Text>
@@ -646,7 +840,7 @@ export const register: Register = on => {
     const toolbar = (
       // The terminal's rows are already a row apart; the desktop's band image sits flush on it.
       // Native buttons carry their own padding, so on the desktop they sit with no gap between.
-      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 0} marginTop={e.surface === 'terminal' ? 0 : 1}>
+      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1} marginTop={e.surface === 'terminal' ? 0 : 1}>
         <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1}>
           {quick.map(c => (
             // A press's own work ends with the press, so the command is queued from a timer.
@@ -654,12 +848,15 @@ export const register: Register = on => {
           ))}
         </Box>
         <Box flexGrow={1} />
-        <Button key="agents" label={working > 0 ? `✻ ${working}` : '✻'} hotkey="a" plain onPress={() => toggleAgents($)}>
+        {/* While agents work, the button counts them and stands out. */}
+        <Button key="agents" label={working > 0 ? `✻ Agents · ${working}` : '✻ Agents'} variant={working > 0 ? 'primary' : 'secondary'} onPress={() => toggleAgents($)}>
           {tile('✻', look.clawd)}
-          {working > 0 ? <Text bold>{` ${working}`}</Text> : null}
+          <Text bold>{working > 0 ? ` Agents · ${working}` : ' Agents'}</Text>
         </Button>
-        <Button key="skins" label="⚙" hotkey="s" plain onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
+        {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
+        <Button key="skins" label={'⚙\uFE0E Settings'} variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
           {tile('⚙', look.bar('session', 0))}
+          <Text bold> Settings</Text>
         </Button>
       </Box>
     )

@@ -24,12 +24,12 @@ git config core.hooksPath .githooks                       # once per clone: pre-
 
 ## sabai-band architecture
 
-A band above the prompt (info row, task progress with an animated Pixel Clawd, a crew of subagents, usage cards, and a toolbar of Buttons under it) and two panes: agents (cards and reports) and settings (band rows, bar style, alerts, the guard, step reports, ten skins).
+A band above the prompt (info row, task progress with an animated Pixel Clawd, a crew of subagents, usage cards, and a toolbar of Buttons under it), two panes (agents: cards and reports; settings: band rows, bar style, alerts, chat, the guard, step reports, ten skins), and touches to the conversation (tool calls drawn as one-line steps, test results, callouts, Thai spinner words, a guard label).
 
-- `hooks/register.tsx` is the only module that touches `$`. It hooks engine events (`session.start`, `session.measure`, `tool.call` on `TaskCreate`/`TaskUpdate`/`TodoWrite`, `agent.spawn`, `turn.step`, `turn.complete`, `classic.SessionStart`), writes state, registers `/sabai-settings` and `/sabai-agents`, and renders `AbovePrompt` (the band) and `Pane` (agents).
+- `hooks/register.tsx` is the only module that touches `$`. It hooks engine events (`session.start`, `session.measure`, `tool.call` on `TaskCreate`/`TaskUpdate`/`TodoWrite`, `agent.spawn`, `turn.step`, `turn.complete`, `turn.start`, `prompt.compose`, `classic.SessionStart`), writes state, registers `/sabai-settings` and `/sabai-agents`, and renders `AbovePrompt` (the band), `Pane` (agents, settings) and the conversation rows `ToolUse`, `AssistantMessage`, `Spinner` and `SessionMode`.
 - **State** lives in `$.state` atoms declared in the contract `types/index.d.ts` (`interface PluginState['sabai-band']`); a draw `read`s them and redraws when an `update` writes. Module variables (e.g. `cwd`) are only for things `session.start` re-sets, since a reload starts the module over. The chosen skin is also persisted with `$.store`.
-- **Pure logic** — `model.ts` (meters, chips, task reducers, formatting), `agents.ts` (subagent run reducers, `progressOf`, type styles), `themes.ts` (palettes, `contrast`, `readable`), `guard.ts` (`riskOf`, the commands the guard refuses) — takes plain values and is unit-tested directly.
-- **Drawing** — `svg.ts` builds the desktop SVGs (`bandSvg`, `agentsSvg`) from a `Look` (`lookOf(skin)`: stylesheet, bar colours, pill, Clawd tint; no skin paints a background, so the band sits on the surface like `auto`); `sprites.ts` holds pixel sprites and their CSS animations; `icons.ts` holds the info-row vector marks (Octicons / Simple Icons path data).
+- **Pure logic** — `model.ts` (meters, chips, task reducers, formatting), `agents.ts` (subagent run reducers, `progressOf`, type styles), `chat.ts` (tool summary lines, test-output parsers, callout splitting, spinner words), `themes.ts` (palettes, `contrast`, `readable`), `guard.ts` (`riskOf`, the commands the guard refuses) — takes plain values and is unit-tested directly.
+- **Drawing** — `svg.ts` builds the desktop SVGs (`bandSvg`, `agentsSvg`) from a `Look` (`lookOf(skin)`: stylesheet, bar colours, pill, Clawd tint; no skin paints a background, so the band sits on the surface like `auto`); `sprites.ts` holds pixel sprites and their CSS animations; `icons.ts` holds the info-row marks (Octicons / Simple Icons path data), and `strokes.ts` the chat's Lucide stroke icons (animated by CSS in `svg.ts`), generated once from Lucide's files.
 - Desktop and other SVG-capable surfaces get one SVG per site; the terminal gets `Box`/`Text` rows built in `register.tsx`.
 
 ## Engine constraints that shape the code
@@ -46,6 +46,7 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, a
 - Work started from a button press is cancelled when the press ends; run it via `$.clock.after`.
 - In the desktop Code tab `$.ui.status` is not shown and `/config` is unavailable, so settings are slash commands.
 - A drawn tree's size depends on the drawings in it: the agents pane picks cards by their drawn size (`PANE_BUDGET`), and repeated marks (dither dots, ticks) are capped so a very wide band stays inside the limits.
+- Conversation rows: a `ui.render` hook on `ToolUse`, `AssistantMessage`, `UserMessage` or `ToolGroup` replaces the row, and a tree wrapping `await next(e)` keeps the engine's row with ours under it (both checked on the desktop). Round borders and `Text` colours are honoured there; an `Svg` is drawn as an image and, without `width`/`height` props, stretched to the row's full width, so chat drawings are fixed-size and pass both. The desktop always draws its own `ToolGroup` line and the thinking summary, and shows no `SessionMode` footer, so the guard label lives in the band's info row. Transcript `Text`/`Box` colours are theme keys (`success`, `error`, …), since the conversation follows the person's theme, not the skin. A standalone tool row's `output` is often absent on the desktop (its result is a separate `ToolResult`), so steps fall back to the call's input. Bash durations are a `StateFamily` keyed by `tool_use_id` (read with `memberOf(atom, e)`), so a new call redraws only its own row; a call that opened the permission dialog (`classic.PermissionRequest`) shows no time, while the auto-mode classifier's `ask` keeps it.
 - Everything the band shows must come from the engine or the project's own `git`/`node`; values that cannot be read are hidden, never faked. No credentials or external files.
 
 ## Conventions
@@ -54,7 +55,7 @@ A band above the prompt (info row, task progress with an animated Pixel Clawd, a
 - Code, comments, commit messages and repo docs are in English; `docs/PLAN.md` is in Thai.
 - A release bumps the mod's `version` in both `plugins/<mod>/.claude-plugin/plugin.json` and its entry in `.claude-plugin/marketplace.json`, and updates the README if commands or behaviour changed.
 - Before committing, run validate, test and `tsc` (the pre-commit hook does all three). Commit messages: an imperative subject line, then a short bullet list of what changed.
-- User-visible text in the band and pane is English. Keep every text colour at ≥ 4.5:1 on its card; the theme test enforces it, and `readable()` is the way to fix a palette colour that fails.
+- User-visible text in the band and pane is English. The spinner words are Thai, the one exception, by the owner's choice. Keep every text colour at ≥ 4.5:1 on its card; the theme test enforces it, and `readable()` is the way to fix a palette colour that fails.
 
 ## Tests
 

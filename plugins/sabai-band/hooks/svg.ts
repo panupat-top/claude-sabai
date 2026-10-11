@@ -2,7 +2,11 @@ import type { AgentRun, BarStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Chip, Meter, Progress } from './model'
 import { countdown, level, tokens, value } from './model'
+import type { CalloutKind, Step, StepIcon, Tone } from './chat'
+import { stepText } from './chat'
 import { icon } from './icons'
+import { STROKES } from './strokes'
+import type { StrokeKind } from './strokes'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
 import { THEMES, cardOf, readable } from './themes'
@@ -29,6 +33,19 @@ export const TEXT = {
   warn: ['#a8490a', '#ff9d57'],
   alert: ['#c0262c', '#ff7377'],
 } as const
+// The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
+// a skin's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
+export const CHAT_INK: Record<Tone, readonly [string, string]> = {
+  text: TEXT.t,
+  muted: ['#5f5f5c', '#b4b4af'],
+  ok: ['#116329', '#56d364'],
+  bad: ['#a40e26', '#ff8a80'],
+  warn: ['#7d4e00', '#e3b341'],
+  edit: ['#0550ae', '#79c0ff'],
+  read: ['#0a6158', '#3ccbbb'],
+}
+// How strongly a result pill is tinted with its ink: the ink must still read on the tint.
+export const PILL_TINT = 0.1
 const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
@@ -600,4 +617,123 @@ export function emptyAgentsSvg(W: number, skin = 'auto'): Drawing {
     `<text class="t" x="${PAD + clawd.width + 12}" y="24" font-family="${SANS}" font-size="12.5" font-weight="600">No subagents yet</text>` +
     `<text class="m" x="${PAD + clawd.width + 12}" y="41" font-family="${SANS}" font-size="11.5">${xml(fit('They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.', 11.5, W - PAD * 2 - clawd.width - 12))}</text>`
   return drawing(look, W, 56, body, 'No subagents yet. They show here when Claude hands work off.')
+}
+
+// Ink as a fill (text, bar cells) and as a stroke (icons), light then dark.
+const ink = (prefix: string, prop: 'fill' | 'stroke', colours: Record<string, readonly [string, string]>) =>
+  Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[0]}}`).join('') +
+  `@media (prefers-color-scheme: dark){${Object.entries(colours).map(([k, v]) => `.${prefix}-${k}{${prop}:${v[1]}}`).join('')}}`
+const CHAT_CSS = ink('k', 'fill', CHAT_INK) + ink('s', 'stroke', CHAT_INK) + `.trk{fill:${TEXT.m[0]};opacity:.16}@media (prefers-color-scheme: dark){.trk{fill:${TEXT.m[1]}}}`
+// One-shot motion, starting from a visible frame; reduced motion keeps it still.
+const CHAT_MOTION =
+  '.an-pop,.an-shake{transform-box:fill-box;transform-origin:center}' +
+  '.an-pop{animation:an-pop .45s ease-out}@keyframes an-pop{0%,100%{transform:scale(1)}45%{transform:scale(1.2)}}' +
+  '.an-shake{animation:an-shake .4s ease-in-out}@keyframes an-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
+  '@media (prefers-reduced-motion: reduce){.an-pop,.an-shake{animation:none}}'
+const CHAT_ICON = 18
+const STEP_W = 560
+const STEP_H = 24
+const TITLE_H = 24
+
+const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: number) =>
+  `<g transform="translate(${x},${y}) scale(${size / 24})"><g class="${cls}" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${STROKES[icon]}</g></g>`
+
+const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
+// A semibold proportional face's width, by kind of character: near enough to set the next
+// word after it without overlap, and to cut a title short of the right column.
+// Combining marks (Thai vowels and tones) take no width; CJK and pictographs a full em.
+const charWidth = (c: string) =>
+  /\p{M}/u.test(c) ? 0
+  : /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}]/u.test(c) ? 1
+  : /[il.,:;'|!]/.test(c) ? 0.3 : /[fjrt() -]/.test(c) ? 0.4 : /[mwMW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.7 : 0.6
+const sansWidth = (s: string, size: number) => [...s].reduce((w, c) => w + size * charWidth(c), 0)
+// One pass: keep characters while they and an ellipsis fit.
+const fitSans = (s: string, size: number, maxW: number) => {
+  if (sansWidth(s, size) <= maxW) return s
+  const room = maxW - size * 0.6
+  let w = 0
+  let out = ''
+  for (const c of s) {
+    w += size * charWidth(c)
+    if (w > room) break
+    out += c
+  }
+  return `${out || [...s][0]}…`
+}
+
+// One tool call as a minimal step on one line: a small stroke icon in its tool's colour, a
+// title saying what it was about, then what it did, dim; at the right a meter, the result in a
+// tinted pill and the time. Drawn at a fixed size, which the row is told, so it never stretches.
+export function stepSvg(step: Step): Drawing {
+  const resultText = step.result.map(p => p.text).join('')
+  const pillTone = step.result[0]?.tone ?? 'muted'
+  // Always kept, so pills line up from row to row whether or not a step has a time.
+  const timeW = 44
+  const pillW = resultText ? monoWidth(resultText, 11) + 12 : 0
+  const meterW = step.meter ? 5 * 5 + 6 : 0
+  const right = STEP_W - 2 - timeW
+  let x = right - pillW
+  let pill = ''
+  if (resultText) {
+    pill = `<rect class="k-${pillTone}" opacity="${PILL_TINT}" x="${x.toFixed(1)}" y="4" width="${pillW.toFixed(1)}" height="16" rx="8"/>`
+    let tx = x + 6
+    for (const p of step.result) {
+      pill += `<text class="k-${p.tone}" x="${tx.toFixed(1)}" y="15.5" font-family="${MONO}" font-size="11" xml:space="preserve">${xml(p.text)}</text>`
+      tx += monoWidth(p.text, 11)
+    }
+  }
+  let meter = ''
+  if (step.meter) {
+    const { good, bad } = step.meter
+    const n = good + bad
+    let goodCells = n ? Math.round((5 * good) / n) : 0
+    if (good > 0 && goodCells === 0) goodCells = 1
+    if (bad > 0 && goodCells === 5) goodCells = 4
+    const start = x - meterW
+    meter = Array.from({ length: 5 }, (_, i) => `<rect class="k-${i < goodCells ? 'ok' : 'bad'}" x="${start + i * 5}" y="8" width="3" height="8" rx="1"/>`).join('')
+    x = start
+  }
+  const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="15.5" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(step.time)}</text>` : ''
+  const room = x - 20 - 10
+  const title = fitSans(step.title, 12, Math.min(room, room * 0.7 + 60))
+  const titleW = sansWidth(title, 12)
+  const detailRoom = room - titleW - 10
+  const detail = detailRoom > 40 ? fitMono(step.detail, 10.5, detailRoom) : ''
+  const motion = step.tone === 'ok' ? ' an-pop' : step.tone === 'bad' ? ' an-shake' : ''
+  const body =
+    stroke(STEP_ICON[step.icon], `s-${step.tone}${motion}`, 1, 5.5, 13) +
+    `<text class="k-text" x="20" y="16" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` +
+    (detail ? `<text class="k-muted" x="${(20 + titleW + 10).toFixed(1)}" y="15.5" font-family="${MONO}" font-size="10.5" xml:space="preserve">${xml(detail)}</text>` : '') +
+    meter +
+    pill +
+    time
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${STEP_W}" height="${STEP_H}" viewBox="0 0 ${STEP_W} ${STEP_H}"><style>${CHAT_CSS}${CHAT_MOTION}</style>${body}</svg>`,
+    width: STEP_W,
+    height: STEP_H,
+    alt: stepText(step),
+  }
+}
+
+// Each callout kind: its stroke icon, the theme key its box and terminal title take, a terminal
+// glyph, and its SVG ink as [light, dark].
+export const CALLOUT_KINDS = {
+  note: { title: 'Note', icon: 'info', key: 'suggestion', glyph: 'ℹ', ink: ['#0969da', '#4493f8'] },
+  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', glyph: '✱', ink: CHAT_INK.ok },
+  important: { title: 'Important', icon: 'badge-alert', key: 'claude', glyph: '✦', ink: ['#a8461f', '#e8916b'] },
+  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', glyph: '▲', ink: CHAT_INK.warn },
+  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', glyph: '✖', ink: CHAT_INK.bad },
+} as const satisfies Record<CalloutKind, { title: string; icon: StrokeKind; key: string; glyph: string; ink: readonly [string, string] }>
+
+// A callout's title: its icon and name in its kind's colour.
+export function calloutTitleSvg(kind: CalloutKind): Drawing {
+  const k = CALLOUT_KINDS[kind]
+  const w = CHAT_ICON + 8 + k.title.length * 8.5
+  const css = `.co{stroke:${k.ink[0]}}.cot{fill:${k.ink[0]}}@media (prefers-color-scheme: dark){.co{stroke:${k.ink[1]}}.cot{fill:${k.ink[1]}}}`
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${TITLE_H}" viewBox="0 0 ${w} ${TITLE_H}"><style>${css}${CHAT_MOTION}</style>${stroke(k.icon, 'co an-pop', 0, 3, CHAT_ICON)}<text class="cot" x="${CHAT_ICON + 8}" y="17" font-family="${SANS}" font-size="14" font-weight="600">${k.title}</text></svg>`,
+    width: w,
+    height: TITLE_H,
+    alt: k.title,
+  }
 }

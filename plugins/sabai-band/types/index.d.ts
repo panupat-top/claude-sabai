@@ -45,7 +45,9 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
+  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean }
 }
+
 
 declare module 'claude-code' {
   interface PluginState {
@@ -60,6 +62,7 @@ declare module 'claude-code' {
       finishedOpen: boolean
       openResults: string[]
       agents: AgentRun[]
+      durations: StateFamily<number>
     }
   }
 }

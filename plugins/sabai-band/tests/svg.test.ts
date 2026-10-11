@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { THEMES, contrast } from '../hooks/themes'
-import { CARD, TEXT, bandSvg, fillColor, lookOf, textClass } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, PILL_TINT, TEXT, bandSvg, calloutTitleSvg, fillColor, lookOf, stepSvg, textClass } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M' },
@@ -192,4 +192,94 @@ test('every skin’s empty bar track stands out from its card', () => {
     const track = lookOf(key).css.match(/\.k\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
     expect([key, contrast(track, card) >= 1.35]).toEqual([key, true])
   }
+})
+
+test('chat ink reads on a light and a dark conversation', () => {
+  for (const [tone, [light, dark]] of Object.entries(CHAT_INK)) {
+    expect([tone, contrast(light, '#ffffff') >= 4.5, contrast(dark, '#1a1a1a') >= 4.5]).toEqual([tone, true, true])
+  }
+})
+
+test('callout inks read on light and dark, and a title is one small drawing in its kind’s colour', () => {
+  for (const [kind, k] of Object.entries(CALLOUT_KINDS)) expect([kind, contrast(k.ink[0], '#ffffff') >= 4.5, contrast(k.ink[1], '#1a1a1a') >= 4.5]).toEqual([kind, true, true])
+  const d = calloutTitleSvg('warning')
+  expect(d.alt).toBe('Warning')
+  expect(d.source).toContain('>Warning<')
+  expect(d.source).toContain(`fill:${CALLOUT_KINDS.warning.ink[0]}`)
+  expect(d.source).toMatch(/<g class="co an-pop"[^>]*fill="none"/)
+})
+
+test('a step is one minimal 560×24 line: a small icon, title, detail, a meter, the result in a pill, the time', () => {
+  const d = stepSvg({ icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 141 passed', tone: 'ok' }], meter: { good: 141, bad: 0 }, time: '5.1s' })
+  expect([d.width, d.height]).toEqual([560, 24])
+  expect(d.alt).toBe('Run the tests, $ bun test, 141 passed, 5.1s')
+  expect(d.source).not.toContain('<circle class="trk"')
+  expect(d.source).toMatch(/scale\(0\.5416666666666666\)"><g class="s-ok an-pop" fill="none" stroke-width="2"/)
+  expect(d.source).toMatch(/font-size="12" font-weight="600">Run the tests</)
+  expect(d.source).toContain('>$ bun test<')
+  expect(d.source).toMatch(/<rect class="k-ok" opacity="0.1"[^>]*height="16" rx="8"/)
+  expect((d.source.match(/height="8" rx="1"/g) ?? []).length).toBe(5)
+})
+
+test('a long title is cut short of the result, never under it', () => {
+  const d = stepSvg({ icon: 'terminal', tone: 'bad', title: 'A'.repeat(200), detail: '$ ' + 'x'.repeat(200), result: [{ text: '✗ failed', tone: 'bad' }], time: '1m 4s' })
+  expect(d.source).toContain('…')
+  expect(d.source).toContain('an-shake')
+  const titleChars = (d.source.match(/font-weight="600">([^<]*)</)?.[1] ?? '').length
+  expect(titleChars).toBeLessThan(70)
+})
+
+test('an animated icon keeps its place: the motion sits inside the group that positions it', () => {
+  const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 't', detail: 'd', result: [] })
+  expect(d.source).toMatch(/<g transform="translate\(1,5\.5\) scale\(0\.5416666666666666\)"><g class="s-ok an-pop"/)
+})
+
+test('motion starts and ends on the icon’s own size, so an image held on its first frame looks right', () => {
+  const src = stepSvg({ icon: 'terminal', tone: 'ok', title: 't', detail: 'd', result: [] }).source
+  expect(src).toContain('@keyframes an-pop{0%,100%{transform:scale(1)}')
+})
+
+test('the detail starts after the title it follows, measured by its letters', () => {
+  const at = (title: string) => Number(stepSvg({ icon: 'read', tone: 'read', title, detail: 'README.md', result: [] }).source.match(/<text class="k-muted" x="([\d.]+)"/)?.[1])
+  expect(at('Read README.md')).toBeGreaterThan(20 + 14 * 12 * 0.56 + 10)
+  expect(at('iiiiiiiiii')).toBeLessThan(at('MMMMMMMMMM'))
+})
+
+// Review fixes (2026-10-11).
+test('a very long title is cut in linear time', () => {
+  const t = performance.now()
+  stepSvg({ icon: 'terminal', tone: 'ok', title: 'x'.repeat(20_000), detail: 'd', result: [{ text: '✓ done', tone: 'ok' }] })
+  expect(performance.now() - t).toBeLessThan(50)
+})
+
+test('Thai marks take no width and CJK takes a full em, so the detail sits right after the title', () => {
+  const at = (title: string) => Number(stepSvg({ icon: 'read', tone: 'read', title, detail: 'dir/', result: [] }).source.match(/<text class="k-muted" x="([\d.]+)"/)?.[1])
+  expect(at('กำลังทำงาน')).toBe(at('กำลงทำงาน'))
+  expect(at('日本語のタイトル')).toBeGreaterThan(20 + 8 * 12 * 0.9)
+})
+
+test('pill text reads at 4.5:1 over its own tint on light and dark conversations', () => {
+  const mix = (fg: string, bg: string, a: number) => {
+    const c = (h: string) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16))
+    const [f, b] = [c(fg), c(bg)]
+    return `#${f.map((v, i) => Math.round(v * a + b[i]! * (1 - a)).toString(16).padStart(2, '0')).join('')}`
+  }
+  for (const [tone, [light, dark]] of Object.entries(CHAT_INK)) {
+    for (const bg of ['#ffffff', '#faf9f5']) expect([tone, bg, contrast(light, mix(light, bg, PILL_TINT)) >= 4.5]).toEqual([tone, bg, true])
+    for (const bg of ['#1a1a1a', '#262624', '#30302e']) expect([tone, bg, contrast(dark, mix(dark, bg, PILL_TINT)) >= 4.5]).toEqual([tone, bg, true])
+  }
+})
+
+test('pills line up row to row: the time column is always kept', () => {
+  const end = (time?: string) => {
+    const m = stepSvg({ icon: 'pen', tone: 'edit', title: 't', detail: '', result: [{ text: '+1 −1', tone: 'ok' }], ...(time ? { time } : {}) }).source.match(/<rect class="k-ok" opacity="[\d.]+" x="([\d.]+)"[^>]*width="([\d.]+)"/)
+    return Number(m?.[1]) + Number(m?.[2])
+  }
+  expect(Math.round(end())).toBe(Math.round(end('1m 4s')))
+  expect(Math.round(end('0.3s'))).toBe(Math.round(end('12s')))
+})
+
+test('an Important callout’s title is the colour of its border', () => {
+  expect(CALLOUT_KINDS.important.key).toBe('claude')
+  expect(CALLOUT_KINDS.important.ink[0]).not.toBe('#8250df')
 })

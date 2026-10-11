@@ -362,10 +362,11 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountBand($, surface)
     const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.slice(0, 2).every(b => b.props.plain === undefined)).toBe(true)
-    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌', '▐⚙▌'])
-    // What the desktop draws: the label alone.
-    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻', '⚙'])
+    expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
+    expect(buttons.map(b => b.text)).toEqual(['/compact', '/resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
+    // What the desktop draws: the label alone, framed like the commands, with no keycap.
+    expect(buttons.map(b => b.props.label)).toEqual(['/compact', '/resume', '✻ Agents', '⚙\uFE0E Settings'])
+    expect(buttons.slice(2).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', undefined], ['secondary', undefined]])
     await ui.unmount()
   }
   const ui = await mountBand($, 'desktop')
@@ -376,8 +377,9 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   expect([...open]).toEqual(['sabai-skins'])
   await spawn($, 'scan')
   await spawn($, 'read')
-  expect((await ui.find({ key: 'agents' }))?.text).toBe('▐✻▌ 2')
-  expect((await ui.find({ key: 'agents' }))?.props.label).toBe('✻ 2')
+  // While agents work the button says how many, and stands out.
+  const agents = await ui.find({ key: 'agents' })
+  expect([agents?.text, agents?.props.label, agents?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
 })
 
 test('the toolbar runs common commands, only those this surface offers', async ($, on) => {
@@ -838,4 +840,323 @@ test('agents report their own steps through the mod’s tool, filling their card
   const card = ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]).find(c => c.props.alt.startsWith('worker:'))
   expect(card?.props.source).toContain('>2/4<')
   expect(card?.props.source).toContain('>Reading the docs<')
+})
+
+const mountTool = ($: Engine, surface: Surface, props: Record<string, unknown>) =>
+  $.ui.mount({
+    plugin: 'sabai-band',
+    surface,
+    component: 'ToolUse',
+    requestId: String(props.tool_use_id),
+    viewport: { columns: 120, rows: 30 },
+    props: { isRunning: false, isErrored: false, isInterrupted: false, ...props } as never,
+  })
+
+// The words of a chat line: the desktop's drawings by their alt, the terminal's Text.
+async function lineWords(ui: Awaited<ReturnType<typeof mountTool>>, surface: Surface) {
+  if (surface === 'desktop') return (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
+  return (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
+}
+
+test('a Bash row is drawn as a step in place of the engine’s row, with its measured time', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(4200)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', description: '', tool_use_id: 'tu1' } as Parameters<typeof $.tool.call>[0])
+  for (const surface of SURFACES) {
+    const ui = await mountTool($, surface, { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'npm run build' }, output: { stdout: '', stderr: '', interrupted: false } })
+    expect([surface, (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')]).toEqual([surface, false])
+    expect([surface, await lineWords(ui, surface)]).toEqual([surface, expect.stringMatching(/npm run build.*done.*4\.2s/)])
+  }
+})
+
+test('an untimed quick Bash row, another tool, or the toggle off pass straight through', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: false, tests: true, callouts: true, label: true } } } })
+  await start($)
+  const off = await mountTool($, 'desktop', { tool_use_id: 'x', tool: 'Bash', input: { command: 'ls' }, isErrored: true, output: {} })
+  expect(await off.findAll({ type: 'Svg' })).toEqual([])
+  const other = await mountTool($, 'desktop', { tool_use_id: 'y', tool: 'Glob', input: {}, output: {} })
+  expect(await other.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('settings saved before the Chat group load with every chat toggle on', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: false, toolbar: true }, notify: true, limits: true, guard: true, steps: true } } })
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'f', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['false, failed'])
+})
+
+test('Edit, Write and Read rows gain their summary on both surfaces', async ($, on) => {
+  engine(on)
+  await start($)
+  const rows = [
+    { tool_use_id: 'e', tool: 'Edit', input: { file_path: 'src/a.ts' }, output: { structuredPatch: [{ lines: ['-a', '+b', '+c'] }] }, want: ['Edited a.ts', 'src/', '+2 −1'] },
+    { tool_use_id: 'w', tool: 'Write', input: { file_path: 'docs/new.md' }, output: { type: 'create', content: 'x\n', structuredPatch: [] }, want: ['Created new.md', 'docs/', '1 line'] },
+    { tool_use_id: 'r', tool: 'Read', input: { file_path: 'r.md' }, output: { type: 'text', file: { startLine: 5, numLines: 10, totalLines: 40 } }, want: ['Read r.md', 'lines 5–14 of 40'] },
+  ]
+  for (const { want, ...props } of rows) {
+    const desk = await mountTool($, 'desktop', props)
+    const svg = (await desk.findAll({ type: 'Svg' }))[0]
+    expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(', '), 560, 24])
+    const term = await mountTool($, 'terminal', props)
+    for (const w of want) expect(await lineWords(term, 'terminal')).toContain(w)
+  }
+})
+
+// An errored call's output is the text the model read, not the result record.
+const TEST_ROW = { tool_use_id: 't', tool: 'Bash', input: { command: 'bun test' }, isErrored: true, output: 'Exit code 1\n 9 pass\n 1 fail\nRan 10 tests across 2 files.' }
+
+test('a Bash row whose output is a test summary becomes a test line', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', TEST_ROW)
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test, 1 of 10 failed'])
+})
+
+test('with Test results off, a test run is a plain failed Bash line', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: false, callouts: true, label: true } } } })
+  await start($)
+  const ui = await mountTool($, 'desktop', TEST_ROW)
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test, 9 pass, failed, exit 1'])
+})
+
+const FACTS = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['desktop'], tools: [], outputStyle: null, traits: [] } as never
+let replies = 0
+const mountReply = ($: Engine, surface: Surface, text: string, extra: Record<string, unknown> = {}) =>
+  $.ui.mount({ plugin: 'sabai-band', surface, component: 'AssistantMessage', requestId: `m${++replies}`, viewport: { columns: 120, rows: 30 }, props: { text, isFirstOfReply: true, ...extra } as never })
+const isStock = async (ui: Awaited<ReturnType<typeof mountReply>>) => (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')
+
+test('a reply with a callout draws it as a bordered box between its Markdown; others pass through', async ($, on) => {
+  engine(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const ui = await mountReply($, surface, 'Before.\n\n> [!TIP]\n> Use bun.\n\nAfter.')
+    const md = (await ui.findAll({ type: 'Markdown' })).map(m => String(m.props.text).trim())
+    expect([surface, md]).toEqual([surface, ['Before.', 'Use bun.', 'After.']])
+    const box = (await ui.findAll({ type: 'Box' })).find(b => b.props.borderStyle === 'round')
+    expect([surface, box?.props.borderColor]).toEqual([surface, 'success'])
+  }
+  expect(await isStock(await mountReply($, 'desktop', 'No callout here.'))).toBe(true)
+  expect(await isStock(await mountReply($, 'desktop', '> [!NOTE]\n> x', { isSummary: true }))).toBe(true)
+})
+
+test('Claude is told about callouts only while Callouts is on', async ($, on) => {
+  engine(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
+  await start($)
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core', 'sabai-band:callouts'])
+})
+
+test('with Callouts off, replies and the prompt are left alone', async ($, on) => {
+  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: true, callouts: false, label: true } } } })
+  on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
+  await start($)
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core'])
+  expect(await isStock(await mountReply($, 'desktop', '> [!TIP]\n> x'))).toBe(true)
+})
+
+test('the spinner speaks Thai on the terminal, and on the desktop only in place of Working', async ($, on) => {
+  const seen: string[] = []
+  on('ui.render', { component: 'Spinner' }, ($, e) => {
+    seen.push((e.props as { word: string }).word)
+    return STOCK
+  })
+  on('turn.start', ($, e) => ({ turnId: e.turnId }))
+  engine(on)
+  await start($)
+  await $.turn.start({ text: 'hi', turnId: 'turn-1' })
+  const spin = (surface: Surface, word: string, n: number) =>
+    $.ui.mount({ plugin: 'sabai-band', surface, component: 'Spinner', requestId: `s${n}`, viewport: { columns: 120, rows: 30 }, props: { word, message: null, suffix: '…', mode: 'thinking' } })
+  await spin('terminal', 'Sauteing', 1)
+  await spin('desktop', 'Creating notes.md', 2)
+  await spin('desktop', 'Working', 3)
+  expect(seen[0]).toMatch(/[฀-๿]/)
+  expect(seen.slice(1)).toEqual(['Creating notes.md', seen[0]])
+})
+
+test('settings: each chat feature has its own toggle, kept for new sessions', async ($, on) => {
+  const { store } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  for (const k of ['spinner', 'tools', 'tests', 'callouts']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  expect(await pane.find({ key: 'pref-chat-label' })).toBeUndefined()
+  await pane.press({ key: 'pref-chat-tools' })
+  expect((await pane.find({ key: 'pref-chat-tools' }))?.props.label).toBe('○ Off')
+  expect((store.prefs as { chat: { tools: boolean } }).chat.tools).toBe(false)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'z', tool: 'Bash', input: { command: 'false' }, isErrored: true, output: {} })
+  expect(await ui.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('a run whose tests all passed but whose command failed says it failed', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'bt', tool: 'Bash', input: { command: 'bun test && tsc' }, isErrored: true, output: 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS2304' })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test && tsc, 3 pass, failed, exit 2'])
+})
+
+test('a backgrounded Bash call says so, with no time and no output, though its tool.call resolved', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(120_000)
+    return { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'npm run dev', description: '', tool_use_id: 'bg' } as Parameters<typeof $.tool.call>[0])
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'bg', tool: 'Bash', input: { command: 'npm run dev' }, output: { stdout: 'ready', stderr: '', interrupted: false, backgroundTaskId: 'b1' } })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['npm run dev, in the background, 2m 0s'])
+  expect(await ui.findAll({ type: 'Code' })).toEqual([])
+})
+
+test('a Bash call that waited on the permission dialog shows no time; a classifier’s ask keeps it', async ($, on) => {
+  let dialog = false
+  on('tool.check', () => ({ decision: 'ask' as const }))
+  on('tool.call', { tool: 'Bash' }, async (_, e) => {
+    if (dialog) await $.classic.PermissionRequest({ tool_name: 'Bash', tool_input: { command: (e as { command: string }).command } } as never)
+    await clock.advance(6000)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  on('classic.PermissionRequest', () => ({}) as never)
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'make', description: '', tool_use_id: 'auto1' } as Parameters<typeof $.tool.call>[0])
+  dialog = true
+  await $.tool.call({ tool: 'Bash', command: 'rm x', description: '', tool_use_id: 'ask1' } as Parameters<typeof $.tool.call>[0])
+  const alt = async (id: string, command: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command }, output: { stdout: '', stderr: '' } })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect(await alt('auto1', 'make')).toEqual(['make, done, 6.0s'])
+  expect(await alt('ask1', 'rm x')).toEqual(['rm x, done'])
+})
+
+test('a quick command the mod did not time still gets its line', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'desktop', { tool_use_id: 'q', tool: 'Bash', input: { command: 'ls' }, output: { stdout: '', stderr: '', interrupted: false } })
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['ls, done'])
+})
+
+test('an edit or a write whose row carries no result is read from what was asked of it', async ($, on) => {
+  engine(on)
+  await start($)
+  const edit = await mountTool($, 'desktop', { tool_use_id: 'ni', tool: 'Edit', input: { file_path: 'a.ts', old_string: 'old', new_string: 'new\nmore' } })
+  expect((await edit.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Edited a.ts, +2 −1'])
+  expect(await edit.findAll({ type: 'Code' })).toEqual([])
+  const write = await mountTool($, 'desktop', { tool_use_id: 'nw', tool: 'Write', input: { file_path: 'n.md', content: 'a\nb\n' } })
+  expect((await write.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Wrote n.md, 2 lines'])
+  const read = await mountTool($, 'desktop', { tool_use_id: 'nr', tool: 'Read', input: { file_path: 'r.md', offset: 10, limit: 5 } })
+  expect((await read.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['Read r.md, lines 10–14'])
+})
+
+test('a step stands alone: no output under it, and with Tool summaries off the engine’s row is left as it is', async ($, on) => {
+  engine(on)
+  await start($)
+  const bash = await mountTool($, 'desktop', { tool_use_id: 'no', tool: 'Bash', input: { command: 'make' }, output: { stdout: 'built\nok', stderr: '' } })
+  expect(await bash.findAll({ type: 'Code' })).toEqual([])
+  expect((await bash.findAll({ type: 'Svg' })).length).toBe(1)
+})
+
+test('with Tool summaries on, grouped reads unfold into their own steps', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  engine(on)
+  await start($)
+  await $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: 'g', viewport: { columns: 120, rows: 30 }, props: { calls: [{ tool: 'Read' }], isActive: false, isExpanded: false } as never })
+  expect(seen.at(-1)).toBe(true)
+})
+
+test('the guard label sits in the band’s info row, a shield chip before Node, on both surfaces', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).toMatch(/Turned on: guard, Node v24\.1\.0/)
+  expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
+})
+
+test('the guard chip follows the guard alone: off, no chip; an old Guard label setting is ignored', async ($, on) => {
+  engine(on, { store: { prefs: { guard: false } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).not.toContain('guard')
+})
+
+test('a guard turned on shows its chip even where an older version saved Guard label off', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Turned on: guard')
+})
+
+test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
+  const seen: string[][] = []
+  on('ui.render', { component: 'SessionMode' }, ($, e) => {
+    seen.push([...(e.props as { modes: string[] }).modes])
+    return STOCK
+  })
+  engine(on, { store: { prefs: { guard: true } } })
+  await start($)
+  const mount = (surface: Surface, n: number) => $.ui.mount({ plugin: 'sabai-band', surface, component: 'SessionMode', requestId: `sm${n}`, viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
+  await mount('desktop', 1)
+  expect(seen.at(-1)).toEqual(['focus'])
+  await mount('terminal', 2)
+  expect(seen.at(-1)).toEqual(['focus', '◈ guard'])
+})
+
+test('each Bash duration is kept under its own id, so one call does not redraw every row', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, async () => {
+    await clock.advance(1500)
+    return { result: { stdout: '', stderr: '', interrupted: false } }
+  })
+  const { clock } = engine(on)
+  await start($)
+  await $.tool.call({ tool: 'Bash', command: 'make', description: '', tool_use_id: 'own1' } as Parameters<typeof $.tool.call>[0])
+  const alt = async (id: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command: 'make' }, output: {} })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
+  expect(await alt('own1')).toEqual(['make, done, 1.5s'])
+  expect(await alt('other')).toEqual(['make, done'])
+})
+
+test('only a run of reads unfolds into steps; a group with searches stays folded', async ($, on) => {
+  const seen: boolean[] = []
+  on('ui.render', { component: 'ToolGroup' }, ($, e) => {
+    seen.push((e.props as { isExpanded: boolean }).isExpanded)
+    return STOCK
+  })
+  engine(on)
+  await start($)
+  const group = (n: number, tools: string[]) => $.ui.mount({ plugin: 'sabai-band', surface: 'desktop', component: 'ToolGroup', requestId: `rg${n}`, viewport: { columns: 120, rows: 30 }, props: { calls: tools.map(tool => ({ tool })), isActive: false, isExpanded: false } as never })
+  await group(1, ['Read', 'Read'])
+  expect(seen.at(-1)).toBe(true)
+  await group(2, ['Read', 'Grep'])
+  expect(seen.at(-1)).toBe(false)
+})
+
+test('a reply too long to redraw within the tree limit is left to the engine, callout or not', async ($, on) => {
+  engine(on)
+  await start($)
+  expect(await isStock(await mountReply($, 'desktop', `> [!NOTE]\n> x\n\n${'word '.repeat(19_000)}`))).toBe(true)
+})
+
+test('on the terminal a step is one line: its glyph, title, what it did, result and time', async ($, on) => {
+  engine(on)
+  await start($)
+  const ui = await mountTool($, 'terminal', { tool_use_id: 't1', tool: 'Edit', input: { file_path: 'src/a.ts', new_string: 'x' } })
+  expect(await ui.findAll({ type: 'Box' })).toEqual([])
+  expect(await lineWords(ui, 'terminal')).toMatch(/^✎ Edited a\.ts.*src\/.*\+1 −0/)
+})
+
+test('settings are six bordered groups in order: band, conversation, agents, safety, alerts, appearance', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  for (const surface of SURFACES) {
+    const pane = await mountPane($, surface, 'sabai-skins')
+    const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+    expect([surface, cards.length]).toEqual([surface, 6])
+    const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
+    const order = ['Band', 'Conversation', 'Agents', 'Safety', 'Alerts', 'Appearance'].map(t => words.indexOf(`${t}`))
+    expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
+    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+    await pane.unmount()
+  }
 })
