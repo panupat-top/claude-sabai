@@ -316,7 +316,7 @@ const fitMono = (s: string, size: number, maxW: number, min = 1) => {
 const INFO_H = 22
 const SKELETON_W = 180
 // The info row: the project, its branch as a tinted tag with the sync counts, then at the right
-// the guard, Node and the git user as small marks in the muted ink. Room runs out from the right:
+// the guard, the git user and Node as small marks in the muted ink. Room runs out from the right:
 // the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
 // The row sits on the surface, so every word takes the surface's inks.
 // `packed` sets the right side straight after the branch instead of at the right edge, and the
@@ -335,8 +335,8 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
   // The right side in its order, each with how long it stays when room is short.
   const items = [
     guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
-    node && { k: 'node' as const, v: node.value.replace(/^v?/, 'v'), keep: 2 },
     user && { k: 'git' as const, v: user.value, keep: 1 },
+    node && { k: 'node' as const, v: node.value.replace(/^v?/, 'v'), keep: 2 },
   ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
   const itemW = (i: { v: string }) => 12 + (i.v ? 5 + monoWidth(i.v, 10.5) : 0)
   const rightW = (list: typeof items) => list.reduce((n, i) => n + itemW(i), 0) + 16 * Math.max(0, list.length - 1)
@@ -1190,11 +1190,12 @@ const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: numbe
 
 // The desktop toolbar's buttons as icons. A Button draws its text label alone, so each icon is
 // an image link in a Markdown; the count and the colour that marks it worth a press are drawn in.
-export type ToolIcon = 'compact' | 'agents' | 'settings'
-const TOOL_STROKE: Record<ToolIcon, StrokeKind> = { compact: 'fold-vertical', agents: 'bot', settings: 'settings' }
+// The guard draws the same way, in green, as a sign beside them rather than a button.
+export type ToolIcon = 'compact' | 'agents' | 'settings' | 'guard'
+const TOOL_STROKE: Record<ToolIcon, StrokeKind> = { compact: 'fold-vertical', agents: 'bot', settings: 'settings', guard: 'shield-check' }
 const TOOL_SIZE = 16
 
-export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' = 'm'): Drawing {
+export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm'): Drawing {
   const [light, dark] = TEXT[tone]
   const w = TOOL_SIZE + (count ? 4 + Math.ceil(monoWidth(count, 11)) : 0)
   const body =

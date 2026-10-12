@@ -1217,23 +1217,28 @@ export const register: Register = on => {
           ]
         : []
       const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone) }))
-      // Room the icons take with the chip the desktop draws round each image.
-      const iconsW = icons.reduce((n, t) => n + t.drawn.width + 20, icons.length ? 16 : 0)
+      // The guard leaves the info row for the right end: a green shield before the icons, a sign
+      // rather than a button, so a plain drawing with no chip.
+      const shield = info.right.find(c => c.icon === 'shield')
+      const guardSign = shield && toolIconSvg('guard', shield.value.replace(' · ', ' '), 'ok')
+      // Room the icons take with the chip the desktop draws round each image, and the guard's.
+      const iconsW = icons.reduce((n, t) => n + t.drawn.width + 20, icons.length ? 16 : 0) + (guardSign ? guardSign.width + 12 : 0)
       // The info row leads the top row; in the stacked band Clawd stands in it when no tasks
       // row or live strip holds him, as he did in the band's own info row.
       const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
       const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
-      const top = infoSvg(info, Math.max(160, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
+      const top = infoSvg({ ...info, right: info.right.filter(c => c.icon !== 'shield') }, Math.max(160, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
       const band = bandSvg(p, { left: [], right: [] }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
       return (
         <Box flexDirection="column">
-          {(top || icons.length > 0) && (
+          {(top || guardSign || icons.length > 0) && (
             <Box flexDirection="row" alignItems="center" columnGap={1}>
               {top && <Svg source={top.source} alt={top.alt} />}
               <Box flexGrow={1} />
+              {shield && guardSign && <Svg source={guardSign.source} alt={`${shield.label} ${shield.value}`} />}
               {icons.map(t => (
                 <Markdown key={`tool-${t.kind}`} text={`[![${t.label}](data:image/svg+xml;base64,${btoa(t.drawn.source)})](${TOOL_HREF}${t.kind})`} onLinkPress={t.press} />
               ))}

@@ -46,7 +46,7 @@ In the comfortable density (the default) the band is three panels:
 
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
-  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), Node and your git user. On a narrow window the user goes first, then Node; the guard holds on longest, as just its shield and count when room is tight;
+  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), your git user and Node. In the desktop app the guard stands apart at the right end instead, as a green shield beside the toolbar's icons. On a narrow window the user goes first, then Node; the guard holds on longest, as just its shield and count when room is tight;
   - Claude's task list as a progress bar, when it keeps one;
   - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`). Until the session has read them, the band stands as a still outline with no numbers; with nothing to read yet, it says so.
   - Pick how they look in Settings → Usage → Style:

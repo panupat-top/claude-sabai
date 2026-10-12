@@ -103,8 +103,8 @@ async function shown($: Engine, surface: Surface, isWorking = false) {
 
 // A band mounted on either surface, or one a test mounted on the desktop itself.
 type Mounted = Awaited<ReturnType<typeof mountBand>> | TestMounted<'desktop', 'AbovePrompt'>
-// The desktop's top row is the info row's own drawing; the band is the other one.
-const bandOf = async (ui: Mounted) => (await ui.findAll({ type: 'Svg' })).find(s => !String(s.props.source).includes('<!--info-->'))
+// The desktop's top row holds the info row's own drawing and the guard's shield; the band is the other one.
+const bandOf = async (ui: Mounted) => (await ui.findAll({ type: 'Svg' })).find(s => !String(s.props.source).includes('<!--info-->') && !String(s.props.alt).startsWith('Turned on:'))
 // The desktop toolbar: each icon an image link in its own Markdown, named by its alt.
 async function toolsOf(ui: Mounted) {
   return (await ui.findAll({ type: 'Markdown' }))
@@ -1544,10 +1544,16 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   expect(seen.at(-1)).toBe(true)
 })
 
-test('the guard label sits in the band’s info row, a shield chip before Node, on both surfaces', async ($, on) => {
+test('the guard stands at the right of the desktop top row as a green shield; the terminal keeps its chip before Node', async ($, on) => {
   engine(on, { store: { prefs: { guard: true } } })
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/Turned on: guard, Node v24\.1\.0/)
+  const ui = await mountBand($, 'desktop')
+  const svgs = await ui.findAll({ type: 'Svg' })
+  // The info row leaves it out; the shield follows it, before the toolbar's icons and the band.
+  expect(svgs.slice(0, 2).map(s => String(s.props.alt))).toEqual(['Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0', 'Turned on: guard'])
+  expect(String(svgs[1]!.props.source)).toContain('>guard</text>')
+  expect(String(svgs[1]!.props.source)).toContain('.i{stroke:#1a7f37}')
+  await ui.unmount()
   expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
 })
 

@@ -68,9 +68,10 @@ test('the info row comes first: marks and values, left group from the left, node
   expect(d?.alt).toContain('Directory claude-skins, Git user Panupat <dev>, Branch main ±2, Node v24.1.0; a: 1/2 tasks, 50%; Context')
   expect(d?.source).toContain('Panupat &lt;dev&gt;')
   expect(d?.source).toContain('<g transform="translate(0,30)">')
-  // The git user, last at the right, ends at the right edge.
-  const user = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)
-  expect(Math.abs(Number(user?.[1]) + monoWidth('Panupat <dev>', 10.5) - 900)).toBeLessThan(1)
+  // Node, last at the right, ends at the right edge; the git user comes before it.
+  const node = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>v24\.1\.0</)
+  expect(Math.abs(Number(node?.[1]) + monoWidth('v24.1.0', 10.5) - 900)).toBeLessThan(1)
+  expect(Number(d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)?.[1])).toBeLessThan(Number(node?.[1]))
   // Too narrow: the user gives way first; the folder and branch stay, cut if they must.
   expect(bandSvg(undefined, info, [], 260)?.alt).not.toContain('Git user')
   expect(bandSvg(undefined, info, [], 260)?.alt).toContain('Directory claude-skins')
@@ -575,11 +576,11 @@ const ROW = {
 const infoRow = (source: string) => source.slice(source.indexOf('<g class="info">'), source.indexOf('</g><!--info-->'))
 const rowTexts = (source: string) => [...infoRow(source).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
 
-test('the info row: the project, a branch tag with its sync, then guard, Node and the user in muted ink', () => {
+test('the info row: the project, a branch tag with its sync, then guard, the user and Node in muted ink', () => {
   const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
   expect(rowTexts(d.source)).toEqual([
     ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
-    ['sm', 'guard 7'], ['sm', 'v24.21.0'], ['sm', 'Panupat'],
+    ['sm', 'guard 7'], ['sm', 'Panupat'], ['sm', 'v24.21.0'],
   ])
   // The tag's words sit 8 px from either end.
   expect(infoRow(d.source)).toContain('width="92.4"')
@@ -641,14 +642,14 @@ test('no two info-row texts overlap at any width', () => {
 
 test('the desktop top row packs every chip from the left and is as wide as what it draws', () => {
   const d = infoSvg(ROW, 900)!
-  expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24.21.0', 'Panupat'])
-  // The guard follows the counts a gap apart, not from the right edge; the drawing ends at the user.
+  expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'Panupat', 'v24.21.0'])
+  // The guard follows the counts a gap apart, not from the right edge; the drawing ends at Node.
   const counts = d.source.match(/<text class="s-warn" x="([\d.]+)"/)!
   // The folder's mark is the first muted path; the guard's shield the second.
   const guard = [...d.source.matchAll(/<path class="sm" transform="translate\(([\d.]+),/g)][1]!
   expect(Number(guard[1]) - (Number(counts[1]) + monoWidth('±3', 10.5) + 7)).toBe(8)
-  const user = d.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat</)!
-  expect(Math.abs(Number(user[1]) + monoWidth('Panupat', 10.5) - d.width)).toBeLessThan(1)
+  const node = d.source.match(/<text class="sm" x="([\d.]+)"[^>]*>v24\.21\.0</)!
+  expect(Math.abs(Number(node[1]) + monoWidth('v24.21.0', 10.5) - d.width)).toBeLessThan(1)
   expect(d.width).toBeLessThan(600)
   // Short of room it drops from the right as the band's row does, and never draws past W.
   expect(infoSvg(ROW, 390)!.alt).not.toContain('Git user')
