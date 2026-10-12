@@ -797,7 +797,8 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
   if (list.length > 0) parts.push(usagePart(look, list, 0, usageTop, rw, H - usageTop, usageStyle, style, now))
   else if (usageNote) parts.push(notePart(usageNote, 0, usageTop, rw, H - usageTop))
   let panel = ''
-  const words = mood === 'working' && live?.elapsedMs !== undefined ? clock(live.elapsedMs) : (clawdLine ?? '')
+  // The race's header carries the turn's time, so beside it Clawd keeps his own line.
+  const words = mood === 'working' && live?.elapsedMs !== undefined && !race ? clock(live.elapsedMs) : (clawdLine ?? '')
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
   if (clawd) {
     const scale = 3
@@ -1140,7 +1141,7 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin: strin
   const look = lookOf(skin)
   const s = summary(list, now)
   const cells = [
-    ['AGENTS', s.running > 0 ? `${s.running} running · ${s.done} done` : `${s.done} done`],
+    ['AGENTS', [s.running > 0 && `${s.running} running`, `${s.done} done`, s.failed > 0 && `${s.failed} failed`].filter(Boolean).join(' · ')],
     ['CONTEXT', tokens(s.context)],
     ['TIME', clock(s.ms)],
   ] as const

@@ -110,9 +110,11 @@ test('the summary counts agents, sums context and spans the wall time; Clear kee
     run('a', { status: 'done', startedAt: 1000, endedAt: 9000, contextTokens: 40_000 }),
     run('b', { startedAt: 3000, contextTokens: 2_000 }),
   ]
-  expect(summary(list, 21_000)).toEqual({ running: 1, done: 1, context: 42_000, ms: 20_000 })
+  expect(summary(list, 21_000)).toEqual({ running: 1, done: 1, failed: 0, context: 42_000, ms: 20_000 })
+  // A failed run is counted as failed, not done, as the band counts it.
+  expect(summary([...list, { ...list[0]!, id: 'f', status: 'failed', endedAt: 9000 }], 21_000)).toMatchObject({ running: 1, done: 1, failed: 1 })
   expect(summary([list[0]!], 21_000).ms).toBe(8000)
-  expect(summary([], 21_000)).toEqual({ running: 0, done: 0, context: 0, ms: 0 })
+  expect(summary([], 21_000)).toEqual({ running: 0, done: 0, failed: 0, context: 0, ms: 0 })
   expect(clearFinished(list).map(a => a.id)).toEqual(['b'])
 })
 

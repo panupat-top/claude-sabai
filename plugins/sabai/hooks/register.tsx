@@ -85,7 +85,6 @@ const SVG_IN_CHAT = true
 const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning', edit: 'suggestion', read: 'suggestion' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
-const LIMIT_WARN_AT = 90
 // Each plan-limit window warned about already, by kind and reset time; in state, so a reload
 // does not warn again.
 const warned = atom({ plugin: 'sabai', key: 'warned' } as const, [] as string[])
@@ -617,12 +616,13 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
-    if ((await read($, prefs)).limits) {
+    const p = await read($, prefs)
+    if (p.limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
         const label = l.kind === 'five_hour' ? '5H' : l.kind === 'seven_day' ? '7D' : undefined
         const key = `${l.kind}:${l.resetsAt ?? ''}`
-        if (!label || l.percentUsed < LIMIT_WARN_AT || (await read($, warned)).includes(key)) continue
+        if (!label || l.percentUsed < p.alertAt || (await read($, warned)).includes(key)) continue
         await update($, warned, keys => [...keys, key].slice(-20))
         const left = l.resetsAt ? Date.parse(l.resetsAt) - at : NaN
         $.ui.toast(`${label} limit at ${Math.round(l.percentUsed)}%${Number.isFinite(left) && left > 0 ? ` — resets in ${countdown(left)}` : ''}`)
@@ -964,7 +964,7 @@ export const register: Register = on => {
           'Outside the band',
           <>
             {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
-            {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes 90%')}
+            {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes your red mark')}
           </>,
         )}
         {group(
@@ -1125,20 +1125,21 @@ export const register: Register = on => {
       : undefined
     // The race: Main and the agents at work, while any work runs.
     const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
-    if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0) return next(e)
+    // The toolbar, and on the desktop the guard's shield, keep the band even with nothing else to show.
+    if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !(shownPrefs.guard && e.surface !== 'terminal')) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
-    // With the live strip off, the turn's time stands under Clawd's word instead.
-    const clawdLine = mood === 'working' && began !== 0 ? clock(Math.max(0, at - began)) : moodLine(mood, {
+    const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
+    // The race shows beside Clawd only in the comfortable band from 760 px (heroBand's rule).
+    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= 760
+    // While the turn works its time stands under Clawd's word, unless the race beside him shows it.
+    const clawdLine = mood === 'working' && began !== 0 && !raceShown ? clock(Math.max(0, at - began)) : moodLine(mood, {
       caught: caughtCount,
       passed: turn.test?.passed,
       failed: turn.test?.failed,
       contextPercent: measured?.contextPercent,
       idleMs: last > 0 ? at - last : undefined,
     })
-    const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
-    // The race shows beside Clawd only in the comfortable band from 760 px (heroBand's rule).
-    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= 760
     const trick = shownPrefs.extras.tricks ? trickOf({ mood, now: at, lastTurnAt: last, isWorking: e.props.isWorking, raceShown, limitHigh: list.some(m => m.level) }) : undefined
 
     const skinName = await read($, skin)
@@ -1207,18 +1208,20 @@ export const register: Register = on => {
       // The toolbar as icons at the right of the top row. A Button draws its text label alone and
       // holds no Svg, so each icon is an image link in a Markdown whose press runs it. Each says
       // when it is worth a press: compact the context once it reaches the amber mark (in colour
-      // while no agents run, one call to press at a time), agents how many are working. The guard
-      // leaves the info row to lead them, a green shield with its count that opens the settings.
+      // while no agents run, one call to press at a time), agents how many are working. The guard,
+      // while on, leads them: a green shield with what it caught, that opens the settings. On a
+      // narrow band the counts go, so the row still fits.
       const lvl = ctx === undefined ? undefined : level(ctx, shownPrefs.warnAt, shownPrefs.alertAt)
-      const shield = info.right.find(c => c.icon === 'shield')
+      const roomy = W >= HERO_MIN_W
       const openSettings = () => void togglePane($, SKIN_PANE, 'Settings', true)
       const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok'; press: () => void }[] = []
-      if (shield) tools.push({ kind: 'guard', label: `${shield.label} ${shield.value}`, count: shield.value.replace(' · ', ' '), tone: 'ok', press: openSettings })
+      if (shownPrefs.guard)
+        tools.push({ kind: 'guard', label: caughtCount ? `Guard on, ${caughtCount} caught. Opens settings` : 'Guard on. Opens settings', count: caughtCount && roomy ? String(caughtCount) : undefined, tone: 'ok', press: openSettings })
       if (rows.toolbar) {
         if (quick.includes('compact'))
-          tools.push({ kind: 'compact', label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
+          tools.push({ kind: 'compact', label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh && roomy ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
         tools.push(
-          { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+          { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
           { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
         )
       }
@@ -1230,7 +1233,7 @@ export const register: Register = on => {
       // row or live strip holds him, as he did in the band's own info row.
       const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
       const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
-      const top = infoSvg({ ...info, right: info.right.filter(c => c.icon !== 'shield') }, Math.max(160, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
+      const top = infoSvg({ ...info, right: info.right.filter(c => c.icon !== 'shield') }, Math.max(96, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.

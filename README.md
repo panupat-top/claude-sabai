@@ -109,7 +109,7 @@ Press the gear (`⚙ Settings` in the terminal) or type `/sabai-settings`. Chang
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
 | Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
-| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
+| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes your red mark (on) |
 | Look | Progress bar style, and ten colour themes (`auto` follows your OS) |
 
 **Reset to defaults**, at the bottom, puts the settings, the skin and the bar style back.

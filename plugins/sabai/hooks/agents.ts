@@ -112,12 +112,13 @@ export const typeEmoji = (type: string): string => (Object.hasOwn(EMOJI, type) ?
 export const typeStyle = (type: string): { hat: HatKind; accent?: 'tasks' | 'context' | 'session' | 'week' } =>
   Object.hasOwn(TYPES, type) ? TYPES[type]! : type.includes(':') ? PLUGIN_AGENT : { hat: 'beanie' }
 
-export function summary(list: AgentRun[], now: number): { running: number; done: number; context: number; ms: number } {
-  if (list.length === 0) return { running: 0, done: 0, context: 0, ms: 0 }
+export function summary(list: AgentRun[], now: number): { running: number; done: number; failed: number; context: number; ms: number } {
+  if (list.length === 0) return { running: 0, done: 0, failed: 0, context: 0, ms: 0 }
   const running = list.filter(a => a.status === 'running').length
+  const failed = list.filter(a => a.status === 'failed').length
   const start = Math.min(...list.map(a => a.startedAt))
   const end = running > 0 ? now : Math.max(...list.map(a => a.endedAt ?? a.startedAt))
-  return { running, done: list.length - running, context: list.reduce((n, a) => n + a.contextTokens, 0), ms: Math.max(0, end - start) }
+  return { running, done: list.length - running - failed, failed, context: list.reduce((n, a) => n + a.contextTokens, 0), ms: Math.max(0, end - start) }
 }
 
 export const clearFinished = (list: AgentRun[]): AgentRun[] => list.filter(a => a.status === 'running')

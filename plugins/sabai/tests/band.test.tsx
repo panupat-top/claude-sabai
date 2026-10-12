@@ -980,10 +980,13 @@ test('the band’s guard chip counts what the guard caught this session', async 
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await guardOn($)
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringMatching(/guard(?! ·)/)])
+  // The desktop's shield says it in its alt; the terminal's chip in words.
+  expect((await shown($, 'desktop')).words).toContain('Guard on. Opens settings')
+  expect((await shown($, 'terminal')).words).toMatch(/guard(?! ·)/)
   await bash($, 'rm -rf /')
   await check($, 'git reset --hard')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 2')])
+  expect((await shown($, 'desktop')).words).toContain('Guard on, 2 caught')
+  expect((await shown($, 'terminal')).words).toContain('guard · 2')
 })
 
 test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
@@ -1164,7 +1167,8 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   })
   await start($)
   await clock.advance(3000)
-  expect((await shown($, 'desktop', true)).words).toContain('3s')
+  // The race's header carries the turn's time while it shows.
+  expect((await shown($, 'desktop', true)).words).toContain('0:03')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
@@ -1552,8 +1556,9 @@ test('the guard stands at the right of the desktop top row as a green shield; th
   // The info row leaves it out; the shield leads the toolbar's icons, and opens the settings.
   expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
   const [guard, ...rest] = await toolsOf(ui)
-  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Turned on: guard', ['tool-compact', 'tool-agents', 'tool-settings']])
-  expect(guard?.icon).toContain('>guard</text>')
+  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Guard on. Opens settings', ['tool-compact', 'tool-agents', 'tool-settings']])
+  // Nothing caught yet: the shield alone.
+  expect(guard?.icon).not.toContain('<text')
   expect(guard?.icon).toContain('<rect class="c-ok"')
   await pressTool(ui, 'guard')
   expect([...open]).toEqual(['sabai-skins'])
@@ -1570,7 +1575,7 @@ test('the guard chip follows the guard alone: off, no chip; an old Guard label s
 test('a guard turned on shows its chip even where an older version saved Guard label off', async ($, on) => {
   engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
   await start($)
-  expect((await shown($, 'desktop')).words).toContain('Turned on: guard')
+  expect((await shown($, 'desktop')).words).toContain('Guard on')
 })
 
 test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
@@ -1810,10 +1815,11 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
     await bash($, 'npm run build')
   }, 'Built.')
   expect(await receiptUnder($, 'desktop', 'Built.')).toContain('Turn receipt')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 1')])
+  expect((await shown($, 'desktop')).words).toContain('Guard on, 1 caught')
+  expect((await shown($, 'terminal')).words).toContain('guard · 1')
   await $.classic.SessionStart({ source: 'clear' } as never)
   expect(await receiptUnder($, 'desktop', 'Built.')).not.toContain('Turn receipt')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words.includes('guard · ')]).toEqual([surface, false])
+  for (const surface of SURFACES) expect([surface, /guard · |caught/.test((await shown($, surface)).words)]).toEqual([surface, false])
 })
 
 test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {
@@ -1863,4 +1869,52 @@ test('a Write over an existing file counts its diff in the receipt, a new file e
     await $.tool.call({ tool: 'Write', file_path: '/w/new.ts', content: 'x\ny\n' } as Parameters<typeof $.tool.call>[0])
   }, 'Wrote both.')
   expect(await receiptUnder($, 'desktop', 'Wrote both.')).toBe('Turn receipt: Done; 2 files +3 −1')
+})
+
+test('with every row but the toolbar hidden, the toolbar stays on both surfaces', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: true } } } })
+  await start($)
+  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect((await shown($, 'terminal')).buttons).toBe(5)
+})
+
+test('the desktop shows the guard while it is on, with the info row hidden too', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true, rows: { info: false, tasks: true, usage: true, live: true, crew: true, toolbar: true } } } })
+  await start($)
+  expect((await shown($, 'desktop')).tools[0]).toMatch(/^Guard on/)
+})
+
+test('a limit notification fires at the red mark the person set', async ($, on) => {
+  engine(on, { store: { prefs: { alertAt: 85 } } })
+  const toasts: string[] = []
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await start($)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 87, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+  await settle()
+  expect(toasts).toEqual(['5H limit at 87% — resets in 5h 0m'])
+})
+
+test('beside the race, Clawd says his mood rather than the turn time the race already shows', async ($, on) => {
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'w' } as never)
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toContain('Race:')
+  expect(words).not.toMatch(/Clawd: [^;]*\d+s/)
+})
+
+test('a narrow desktop top row drops the icons’ counts and fits its width', async ($, on) => {
+  engine(on, { percents: [82, 7, 3], contextTokens: 164_000, store: { prefs: { guard: true } } })
+  await start($)
+  const ui = await mountBand($, 'desktop', false, 30)
+  const tools = await toolsOf(ui)
+  expect(tools.every(t => !t.icon.includes('<text'))).toBe(true)
+  const top = (await ui.findAll({ type: 'Svg' })).find(s => String(s.props.source).includes('<!--info-->'))
+  const width = (s: string) => Number(s.match(/width="(\d+(?:\.\d+)?)"/)?.[1])
+  const row = width(String(top?.props.source)) + tools.reduce((n, t) => n + width(t.icon) + 8, 0)
+  expect(row).toBeLessThanOrEqual(Math.round(30 * 8.25))
 })
