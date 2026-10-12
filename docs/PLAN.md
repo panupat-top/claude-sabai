@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-12): sabai 2.10.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-12): sabai 2.10.1 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -52,9 +52,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ### P1 — ทำต่อเลย (เล็ก, ต่อยอดของเดิม)
 
-| ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
-|---|---|---|---|---|
-| B1 | Band · info | ที่ 240 px ชื่อ folder ภาษา CJK กับ branch ยาวถูกตัดเหลือ `…` ล้วน | S | พบตอน review 2.4 · ตรวจซ้ำก่อนว่ายังเกิดหลังแถวบนแบบใหม่ใน 2.7 |
+ว่าง (R1b เสร็จใน 2.10.0, B1 ใน 2.10.1) · งานถัดไปคือ U1 ใน P2
 
 ### P2 — ถัดไป (กลาง)
 
@@ -88,6 +86,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.10.1** ปิด B1: แถว info ที่แคบไม่ตัดชื่อเหลือ `…` ล้วนอีก ลำดับการหลีกเมื่อที่ไม่พอเป็น Node → git user → ตัวนับ sync → ตัด folder (เหลืออย่างน้อย 3 ตัว) → เอา folder ออก → ตัด branch (เหลืออย่างน้อย 6 ตัว) ให้ branch อยู่นานที่สุด · ชื่อที่สั้นกว่าจำนวนตัวขั้นต่ำไม่ได้ `…` ต่อท้ายอีก (เดิม `main` กลายเป็น `main…`) · alt text บอกเฉพาะสิ่งที่วาด
 - **2.10.0** ปิด R1b: บรรทัด step ของ lane บอก call ล่าสุดเมื่อไม่มี progress (agent และ Main ระหว่าง call เช่น `· Edited svg.ts` แทน `· Working`), แต่ละ lane นับ `✓`/`✗` ของตัวเองข้างเวลา (lane ที่ merge รวมกัน, lane แบบ slim ก็มี), alt text บอกจำนวนต่อ lane · ความหมายของ icon และสีของ tile อยู่ใน README แทนการวาดใน band
 - **2.9.1** mod เริ่มทำงานได้ทุกครั้งใน session ใหม่: `session.attach` เช็ก surface ใน hook เอง (ไม่ใช้ matcher) และการวาด band ครั้งแรกที่มาก่อน attach เรียก setUp ครั้งเดียว · มี test กันไว้
 - **hub 1.0.0** status line สำหรับ terminal (`statusline/hub.sh`) 2 บรรทัดแบบ C1: โฟลเดอร์ · branch ↑↓± · model · effort · ค่าใช้จ่าย · เวลา / CTX · 5H (เวลาที่เหลือ `1h 12m`) · 7D (วันและเวลา `Fri 04:00`) ใช้สี ANSI ตาม theme ของ terminal, jq ครั้งเดียว git ครั้งเดียว ~35 ms (ตัวเดิม ~300 ms), ไม่ใช้ network ไม่แตะ token, มี test และรันใน CI
