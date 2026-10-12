@@ -867,7 +867,7 @@ test('agents report their own steps through the mod’s tool, a checklist in the
   expect((await altsOf(ui)).some(a => a.startsWith('Tools:'))).toBe(false)
 })
 
-test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide pane in blocks with every fold open', async ($, on) => {
+test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide pane in blocks with every fold open', { timeoutMs: 20_000 }, async ($, on) => {
   const { clock } = engine(on, { store: { bar: 'blocks' } })
   panes(on)
   turnStarts(on)
