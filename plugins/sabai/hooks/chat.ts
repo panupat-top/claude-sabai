@@ -1,7 +1,7 @@
 // What the mod adds to the conversation, as plain values: a summary line under a tool row,
 // test results, callouts, the spinner's words and a turn's receipt. register.tsx draws them per surface.
 
-import type { TurnLog } from '../types'
+import type { ActKind, TurnLog } from '../types'
 
 export type Tone = 'text' | 'muted' | 'ok' | 'bad' | 'warn' | 'edit' | 'read'
 export type Part = { text: string; tone: Tone }
@@ -275,6 +275,37 @@ export function stepOf(c: Call): Step | undefined {
   const askedFor = input.limit ? `lines ${from}–${from + input.limit - 1}` : input.offset ? `from line ${from}` : 'whole file'
   const range = out?.type && out.type !== 'text' ? out.type : !f || total === 0 ? askedFor : start <= 1 && n >= total ? counted(total) : `lines ${start}–${start + Math.max(n, 1) - 1} of ${total}`
   return { icon, tone, title: `Read ${name}`, ...where, result: [{ text: range, tone: 'muted' }] }
+}
+
+// A subagent's call as the agents pane lists it: its kind, a one-line title, what it is about
+// (a file, a command, a pattern) and the key its tool is counted under: a skill by its name, an
+// MCP tool as `mcp__server__tool`, as the engine names it.
+export type Act = { kind: ActKind; title: string; target: string; key: string }
+export function actOf(tool: string, input: unknown): Act {
+  const i = (input ?? {}) as { command?: unknown; file_path?: unknown; pattern?: unknown; path?: unknown; url?: unknown; query?: unknown; skill?: unknown; notebook_path?: unknown }
+  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const file = basename(clean(str(i.file_path) || str(i.notebook_path)))
+  const act = (kind: ActKind, verb: string, target: string, key = tool): Act => ({ kind, title: target ? `${verb} ${target}` : verb, target, key })
+  if (tool === 'Read') return act('read', 'Read', file)
+  if (tool === 'Edit' || tool === 'NotebookEdit') return act('edit', 'Edit', file)
+  if (tool === 'Write') return act('edit', 'Write', file)
+  if (tool === 'Bash') {
+    const command = bare(firstLine(str(i.command)))
+    return act(isTestCommand(command) ? 'test' : 'command', '$', command)
+  }
+  if (tool === 'Grep' || tool === 'Glob') {
+    const where = basename(clean(str(i.path)))
+    return act('search', tool, `${firstLine(str(i.pattern))}${where ? ` · ${where}` : ''}`)
+  }
+  if (tool === 'WebFetch') return act('web', 'Fetch', str(i.url).replace(/^https?:\/\//, '').split('/')[0] ?? '')
+  if (tool === 'WebSearch') return act('web', 'Search', firstLine(str(i.query)))
+  if (tool === 'Skill') {
+    const name = firstLine(str(i.skill))
+    return act('skill', 'Skill', name, name ? `skill:${name}` : tool)
+  }
+  const mcp = tool.match(/^mcp__(.+?)__(.+)$/)
+  if (mcp) return act('mcp', `${mcp[1]} ·`, mcp[2]!)
+  return act('other', tool, '')
 }
 
 // A step in words, without its marks: a drawing's alt text, for a reader that cannot see it.

@@ -2,12 +2,12 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
-import { clearFinished, clock, finished, groups, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
+import { CALLS_KEPT, SUMMARY_SYSTEM, attentionOf, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, summarySvg, toolIconSvg, usageSketch } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { CALLOUT_HINT, EMPTY_LOG, actOf, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
@@ -34,6 +34,7 @@ const DEFAULT_PREFS: Prefs = {
   density: 'comfortable',
   extras: { accessories: true, tricks: true },
   usageStyle: 'tiles',
+  agentSummary: true,
 }
 const prefs = atom({ plugin: 'sabai', key: 'prefs' } as const, DEFAULT_PREFS)
 // A saved Prefs, filled from the defaults where it predates a field.
@@ -84,15 +85,19 @@ const LONG_TURN_MS = 60_000
 // Each plan-limit window warned about already, by kind and reset time; in state, so a reload
 // does not warn again.
 const warned = atom({ plugin: 'sabai', key: 'warned' } as const, [] as string[])
-const finishedOpen = atom({ plugin: 'sabai', key: 'finishedOpen' } as const, false)
 const resetArmed = atom({ plugin: 'sabai', key: 'resetArmed' } as const, false)
 // How long a first press of Reset waits for the second.
 const RESET_ARM_MS = 5000
-const openResults = atom({ plugin: 'sabai', key: 'openResults' } as const, [] as string[])
-// The pane draws the newest finished runs; the rest are counted.
-const FINISHED_SHOWN = 8
-// Likewise the newest running agents: a wide workflow fan-out would otherwise outgrow the pane.
-const RUNNING_SHOWN = 6
+// The agents pane: the run its detail shows (null: the one most worth a look), the detail's open
+// folds, and the earlier crews shown in full.
+const selectedAgent = atom({ plugin: 'sabai', key: 'selectedAgent' } as const, null as string | null)
+const detailOpen = atom({ plugin: 'sabai', key: 'detailOpen' } as const, [] as string[])
+const earlierOpen = atom({ plugin: 'sabai', key: 'earlierOpen' } as const, [] as string[])
+const earlierFolded = atom({ plugin: 'sabai', key: 'earlierFolded' } as const, null as boolean | null)
+// The main loop's model: a subagent on the same model has the same context window.
+const mainModel = atom({ plugin: 'sabai', key: 'mainModel' } as const, '')
+// How long Haiku may take to sum a report up before the pane stops waiting.
+const SUMMARY_TIMEOUT_MS = 20_000
 // The card drawings a pane may carry, in characters, newest first: its whole tree, escaping and
 // the rest included, must stay under the engine's 100,000.
 const PANE_BUDGET = 70_000
@@ -287,6 +292,64 @@ async function racing($: EngineInterface, agentId: string | undefined, kind: Cal
   })
 }
 
+// The Task tools are an agent's own bookkeeping, shown as its progress: not calls in its log.
+const UNLOGGED = new Set(['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TodoWrite'])
+// The tools whose own hooks run the race; any other a subagent calls runs in its lane from here,
+// so the lane and the pane count the same calls.
+const RACED = new Set(['Read', 'Edit', 'Write', 'Bash'])
+// A path under the project, as the pane shows it, from the project's root; one outside it, by its
+// last two folders.
+const inProject = (path: string) => {
+  if (cwd && path.startsWith(`${cwd}/`)) return path.slice(cwd.length + 1)
+  const parts = path.split('/').filter(Boolean)
+  return parts.length > 3 ? `…/${parts.slice(-3).join('/')}` : path
+}
+
+// A subagent's call for the agents pane: in flight while it runs, then in its log with its time
+// and whether it worked (a refused call, or one that never came back, is not logged), its tool
+// counted and the file it read or changed. A test run works only when no test failed.
+async function logAgentCall<R extends { deny?: string; isError?: boolean; result?: unknown }>($: EngineInterface, agentId: string, tool: string, input: unknown, run: () => Promise<R>): Promise<R> {
+  if (UNLOGGED.has(tool)) return run()
+  const act = actOf(tool, input)
+  const raced = RACED.has(tool)
+  const kind: CallKind = act.kind === 'read' || act.kind === 'edit' || act.kind === 'command' || act.kind === 'test' ? act.kind : act.kind === 'search' || act.kind === 'web' ? 'read' : 'command'
+  const start = await $.clock.now()
+  await update($, agents, l => calling(l, agentId, act, start))
+  if (!raced) await racing($, agentId, kind)
+  let result: R | undefined
+  try {
+    result = await run()
+    return result
+  } finally {
+    const end = await $.clock.now()
+    const i = (input ?? {}) as { command?: string; file_path?: string; old_string?: string; new_string?: string; content?: string }
+    const output = typeof result?.result === 'string' ? result.result : `${(result?.result as { stdout?: string } | undefined)?.stdout ?? ''}`
+    const ok = result === undefined || result.deny !== undefined ? undefined : !result.isError && (act.kind !== 'test' || (testResult(output)?.failed ?? 0) === 0)
+    await update($, agents, l => called(l, agentId, act, end, end - start, ok))
+    if (ok && typeof i.file_path === 'string') {
+      const path = inProject(i.file_path)
+      if (tool === 'Read') await update($, agents, l => touched(l, agentId, path, { read: true }))
+      else if (tool === 'Edit' || tool === 'Write') {
+        const r = result!.result as { structuredPatch?: BuiltinToolResults['Edit']['structuredPatch']; type?: string } | undefined
+        const c: Logged = tool === 'Edit' ? { tool, path, oldText: i.old_string ?? '', newText: i.new_string ?? '', ...(r?.structuredPatch ? { patch: r.structuredPatch } : {}) } : { tool, path, content: i.content ?? '', ...(r?.type === 'update' && r.structuredPatch ? { patch: r.structuredPatch } : {}) }
+        const delta = logged(EMPTY_LOG, c).files[path] ?? { added: 0, removed: 0 }
+        await update($, agents, l => touched(l, agentId, path, { ...delta, ...(r?.type === 'create' ? { created: true } : {}) }))
+      }
+    }
+    if (!raced) await racing($, agentId, kind, result ?? UNFINISHED, ok)
+  }
+}
+
+// A finished run's report summed up in Thai by Haiku, while it still waits for it (more work sent
+// meanwhile drops the wait). No answer in time, or none to read, leaves no summary.
+async function summarize($: EngineInterface, agentId: string) {
+  const run = (await read($, agents)).find(a => a.agentId === agentId)
+  if (!run || run.summary !== 'pending') return
+  const r = await $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS }).catch(() => undefined)
+  const bullets = r?.isAnswered ? summaryOf(r.text) : undefined
+  await update($, agents, l => (l.find(a => a.agentId === agentId)?.summary === 'pending' ? summarized(l, agentId, bullets) : l))
+}
+
 async function unstep($: EngineInterface, agentId: string | undefined) {
   if (agentId === undefined) await update($, liveStep, () => null)
 }
@@ -376,7 +439,10 @@ export const register: Register = on => {
     if (!desktop) return next(e)
     await update($, tasks, () => [])
     await update($, agents, () => [])
-    await update($, openResults, () => [])
+    await update($, selectedAgent, () => null)
+    await update($, detailOpen, () => [])
+    await update($, earlierOpen, () => [])
+    await update($, earlierFolded, () => null)
     await update($, turnLog, () => EMPTY_LOG)
     await update($, race, () => EMPTY_RACE)
     await update($, guardCaught, () => 0)
@@ -391,6 +457,9 @@ export const register: Register = on => {
     // A remote workflow agent has no local loop: nothing would ever step or end its run.
     if (started.deny !== undefined || started.agentId === undefined) return started
     const at = await $.clock.now()
+    // Its crew: its parent agent's, else its workflow run, else the main turn that started it.
+    const parent = e.parentAgentId === undefined ? undefined : (await read($, agents)).find(a => a.agentId === e.parentAgentId)
+    const crew = parent ? crewOf(parent) : e.workflow?.runId ? `wf:${e.workflow.runId}` : `turn:${await read($, turnStartedAt)}`
     const run: AgentRun = {
       id: started.agentId,
       agentId: started.agentId,
@@ -403,6 +472,10 @@ export const register: Register = on => {
       steps: 0,
       tasks: [],
       ...(e.workflow ? { workflow: true } : {}),
+      crew,
+      brief: briefOf(e.prompt),
+      ...(e.background ? { background: true } : {}),
+      lastActiveAt: at,
     }
     await update($, agents, list => spawned(list, run))
     await update($, now, () => at)
@@ -415,7 +488,15 @@ export const register: Register = on => {
     const result = yield* next(e)
     const { agentId } = e
     const { usage: used } = result
-    if (agentId && used) await update($, agents, list => stepped(list, agentId, used.model || e.model, used, e.effort))
+    if (!agentId) {
+      if (used?.model || e.model) await update($, mainModel, () => used?.model || e.model)
+      return result
+    }
+    if (used) {
+      const at = await $.clock.now()
+      const crew = `turn:${await read($, turnStartedAt)}`
+      await update($, agents, list => stepped(list, agentId, used.model || e.model, used, e.effort, at, crew))
+    }
     return result
   })
 
@@ -449,6 +530,10 @@ export const register: Register = on => {
       const at = await $.clock.now()
       const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
       const run = list.find(a => a.agentId === agentId)
+      if (run?.status === 'done' && run.result && (await read($, prefs)).agentSummary) {
+        await update($, agents, l => summarized(l, agentId, 'pending'))
+        $.clock.after(1, () => void summarize($, agentId))
+      }
       if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Agent' }).catch(() => undefined)
       // The hop and confetti last a few seconds; with nothing left running, nothing else would
       // tick the clock to end them.
@@ -462,117 +547,188 @@ export const register: Register = on => {
     text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
   }))
 
-  // The agents pane: a summary, running agents, then finished ones (folded at first) with Clear
-  // and a Report under each, each card an image under its title row.
+  // The agents pane: the crews at work (the newest, and any still running) as an overview and a
+  // lane per agent, one agent's detail below them, then the earlier crews a line each. The
+  // detail shows the agent picked with View, else the one most worth a look.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const list = await read($, agents)
     const at = await read($, now)
     const skinName = await read($, skin)
     const style = await read($, bar)
-    const isOpen = await read($, finishedOpen)
-    const opened = await read($, openResults)
-    const { running, finished: done } = groups(list)
+    const picked = await read($, selectedAgent)
+    const folds = await read($, detailOpen)
+    const shownEarlier = await read($, earlierOpen)
+    const folded = await read($, earlierFolded)
+    const main = await read($, mainModel)
+    const window = (await read($, usage))?.contextWindow
     const { Box, Button, Markdown, Svg, Text } = $.ui.resolve(e)
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const look = lookOf(skinName)
 
     if (list.length === 0) {
       const empty = emptyAgentsSvg(W, skinName)
-      return <Svg source={empty.source} alt={empty.alt} />
+      return <Svg source={empty.source} alt={empty.alt} width={empty.width} height={empty.height} />
     }
 
-    // A card is one Box: the title row (the task, marked by its type, and for a finished agent a
-    // Report button at the right), the drawing and, once opened, the report. The Box takes no colour: the title and the report are the surface's own text, whose
-    // ink follows the OS theme, which a fixed skin colour behind them could not.
-    const reportColor = (a: AgentRun) => {
-      const { accent } = typeStyle(a.type)
-      return a.status === 'failed' ? look.bar('tasks', 'alert') : look.bar(accent ?? 'session')
+    // A subagent on the main loop's model has its context window; on another model it is unknown.
+    const windowOf = (a: AgentRun) => (main && a.model === main ? window : undefined)
+    const { now: current, earlier } = openCrews(crewsOf(list))
+    const currentIds = new Set(current.map(c => c.id))
+    const runs = list.filter(a => currentIds.has(crewOf(a)))
+    const selected = list.find(a => a.id === picked) ?? attentionOf(runs, at, windowOf)
+    // Each drawing spends from the pane's budget, the overview and the detail first; what does
+    // not fit is counted instead.
+    let spent = 0
+    const fits = (d: Drawing | undefined): d is Drawing => {
+      if (!d || spent + d.source.length > PANE_BUDGET) return false
+      spent += d.source.length
+      return true
     }
-    const drawings = new Map<string, ReturnType<typeof agentCardSvg>>()
-    const drawnOf = (a: AgentRun) => {
-      const d = drawings.get(a.id) ?? agentCardSvg(a, W, at, skinName, style)
-      drawings.set(a.id, d)
-      return d
+    const image = (key: string, d: Drawing) => <Svg key={key} source={d.source} alt={d.alt} width={d.width} height={d.height} />
+    const heading = (key: string, text: string, button?: RenderNode) => (
+      <Box key={`head-${key}`} flexDirection="row" alignItems="center" columnGap={1}>
+        <Box flexGrow={1}>
+          <Text dimColor bold>{text}</Text>
+        </Box>
+        {button}
+      </Box>
+    )
+    const fold = (key: string, open: string, closed: string) => (
+      <Button key={`fold-${key}`} label={folds.includes(key) ? open : closed} onPress={() => update($, detailOpen, ks => (ks.includes(key) ? ks.filter(k => k !== key) : [...ks, key]))} />
+    )
+    // A lane and its View button; the lane in the detail is ringed and its button lit.
+    const LANE_BUTTON = 76
+    // What a box's round border and padding take from a drawing's width.
+    const BOX_INSET = 36
+    const laneOf = (a: AgentRun, inset = 0) => {
+      const d = laneSvg(a, W - LANE_BUTTON - inset, at, skinName, windowOf(a), a.id === selected?.id, style)
+      return fits(d) ? (
+        <Box key={`lane-${a.id}`} flexDirection="row" alignItems="center" columnGap={1}>
+          {image(`lane-svg-${a.id}`, d)}
+          <Button key={`view-${a.id}`} label={a.id === selected?.id ? '● View' : 'View'} variant={a.id === selected?.id ? 'primary' : 'secondary'} onPress={() => update($, selectedAgent, () => a.id)} />
+        </Box>
+      ) : undefined
     }
-    const card = (a: AgentRun) => {
-      const title = a.description || a.type
-      const reportOpen = opened.includes(a.id)
-      const head = (
-        <Box flexDirection="row" alignItems="center" columnGap={1}>
-          <Box flexGrow={1}>
-            <Text bold wrap="truncate-end">{`${typeEmoji(a.type)} ${title}`}</Text>
-          </Box>
-          {a.status !== 'running' && (
-            <Button key={`result-${a.id}`} label={reportOpen ? '▾ Report' : '▸ Report'} onPress={() => toggleResult(a.id)} />
-          )}
+    const lanes = (key: string, of: readonly AgentRun[], inset = 0) => {
+      const drawn = of.map(a => laneOf(a, inset))
+      const left = drawn.filter(x => !x).length
+      return (
+        <Box key={`lanes-${key}`} flexDirection="column" rowGap={1}>
+          {drawn.filter(Boolean)}
+          {left > 0 && <Text dimColor>{`+ ${left} more`}</Text>}
         </Box>
       )
-      const drawn = drawnOf(a)
+    }
+
+    const overview = crewSvg(runs, W, at, skinName, windowOf)
+    const top = fits(overview) ? image('crew', overview) : undefined
+
+    // The detail: the head, the Thai summary of a finished run, its tools, steps, calls and files,
+    // then its report and brief folded.
+    const detail = (a: AgentRun) => {
+      const w = windowOf(a)
+      const head = agentHeadSvg(a, W, at, skinName, w)
+      const tools = toolsSvg(a, W, skinName)
+      const steps = stepsSvg(a, W, skinName)
+      const allCalls = folds.includes('calls')
+      const calls = activitySvg(a, W, skinName, allCalls ? CALLS_KEPT : 8)
+      const files = filesSvg(a, W, skinName)
+      const summary = a.status === 'running' ? undefined : a.summary
       return (
-        <Box key={`card-${a.id}`} flexDirection="column">
-          {head}
-          <Svg source={drawn.source} alt={drawn.alt} />
-          {reportOpen && a.status !== 'running' && (
-            // Agents write their reports in markdown, so they are drawn as such, framed in the
-            // agent's colour (red when it failed).
-            <Box paddingX={1}>
-              <Box flexGrow={1} borderStyle="round" borderColor={reportColor(a)} paddingX={1}>
-                <Markdown text={resultText(a)} />
-              </Box>
+        <Box key={`detail-${a.id}`} flexDirection="column" rowGap={1}>
+          {fits(head) && image(`detail-head-${a.id}`, head)}
+          {a.status !== 'running' && heading('summary', 'SUMMARY · ภาษาไทย')}
+          {a.status !== 'running' && (
+            <Box key="summary" borderStyle="round" borderColor={a.status === 'done' ? look.bar('context') : look.bar('tasks', 'alert')} paddingX={1} flexDirection="column">
+              <Text dimColor>{factsLine(a, at)}</Text>
+              {summary === 'pending' && <Text dimColor>Haiku กำลังสรุป…</Text>}
+              {Array.isArray(summary) && <Markdown text={summary.map(l => `- ${l}`).join('\n')} />}
+              {a.status === 'failed' && <Text>{resultText(a)}</Text>}
             </Box>
           )}
+          {tools && heading('tools', `TOOLS · ${a.callCount ?? 0} calls`)}
+          {fits(tools) && image(`detail-tools-${a.id}`, tools)}
+          {steps && heading('steps', 'STEPS')}
+          {fits(steps) && image(`detail-steps-${a.id}`, steps)}
+          {calls && heading('calls', 'ACTIVITY', (a.callCount ?? 0) > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
+          {fits(calls) && image(`detail-calls-${a.id}`, calls)}
+          {files && heading('files', 'FILES')}
+          {fits(files) && image(`detail-files-${a.id}`, files)}
+          {a.status !== 'running' && heading('report', `REPORT${a.rounds?.length ? ` · round ${a.rounds.length + 1}` : ''}`, fold('report', '▾ Report', '▸ Report'))}
+          {a.status !== 'running' && folds.includes('report') && (
+            // Agents write their reports in markdown, so they are drawn as such; earlier rounds after.
+            <Box key="report" borderStyle="round" borderColor={look.bar(typeStyle(a.type).accent ?? 'session')} paddingX={1} flexDirection="column" rowGap={1}>
+              <Markdown text={resultText(a)} />
+              {(a.rounds ?? [])
+                .map((r, i) => <Markdown key={`round-${i}`} text={`**Round ${i + 1}**\n\n${r.summary ? r.summary.map(l => `- ${l}`).join('\n') : (r.result ?? 'No report.')}`} />)
+                .reverse()}
+            </Box>
+          )}
+          {a.brief && heading('brief', 'BRIEF', fold('brief', '▾ Brief', '▸ Brief'))}
+          {a.brief && folds.includes('brief') && <Text key="brief" dimColor>{a.brief}</Text>}
         </Box>
       )
     }
-
-    const sum = summarySvg(list, W, at, skinName)
-    // Newest cards first while their drawings fit the budget; the rest are counted.
-    let spent = sum.source.length
-    const fitting = (runs: AgentRun[], cap: number) => {
-      const out: AgentRun[] = []
-      for (const a of runs.slice(0, cap)) {
-        const size = drawnOf(a).source.length
-        if (spent + size > PANE_BUDGET) break
-        spent += size
-        out.push(a)
-      }
-      return out
-    }
-    const liveShown = fitting(running, RUNNING_SHOWN)
-    const shown = isOpen ? fitting(done, FINISHED_SHOWN) : []
-    // One report open at a time: opening another closes the first, keeping the pane short.
-    const toggleResult = (id: string) => update($, openResults, ids => (ids.includes(id) ? [] : [id]))
+    const shown = selected ? detail(selected) : undefined
+    // The earlier crews in a box of their own, folded to one line at first while a crew is at work.
+    // Open, their lines are drawn before any lane, so each keeps its Show however many lanes fill
+    // the pane.
+    const isFolded = folded ?? runs.some(a => a.status === 'running')
+    const rows = isFolded ? [] : earlier.map(c => ({ crew: c, row: earlierSvg(c.runs, W - LANE_BUTTON - BOX_INSET, skinName) })).filter(r => fits(r.row))
+    const laneList = lanes('now', runs)
+    const past = earlier.flatMap(c => c.runs)
+    const stopped = past.filter(a => a.reason === 'aborted').length
+    const failed = past.filter(a => a.status === 'failed').length - stopped
+    // Crews under their day's label, shown only when the earlier crews span more than one day.
+    const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
+    const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
+    const tally = [`✓${past.filter(a => a.status === 'done').length}`, stopped ? `✋${stopped}` : '', failed ? `✗${failed}` : ''].filter(Boolean).join(' ')
 
     return (
       <Box flexDirection="column" rowGap={1}>
-        <Svg source={sum.source} alt={sum.alt} />
-        {running.length > 0 && (
-          <Box flexDirection="column" rowGap={1}>
-            <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>
-            {liveShown.map(card)}
-            {running.length > liveShown.length && <Text dimColor>{`+ ${running.length - liveShown.length} more running`}</Text>}
-          </Box>
-        )}
-        {done.length > 0 && (
-          <Box flexDirection="column" rowGap={1}>
+        {top}
+        {heading('agents', `AGENTS · ${runs.length}`)}
+        {laneList}
+        {shown}
+        {earlier.length > 0 && (
+          <Box key="earlier" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
             <Box flexDirection="row" alignItems="center" columnGap={1}>
               <Box flexGrow={1}>
-                <Text dimColor bold>{`FINISHED · ${done.length}`}</Text>
+                <Text bold>{`Earlier · ${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${past.length} ${past.length === 1 ? 'agent' : 'agents'}${isFolded ? ` · ${tally}` : ''}`}</Text>
               </Box>
-              <Button key="toggle-finished" label={isOpen ? '▾ Hide' : '▸ Show'} onPress={() => update($, finishedOpen, v => !v)} />
-              {/* Last, away from Show: it drops the finished cards for good. */}
-              <Button
-                key="clear-finished"
-                label="Clear finished"
-                onPress={async () => {
-                  await update($, agents, clearFinished)
-                  await update($, openResults, () => [])
-                }}
-              />
+              {!isFolded && (
+                <Button
+                  key="clear-earlier"
+                  label="Clear"
+                  onPress={async () => {
+                    await update($, agents, clearEarlier)
+                    await update($, earlierOpen, () => [])
+                    await update($, earlierFolded, () => null)
+                    await update($, selectedAgent, id => (id && runs.some(a => a.id === id) ? id : null))
+                  }}
+                />
+              )}
+              <Button key="fold-earlier" label={isFolded ? '▸ Show' : '▾ Hide'} onPress={() => update($, earlierFolded, () => !isFolded)} />
             </Box>
-            {isOpen && shown.map(card)}
-            {isOpen && done.length > shown.length && <Text dimColor>{`+ ${done.length - shown.length} more`}</Text>}
+            {rows.map(({ crew: c, row }, i) => {
+              const open = shownEarlier.includes(c.id)
+              const day = dayFor(c)
+              return (
+                <Box key={`crew-${c.id}`} flexDirection="column" rowGap={1}>
+                  {manyDays && (i === 0 || dayFor(rows[i - 1]!.crew) !== day) && (
+                    <Text dimColor bold>
+                      {day}
+                    </Text>
+                  )}
+                  <Box flexDirection="row" alignItems="center" columnGap={1}>
+                    {image(`crew-svg-${c.id}`, row)}
+                    <Button key={`show-${c.id}`} label={open ? '▾ Hide' : '▸ Show'} onPress={() => update($, earlierOpen, ids => (ids.includes(c.id) ? ids.filter(i => i !== c.id) : [...ids, c.id]))} />
+                  </Box>
+                  {open && lanes(c.id, c.runs, BOX_INSET)}
+                </Box>
+              )
+            })}
           </Box>
         )}
       </Box>
@@ -707,11 +863,14 @@ export const register: Register = on => {
   // A subagent reporting its own steps through the mod's tool.
   // (Matched by hand: the mod's own tool is not in the engine's typed list of tool names.)
   on('tool.call', async ($, e, next) => {
-    if ((e.tool as string) !== STEP_TOOL) return next(e)
-    const { agentId } = e
-    if (!agentId) return { result: 'ignored: only subagents report steps' } as never
-    await update($, agents, list => reported(list, agentId, e as unknown as { done?: unknown; total?: unknown; note?: unknown }))
-    return { result: 'ok' } as never
+    if ((e.tool as string) === STEP_TOOL) {
+      const { agentId } = e
+      if (!agentId) return { result: 'ignored: only subagents report steps' } as never
+      await update($, agents, list => reported(list, agentId, e as unknown as { done?: unknown; total?: unknown; note?: unknown }))
+      return { result: 'ok' } as never
+    }
+    if (!desktop || e.agentId === undefined) return next(e)
+    return logAgentCall($, e.agentId, e.tool, e, () => next(e))
   })
 
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
@@ -812,7 +971,7 @@ export const register: Register = on => {
         ))}
       </Box>
     )
-    const flag = (key: 'notify' | 'limits' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const flag = (key: 'notify' | 'limits' | 'steps' | 'agentSummary', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
     const rowPower = (key: keyof Prefs['rows']) => ({ key, on: p.rows[key], flip: (x: Prefs) => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }) })
     const thresholdRow = (key: 'warn' | 'alert', name: string, values: number[], current: number) => (
       <Box key={`row-${key}`} flexDirection="row" alignItems="center" columnGap={2}>
@@ -917,7 +1076,18 @@ export const register: Register = on => {
           </>,
           { key: 'show-clawd', on: p.show.clawd, flip: x => ({ ...x, show: { ...x.show, clawd: !x.show.clawd } }) },
         )}
-        {group('agents', '✻', 'Agents', 'Race lanes, or a row of small Clawds', flag('steps', 'Step reports', 'Agents report their progress to their lane and card; from the next session'), rowPower('crew'), true)}
+        {group(
+          'agents',
+          '✻',
+          'Agents',
+          'Race lanes, or a row of small Clawds',
+          <Box flexDirection="column" rowGap={1}>
+            {flag('steps', 'Step reports', 'Agents report their progress to their lane and the agents panel; from the next session')}
+            {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished agent’s report in Thai, in the agents panel')}
+          </Box>,
+          rowPower('crew'),
+          true,
+        )}
         {group(
           'chat',
           '❯',

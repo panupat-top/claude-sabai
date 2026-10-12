@@ -1,8 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
-import { RESULT_MAX, clearFinished, reported, typeEmoji, clock, effortLabel, elapsed, finished, groups, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
-import { agentCardSvg, emptyAgentsSvg, summarySvg } from '../hooks/svg'
+import { RESULT_MAX, reported, typeEmoji, clock, effortLabel, elapsed, finished, modelName, resultText, spawned, stepped, summary, taskLine, typeStyle, withTasks } from '../hooks/agents'
+import { emptyAgentsSvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id,
@@ -46,11 +46,6 @@ test('elapsed time runs until the end, read as s, m s or h m', () => {
   expect(elapsed(run('a'), 65_000)).toBe(64_000)
   expect(elapsed(run('a', { endedAt: 23_000 }), 99_000)).toBe(22_000)
   expect([4_900, 64_000, 3_720_000].map(clock)).toEqual(['4s', '1m 4s', '1h 2m'])
-})
-
-test('running runs come first, each group newest first', () => {
-  const g = groups([run('a', { status: 'done' }), run('b'), run('c', { status: 'failed' }), run('d')])
-  expect([g.running.map(a => a.id), g.finished.map(a => a.id)]).toEqual([['d', 'b'], ['c', 'a']])
 })
 
 test('effort and type give a label, a hat and a colour; unknown ones fall back', () => {
@@ -115,93 +110,17 @@ test('the summary counts agents, sums context and spans the wall time; Clear kee
   expect(summary([...list, { ...list[0]!, id: 'f', status: 'failed', endedAt: 9000 }], 21_000)).toMatchObject({ running: 1, done: 1, failed: 1 })
   expect(summary([list[0]!], 21_000).ms).toBe(8000)
   expect(summary([], 21_000)).toEqual({ running: 0, done: 0, failed: 0, context: 0, ms: 0 })
-  expect(clearFinished(list).map(a => a.id)).toEqual(['b'])
 })
 
-test('a card draws hat, clock, effort · type · model, own progress and context; the pane draws the title', () => {
-  const a = run('a', {
-    type: 'Plan', effort: 'medium', contextTokens: 39_000, steps: 9,
-    tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'Draw', activeForm: 'Drawing', status: 'in_progress' }],
-  })
-  const d = agentCardSvg(a, 420, 19_000, 'raised', 'blocks')
-  expect(d.height).toBe(52)
-  expect(d.source).toContain('>1/2<')
-  expect(d.source).not.toContain('>task a<')
-  expect(d.source).toContain('>medium<')
-  expect(d.source).toContain('Plan · sonnet 5.5')
-  expect(d.source).toContain('>Drawing<')
-  expect(d.source).toContain('39k ctx')
-  expect(d.source).toContain('class="run"')
-  // A Plan agent's hat takes the session colour.
-  expect(d.source).toContain('fill="#8f8cf4"')
-  expect(d.alt).toBe('task a: Plan, sonnet 5.5, running, 18s')
-})
-
-test('without tasks a card counts steps; it hops just after finishing, shuts its eyes on failure', () => {
-  const plain = agentCardSvg(run('b', { steps: 14 }), 420, 5000)
-  expect(plain.source).toContain('>14 steps<')
-  expect(plain.source).not.toContain('medium')
-  const wf = agentCardSvg(run('w', { workflow: true, effort: 'high' }), 330, 5000).source
-  expect(wf).toContain('>Explore · sonnet 5.5<')
-  expect(wf).toContain('>workflow · 0 steps<')
-  expect(agentCardSvg(run('c', { status: 'done', endedAt: 4000 }), 420, 5000).source).toContain('class="hop"')
-  expect(agentCardSvg(run('c', { status: 'done', endedAt: 4000 }), 420, 60_000).source).toContain('class="idle"')
-  expect(agentCardSvg(run('d', { status: 'failed', endedAt: 4000 }), 420, 5000).source).toContain('class="dizzy"')
-})
-
-test('the summary reads agents, context and time; the empty drawing invites a first agent', () => {
-  const s = summarySvg([run('a', { status: 'done', endedAt: 9000, contextTokens: 40_000 }), run('b', { contextTokens: 2000 })], 420, 21_000)
-  expect(s.source).toContain('>1 running · 1 done<')
-  expect(s.source).toContain('>42k<')
-  expect(s.source).toContain('>20s<')
-  expect(emptyAgentsSvg(420).source).toContain('No subagents yet')
-})
-
-test('status marks: a rippling dot while running, a check popped in and a cross shaken while fresh', () => {
-  expect(agentCardSvg(run('r'), 420, 5000).source).toContain('class="ripple"')
-  const fresh = agentCardSvg(run('d', { status: 'done', endedAt: 4000 }), 420, 5000).source
-  expect(fresh).toContain('class="pop"')
-  expect(agentCardSvg(run('d', { status: 'done', endedAt: 4000 }), 420, 60_000).source).not.toContain('class="pop"')
-  expect(agentCardSvg(run('f', { status: 'failed', endedAt: 4000 }), 420, 5000).source).toContain('class="shake"')
-  expect(agentCardSvg(run('f', { status: 'failed', endedAt: 4000 }), 420, 60_000).source).not.toContain('class="shake"')
-  expect(agentCardSvg(run('r'), 420, 5000).source).toMatch(/<g class="pr-scan">/)
-})
-
-
-test('a finished card waves its report and keeps no headline; a failed bar turns red; the bar is the band’s', () => {
-  const done = agentCardSvg(run('a', { status: 'done', endedAt: 4000, result: '## Found\nThree launches came out this week. More.' }), 420, 60_000, 'raised')
-  expect(done.height).toBe(52)
-  expect(done.source).not.toContain('Three launches')
-  expect(done.source).toContain('class="pr-wave"')
-  const failed = agentCardSvg(run('b', { status: 'failed', endedAt: 4000, reason: 'aborted' }), 420, 60_000)
-  expect(failed.source).not.toContain('Stopped before')
-  expect(failed.source).toContain('fill="#e5484d"')
-  const live = agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'b', status: 'in_progress' }, { id: '3', subject: 'c', status: 'pending' }] }), 420, 5000, 'auto', 'dither')
-  expect(live.source).toContain('<pattern')
-  expect(live.source).toContain('mask="url(#')
-  expect(live.source).toContain('>1/3<')
-  expect(agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }] }), 420, 5000, 'auto', 'blocks').source).toContain('fill="url(#sabai-cells-c)"')
-  expect(agentCardSvg(run('d', { status: 'done', endedAt: 4000, result: 'ok.' }), 420, 5000).source).toContain('class="cf')
-})
-
-test('a run that ended a while ago is drawn still, without the motion stylesheet', () => {
-  expect(agentCardSvg(run('a', { status: 'done', endedAt: 4000 }), 420, 60_000).source).not.toContain('.ripple{')
-  expect(agentCardSvg(run('a', { status: 'done', endedAt: 4000 }), 420, 5000).source).toContain('.ripple{')
-  expect(agentCardSvg(run('b'), 420, 5000).source).toContain('.ripple{')
-})
-
-test('a finished agent that is sent more work runs again, its old end and report cleared', () => {
+test('a finished agent sent more work runs again, its report kept as an earlier round', () => {
   const [done] = finished([run('a')], 'a', 'answer', 9000, 'first report')
-  const [again] = stepped([done!], 'a', 'claude-opus-5-5', USAGE)
-  expect([again?.status, again?.endedAt, again?.result, again?.reason]).toEqual(['running', undefined, undefined, undefined])
+  const [again] = stepped([{ ...done!, summary: ['สรุป'] }], 'a', 'claude-opus-5-5', USAGE)
+  expect([again?.status, again?.endedAt, again?.result, again?.reason, again?.summary]).toEqual(['running', undefined, undefined, undefined, undefined])
+  expect(again?.rounds).toEqual([{ result: 'first report', reason: 'answer', summary: ['สรุป'] }])
 })
 
-test('a card’s bar dots hold still (the pane restarts animations each second), and its sweep starts in view', () => {
-  const live = agentCardSvg(run('c', { tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'b', status: 'pending' }] }), 420, 5000).source
-  expect(live).not.toMatch(/<pattern[^>]*>.*class="d\d"/)
-  const sweep = agentCardSvg(run('s'), 420, 5000).source
-  const x = Number(sweep.match(/class="sweep" x="([-\d.]+)"/)?.[1])
-  expect(x).toBeGreaterThanOrEqual(64)
+test('the empty drawing invites a first agent', () => {
+  expect(emptyAgentsSvg(420).source).toContain('No subagents yet')
 })
 
 test('a step note and a report are cut between code points, never inside an emoji', () => {

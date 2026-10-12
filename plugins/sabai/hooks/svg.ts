@@ -1,5 +1,6 @@
-import type { AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
-import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
+import type { ActKind, AgentFile, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
+import { FULL_AT, agentMood, clock, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
+import type { AgentMood } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
 import { countdown, paceOf, resetClock, tokens, value } from './model'
@@ -1114,7 +1115,6 @@ function statusMark(look: Look, status: AgentRun['status'], x: number, y: number
   return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 'alert')}" stroke-width="1.8" stroke-linecap="round"/></g>`
 }
 
-const AGENT_H = 52
 // A card's pixel-block bar has a fixed cell count, so a wide pane does not multiply its size.
 const CARD_CELLS = 24
 const CARD_BAR_H = 8
@@ -1168,110 +1168,478 @@ function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio
 }
 
 
-// A few pixels of confetti over a just-finished agent; they twinkle and drift, starting in place.
-const CONFETTI = [
-  [44, 10, 'context'],
-  [50, 16, 'session'],
-  [40, 20, 'week'],
-  [54, 8, 'tasks'],
-] as const
+// ---- The agents pane: a crew's overview, a lane per agent, and one agent's detail. Each is its
+// own drawing with only the inks it uses, and the sprites' motion only while something moves.
 
-// One subagent, below the title row the pane draws itself (a Button, so a finished agent's title
-// opens its report): Clawd in his type's hat with his tool (his report once finished, a plaster
-// if he failed), effort · type · model with the clock and status, own progress or steps with
-// the context, and the band's bar.
-export function agentCardSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', style: BarStyle = 'dither'): Drawing {
-  const look = lookOf(skin)
-  const { hat, accent, color, hatColor } = hatOf(look, a.type)
-  const textCls = accent ? `c-${accent}` : 'm'
-  const right = W - PAD
-  const clawd = spriteSize('tasks')
-  // Clawd and his hat drawn half again as large, so the hat reads at a glance.
-  const scale = 1.5
-  const textX = PAD + (clawd.width + PROP_W) * scale + 8
-  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
-  const mode = a.status === 'running' ? 'run' : a.status === 'failed' ? 'dizzy' : fresh ? 'hop' : 'idle'
-  const prop = a.status === 'running' ? true : a.status === 'done' ? 'scroll' : false
-  const line = progressOf(a)
-  const effort = effortLabel(a.effort)
-  const effortW = effort ? monoWidth(effort, 10) + 12 : 0
-  const meta = `${a.type} · ${modelName(a.model)}`
-  const time = clock(elapsed(a, now))
-  const H = AGENT_H
-  const mark = statusMark(look, a.status, right - 5, 14, color, fresh)
-  const markW = 16
-  const metaRoom = right - markW - 4 - monoWidth(time, 11.5) - 10 - textX - effortW - (effort ? 6 : 0)
-  // A workflow's agent says so on the second line, where a narrow pane leaves it room.
-  const progressText =
-    (a.workflow ? 'workflow · ' : '') + (line ? (line.done === line.total ? 'Done' : line.title) : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`)
-  const ctx = `${tokens(a.contextTokens)} ctx`
-  const barY = 38
-  const barW = right - textX
-  const uid = a.id.replace(/\W/g, '_')
-  const failedColor = look.bar('tasks', 'alert')
-  // A failed run's bar takes the alert colour, so a full bar never reads as success.
-  const barColor = a.status === 'failed' ? failedColor : color
-  const bar = line
-    ? cardBar(look, uid, textX, barY, barW, line.done / line.total, barColor, style, line.total, `${line.done}/${line.total}`)
-    : a.status === 'running'
-      ? `<defs><clipPath id="sabai-sw-${uid}"><rect x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/></clipPath></defs>` +
-        `<rect class="k" x="${textX}" y="${barY}" width="${barW}" height="${CARD_BAR_H}" rx="${CARD_BAR_H / 2}"/>` +
-        `<g clip-path="url(#sabai-sw-${uid})"><rect class="sweep" x="${textX}" y="${barY}" width="${barW * 0.3}" height="${CARD_BAR_H}" fill="${color}"/></g>` +
-        // One sweep per second, starting in view: the pane redraws each second while an agent
-        // runs, restarting it, and a frozen first frame must still show the bar moving.
-        `<style>.sweep{animation:sw 1s linear infinite}@keyframes sw{to{transform:translateX(${Math.round(barW * 0.7)}px)}}</style>`
-      : cardBar(look, uid, textX, barY, barW, 1, barColor, style)
-  const confetti =
-    a.status === 'done' && fresh
-      ? CONFETTI.map(([cx, cy, kind], i) => `<rect class="cf" style="animation-delay:-${i * 0.25}s" x="${cx}" y="${cy}" width="2" height="2" fill="${look.bar(kind)}"/>`).join('')
-      : ''
-  const body =
-    `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
-    `<g transform="translate(${PAD},${(AGENT_H - (clawd.height + HAT_H) * scale) / 2}) scale(${scale})">` +
-    sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor, prop }) +
-    '</g>' +
-    confetti +
-    (effort
-      ? `<rect x="${textX}" y="8" width="${effortW}" height="14" rx="4" fill="${color}" fill-opacity=".16"/><text class="${textCls}" x="${textX + 6}" y="18" font-family="${MONO}" font-size="10" font-weight="600">${xml(effort)}</text>`
-      : '') +
-    // On a narrow pane the type and model give way rather than run under the time.
-    (metaRoom >= 30 ? `<text class="m" x="${textX + effortW + (effort ? 6 : 0)}" y="18" font-family="${MONO}" font-size="11">${xml(fitMono(meta, 11, metaRoom))}</text>` : '') +
-    `<text class="m" x="${right - markW - 4}" y="18" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>` +
-    mark +
-    `<text class="m" x="${textX}" y="33" font-family="${MONO}" font-size="11">${xml(fitMono(progressText, 11, Math.max(40, barW - monoWidth(ctx, 11) - 10)))}</text>` +
-    `<text class="m" x="${right}" y="33" text-anchor="end" font-family="${MONO}" font-size="11">${ctx}</text>` +
-    bar
-  // A run that ended a while ago has settled: drawn still, it skips the motion stylesheet (a third
-  // of a card), which keeps a pane of finished cards inside the engine's size limit.
-  const alt = `${a.description || a.type}: ${a.type}, ${modelName(a.model)}, ${a.status}, ${clock(elapsed(a, now))}`
-  return drawing(look, W, H, body, alt, a.status !== 'running' && !fresh)
+const AGENT_INKS = ['p', 'k', 't', 'm', 'c-ok', 'c-alert', 'c-warn', 'c-context', 'c-session', 'c-week', 'c-tasks'] as const
+const SM_INK = `.sm{fill:${TEXT.m[0]}}${DARK}.sm{fill:${TEXT.m[1]}}}`
+// The sprites' stylesheet as its top-level rules and keyframes.
+const SPRITE_RULES = (() => {
+  const out: string[] = []
+  let depth = 0
+  let from = 0
+  for (let i = 0; i < SPRITE_CSS.length; i++) {
+    if (SPRITE_CSS[i] === '{') depth++
+    else if (SPRITE_CSS[i] === '}' && --depth === 0) {
+      out.push(SPRITE_CSS.slice(from, i + 1))
+      from = i + 1
+    }
+  }
+  return out
+})()
+// Only the motion a drawing's classes use: each rule whose classes it all has, and their keyframes.
+function motionOf(body: string): string {
+  const classes = new Set([...body.matchAll(/class="([^"]+)"/g)].flatMap(m => m[1]!.split(' ')))
+  const rules = SPRITE_RULES.filter(r => !r.startsWith('@keyframes') && [...r.slice(0, r.indexOf('{')).matchAll(/\.([\w-]+)/g)].every(m => classes.has(m[1]!)))
+  if (!rules.length) return ''
+  const used = rules.join('')
+  const frames = SPRITE_RULES.filter(r => r.startsWith('@keyframes') && new RegExp(`animation:${r.slice(11, r.indexOf('{'))}\\b`).test(used))
+  return `${used}${frames.join('')}@media (prefers-reduced-motion: reduce){*{animation:none!important}}`
+}
+// A pane drawing with only the inks its words and shapes use, and the motion only while it moves.
+const paneDrawing = (look: Look, W: number, H: number, drawn: string, alt: string, moving = false): Drawing => {
+  // The faces once in the stylesheet rather than on every word: sans by default, mono by class.
+  const body = drawn
+    .replaceAll(` font-family="${SANS}"`, '')
+    .replace(new RegExp(`<text class="([^"]+)"([^>]*?) font-family="${MONO}"`, 'g'), '<text class="$1 mo"$2')
+    .replace(new RegExp(`<text ([^>]*?)font-family="${MONO}"`, 'g'), '<text class="mo" $1')
+  const inks = AGENT_INKS.filter(c => body.includes(`class="${c}"`) || body.includes(`class="${c} `))
+  // Each call kind's icon once, used by every tile that shows it.
+  const icons = [...new Set([...body.matchAll(/href="#sabai-ic-([\w]+)"/g)].map(m => m[1]! as CallKind | 'fail'))]
+  const defs = icons.length ? `<defs>${icons.map(k => `<path id="sabai-ic-${k}" d="${TRAIL_ICONS[k]}" fill="#ffffff"/>`).join('')}</defs>` : ''
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>text{font-family:${SANS}}.mo{font-family:${MONO}}${leanCss(look, inks)}${body.includes('class="sm"') ? SM_INK : ''}${moving ? motionOf(body) : ''}</style>${defs}${body}</svg>`,
+    width: W,
+    height: H,
+    alt,
+  }
 }
 
-// Three cards: how many agents run and finished, their context together, and the wall time.
-export function summarySvg(list: AgentRun[], W: number, now: number, skin: string = 'auto'): Drawing {
+// Each mood as Clawd's pose, the ink of its words, and its colour on a bar.
+const MOOD_SPRITE: Record<AgentMood, string> = { working: 'run', thinking: 'idle', quiet: 'sleep', context: 'sweat', failed: 'dizzy', stopped: 'idle', done: 'idle' }
+const MOOD_INK: Record<AgentMood, string> = { working: 'm', thinking: 'm', quiet: 'c-warn', context: 'c-context', failed: 'c-alert', stopped: 'm', done: 'c-ok' }
+const TROUBLE: readonly AgentMood[] = ['quiet', 'context', 'failed']
+const moodColor = (look: Look, mood: AgentMood) =>
+  mood === 'failed' ? look.bar('tasks', 'alert') : mood === 'quiet' ? look.bar('tasks', 'warn') : mood === 'done' ? look.bar('context') : mood === 'stopped' ? RACE_BODY : look.clawd
+export function moodLabel(a: AgentRun, now: number, window?: number): string {
+  const mood = agentMood(a, now, window)
+  return mood === 'quiet' ? `quiet ${Math.floor((now - (a.lastActiveAt ?? a.startedAt)) / 1000)}s` : mood === 'context' ? `ctx ${contextPercent(a, window)}%` : mood
+}
+// Whether a run's drawing moves: at work, or in the few seconds after it ended.
+const moving = (a: AgentRun, now: number) => a.status === 'running' || (a.endedAt !== undefined && now - a.endedAt < HOP_MS)
+
+// Clawd in the run's hat and mood, 31×20 at scale 1 (his tool held at his right).
+const CLAWD_W = spriteSize('tasks').width + PROP_W
+const CLAWD_H = spriteSize('tasks').height + HAT_H
+// A sprite's one-pixel rows of one fill as one path: the pane draws a Clawd per agent, and a rect
+// per run of pixels would make each several times larger.
+const ROW_RECT = /<rect x="(-?[\d.]+)" y="(-?[\d.]+)" width="([\d.]+)" height="1" fill="([^"]+)"\/>/g
+export function asPaths(sprite: string): string {
+  return sprite.replace(new RegExp(`(?:${ROW_RECT.source})+`, 'g'), run => {
+    let out = ''
+    let fill = ''
+    let d = ''
+    for (const [, x, y, w, f] of run.matchAll(ROW_RECT)) {
+      if (f !== fill && d) out += `<path fill="${fill}" d="${d}"/>`
+      if (f !== fill) d = ''
+      fill = f!
+      d += `M${x} ${y}h${w}v1h-${w}z`
+    }
+    return out + (d ? `<path fill="${fill}" d="${d}"/>` : '')
+  })
+}
+function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: number, y: number, scale: number): string {
+  const { hat, hatColor } = hatOf(look, a.type)
+  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
+  const mode = mood === 'done' && fresh ? 'hop' : MOOD_SPRITE[mood]
+  const prop = a.status === 'running' ? true : a.status === 'done' ? ('scroll' as const) : false
+  return `<g transform="translate(${x},${y}) scale(${scale})"${mood === 'stopped' ? ' opacity=".55"' : ''}>${asPaths(sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor, prop }))}</g>`
+}
+// A run's share done: its steps, else its pace by calls while it runs, else whole.
+const shareOf = (a: AgentRun): number => {
+  const p = progressOf(a)
+  return a.status === 'done' ? 1 : p ? p.done / p.total : a.status === 'running' ? paceOf(a.callCount ?? 0) : 0
+}
+const trackBar = (x: number, y: number, w: number, h: number, ratio: number, color: string) =>
+  `<rect class="k" x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}"/>` +
+  (ratio > 0 ? `<rect x="${x}" y="${y}" width="${Math.max(h, Math.round(w * Math.min(1, ratio)))}" height="${h}" rx="${h / 2}" fill="${color}"/>` : '')
+const label = (x: number, y: number, s: string, extra = '') => `<text class="m" x="${x}" y="${y}" font-family="${MONO}" font-size="9" font-weight="700" letter-spacing=".08em"${extra}>${xml(s)}</text>`
+const secs = (ms: number) => (ms < 50 ? '' : ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : clock(ms))
+const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
+
+// A call's kind as a tile's fill and the pixel icon on it.
+function kindPaint(look: Look, kind: ActKind, ok: boolean): { paint: string; icon: CallKind | 'fail' } {
+  if (!ok) return { paint: `fill="${look.bar('tasks', 'alert')}"`, icon: 'fail' }
+  if (kind === 'read' || kind === 'search') return { paint: `fill="${look.bar('context')}"`, icon: 'read' }
+  if (kind === 'edit') return { paint: `fill="${look.bar('session')}"`, icon: 'edit' }
+  if (kind === 'test') return { paint: 'class="c-ok"', icon: 'test' }
+  if (kind === 'web' || kind === 'mcp') return { paint: `fill="${look.bar('week')}"`, icon: 'command' }
+  if (kind === 'skill') return { paint: `fill="${look.clawd}"`, icon: 'command' }
+  return { paint: 'class="m"', icon: 'command' }
+}
+const kindTile = (look: Look, kind: ActKind, ok: boolean, x: number, y: number, size = 14) => {
+  const { paint, icon: i } = kindPaint(look, kind, ok)
+  const s = (size - 4) / 7
+  return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="3" ${paint}/><use href="#sabai-ic-${i}" transform="translate(${x + 2},${y + 2}) scale(${s.toFixed(2)})"/>`
+}
+
+// The overview of the crews at work: a headline, a Clawd per agent in his mood, a bar of each
+// one's share done, then four tiles (calls by kind, tokens per agent, time, files).
+export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin: string = 'auto', windowOf: (a: AgentRun) => number | undefined = () => undefined): Drawing {
   const look = lookOf(skin)
-  const s = summary(list, now)
-  const cells = [
-    ['AGENTS', [s.running > 0 && `${s.running} running`, `${s.done} done`, s.failed > 0 && `${s.failed} failed`].filter(Boolean).join(' · ')],
-    ['TOKENS', tokens(s.context)],
-    ['TIME', clock(s.ms)],
-  ] as const
-  // The agents count is the longest value, so its cell takes half the width.
-  const unit = (W - GAP * 2) / 4
-  const widths = [unit * 2, unit, unit]
-  const body = cells
-    .map(([label, value], i) => {
-      const cw = widths[i]!
-      const x = widths.slice(0, i).reduce((n, w) => n + w + GAP, 0)
-      return (
-        `<rect class="p" x="${x}" y="0" width="${cw}" height="44" rx="8"/>` +
-        `<text class="m" x="${x + PAD}" y="16" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
-        `<text class="t" x="${x + PAD}" y="35" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(value, 12.5, cw - PAD * 2))}</text>`
-      )
-    })
-    .join('')
-  // Nothing in it moves: no motion stylesheet, though the pane redraws it every second.
-  return drawing(look, W, 44, body, `Agents ${cells[0][1]}; tokens ${cells[1][1]}; time ${cells[2][1]}`, true)
+  const moods = runs.map(a => agentMood(a, now, windowOf(a)))
+  const count = (m: AgentMood) => moods.filter(x => x === m).length
+  const running = runs.filter(a => a.status === 'running').length
+  const start = Math.min(...runs.map(a => a.startedAt))
+  const end = running ? now : Math.max(...runs.map(a => a.endedAt ?? a.startedAt))
+  const failed = count('failed')
+  const stopped = count('stopped')
+  const done = count('done')
+  const title = running ? plural(runs.length, 'agent') : `Crew finished · ${clock(end - start)}`
+  const sub = [running && `${running} running`, done && `${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ')
+  const subInk = !running && !failed ? 'c-ok' : 'm'
+  // The Clawds from the right, as many as leave the headline its room.
+  const slot = 42
+  const room = Math.max(1, Math.min(8, Math.floor((W - 180) / slot)))
+  const shown = runs.slice(-room)
+  const more = runs.length - shown.length
+  let b = `<text class="t" x="${PAD + 6}" y="28" font-family="${SANS}" font-size="${running ? 20 : 17}" font-weight="700">${xml(fit(title, running ? 20 : 17, W - shown.length * slot - 40))}</text>`
+  b += `<text class="${subInk}" x="${PAD + 6}" y="46" font-family="${SANS}" font-size="12">${xml(fit(sub, 12, W - shown.length * slot - 40))}</text>`
+  shown.forEach((a, i) => {
+    const x = W - PAD - (shown.length - i) * slot
+    const mood = agentMood(a, now, windowOf(a))
+    b += agentClawd(look, a, mood, now, x + 6, 8, 1)
+    b += `<text class="${MOOD_INK[mood]}" x="${x + 21}" y="${CLAWD_H + 22}" text-anchor="middle" font-family="${SANS}" font-size="8.5" font-weight="600">${xml(fit(moodLabel(a, now, windowOf(a)), 8.5, slot - 2))}</text>`
+  })
+  if (more > 0) b += `<text class="m" x="${W - PAD - shown.length * slot - 4}" y="24" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="600">+${more}</text>`
+  // One segment per agent, its share done in its mood's colour.
+  const segs = runs.slice(-24)
+  const gap = 4
+  const sw = (W - PAD * 2 - 12 - gap * (segs.length - 1)) / segs.length
+  segs.forEach((a, i) => (b += trackBar(PAD + 6 + i * (sw + gap), 62, sw, 8, shareOf(a), moodColor(look, agentMood(a, now, windowOf(a))))))
+  // The tiles, four across, or two by two on a narrow pane.
+  const cols = W >= 420 ? 4 : 2
+  const tw = (W - PAD * 2 - 12 - 8 * (cols - 1)) / cols
+  const th = 84
+  const y0 = 84
+  const calls = runs.reduce((n, a) => n + (a.callCount ?? 0), 0)
+  const fails = runs.reduce((n, a) => n + (a.callFails ?? 0), 0)
+  const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
+  const files = new Map<string, AgentFile>()
+  for (const a of runs) for (const [p, f] of Object.entries(a.files ?? {})) {
+    const was = files.get(p)
+    files.set(p, was ? { reads: was.reads + f.reads, edits: was.edits + f.edits, added: was.added + f.added, removed: was.removed + f.removed } : f)
+  }
+  const edited = [...files.values()].filter(f => f.edits > 0)
+  const added = edited.reduce((n, f) => n + f.added, 0)
+  const removed = edited.reduce((n, f) => n + f.removed, 0)
+  const tile = (i: number, name: string, big: string, inner: (x: number, y: number) => string, note = '') => {
+    const x = PAD + 6 + (i % cols) * (tw + 8)
+    const y = y0 + Math.floor(i / cols) * (th + 8)
+    return (
+      `<rect class="k" fill-opacity=".45" x="${x.toFixed(1)}" y="${y}" width="${tw.toFixed(1)}" height="${th}" rx="9"/>` +
+      label(x + 10, y + 16, name) +
+      `<text class="t" x="${x + 10}" y="${y + 40}" font-family="${SANS}" font-size="19" font-weight="700">${xml(fit(big, 19, tw - 20))}</text>` +
+      note +
+      inner(x + 10, y)
+    )
+  }
+  const kinds = new Map<ActKind, number>()
+  for (const a of runs) for (const c of a.calls ?? []) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
+  const kept = [...kinds.values()].reduce((n, k) => n + k, 0)
+  b += tile(0, 'CALLS', String(calls), (x, y) => {
+    let bx = x
+    let s = ''
+    for (const [k, n] of kinds) {
+      const w = ((tw - 20) * n) / kept
+      s += `<rect x="${bx.toFixed(1)}" y="${y + 52}" width="${Math.max(1, w - 1.5).toFixed(1)}" height="7" rx="2" ${kindPaint(look, k, true).paint}/>`
+      bx += w
+    }
+    return s || `<rect class="k" x="${x}" y="${y + 52}" width="${tw - 20}" height="7" rx="2"/>`
+  }, fails ? `<text class="c-alert" x="${PAD + 6 + tw - 10}" y="${y0 + 40}" text-anchor="end" font-family="${MONO}" font-size="11">✗ ${fails}</text>` : '')
+  const most = Math.max(1, ...runs.map(a => a.spent ?? a.contextTokens))
+  const bars = runs.slice(-12)
+  b += tile(1, 'TOKENS', tokens(spent), (x, y) =>
+    bars
+      .map((a, i) => {
+        const h = Math.max(2, (22 * (a.spent ?? a.contextTokens)) / most)
+        const w = (tw - 20) / bars.length
+        return `<rect x="${(x + i * w).toFixed(1)}" y="${(y + 76 - h).toFixed(1)}" width="${Math.max(2, w - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${hatOf(look, a.type).color}" fill-opacity=".8"/>`
+      })
+      .join(''),
+  )
+  const span = Math.max(1, end - start)
+  const lines = runs.slice(-6)
+  b += tile(2, 'TIME', clock(end - start), (x, y) =>
+    lines
+      .map((a, i) => {
+        const x0 = x + ((tw - 20) * (a.startedAt - start)) / span
+        const x1 = x + ((tw - 20) * ((a.endedAt ?? now) - start)) / span
+        return `<rect x="${x0.toFixed(1)}" y="${y + 50 + i * 5.5}" width="${Math.max(3, x1 - x0).toFixed(1)}" height="3.5" rx="1.75" fill="${moodColor(look, agentMood(a, now, windowOf(a)))}"/>`
+      })
+      .join(''),
+  )
+  b += tile(3, 'FILES', String(files.size), (x, y) => {
+    const share = files.size ? edited.length / files.size : 0
+    const w = tw - 20
+    return (
+      (files.size
+        ? `<rect x="${x}" y="${y + 52}" width="${Math.max(0, w * (1 - share) - 1.5).toFixed(1)}" height="7" rx="2" fill="${look.bar('context')}"/><rect x="${(x + w * (1 - share)).toFixed(1)}" y="${y + 52}" width="${(w * share).toFixed(1)}" height="7" rx="2" fill="${look.bar('session')}"/>`
+        : `<rect class="k" x="${x}" y="${y + 52}" width="${w}" height="7" rx="2"/>`) +
+      (edited.length ? `<text x="${x}" y="${y + 74}" font-family="${MONO}" font-size="10"><tspan class="c-ok">+${added}</tspan> <tspan class="c-alert">−${removed}</tspan></text>` : '')
+    )
+  }, edited.length ? `<text class="m" x="${PAD + 6 + (3 % cols) * (tw + 8) + tw - 10}" y="${y0 + Math.floor(3 / cols) * (th + 8) + 40}" text-anchor="end" font-family="${SANS}" font-size="11">${edited.length} edited</text>` : '')
+  const H = y0 + Math.ceil(4 / cols) * (th + 8) + 4
+  const body = `<rect class="p" width="${W}" height="${H}" rx="12"/>` + b
+  const alt = `${title}: ${sub}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${files.size} files${edited.length ? `, ${edited.length} edited` : ''}`
+  return paneDrawing(look, W, H, body, alt, runs.some(a => moving(a, now)))
+}
+
+// One agent as a lane: Clawd in his mood, the task, his Thai line (in his mood's ink when
+// something needs a look), his share done and his time; ringed in Clawd's colour when selected.
+export const AGENT_LANE_H = 42
+export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
+  const look = lookOf(skin)
+  const mood = agentMood(a, now, window)
+  const line = thaiLine(a, now, window)
+  const p = progressOf(a)
+  const time = clock(elapsed(a, now))
+  const wide = W >= 340
+  const right = W - PAD
+  const timeW = monoWidth(time, 11.5)
+  const barW = 64
+  const barX = right - timeW - 12 - (p ? monoWidth(`${p.done}/${p.total}`, 10) + 6 : 0) - barW
+  const textX = 8 + CLAWD_W + 8
+  const textRoom = (wide ? barX - 10 : right - timeW - 10) - textX
+  const uid = `lane-${a.id.replace(/\W/g, '_')}`
+  const body =
+    `<rect class="p" width="${W}" height="${AGENT_LANE_H}" rx="8"${selected ? ` stroke="${look.clawd}" stroke-width="1.5"` : ''}/>` +
+    agentClawd(look, a, mood, now, 8, (AGENT_LANE_H - CLAWD_H) / 2, 1) +
+    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, textRoom))}</text>` +
+    `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
+    (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(look, mood), style) : '') +
+    (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
+    `<text class="t" x="${right}" y="17" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>`
+  return paneDrawing(look, W, AGENT_LANE_H, body, `${a.description || a.type}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
+}
+
+// The detail's head: Clawd large in his mood, the task with its type's mark, his mood as a tag
+// with effort, type, model and how he runs, his time and when he was last heard from, his
+// latest call, then three meters (steps, context, calls).
+export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number): Drawing {
+  const look = lookOf(skin)
+  const mood = agentMood(a, now, window)
+  const H = 112
+  const scale = 2
+  const tx = 14 + CLAWD_W * scale + 10
+  const right = W - 12
+  const time = clock(elapsed(a, now))
+  const since = Math.max(0, now - (a.lastActiveAt ?? a.startedAt))
+  const when = a.status === 'running' ? `active ${clock(since)} ago` : mood === 'stopped' ? 'stopped' : mood === 'failed' ? 'failed' : 'finished'
+  const tag = moodLabel(a, now, window)
+  const tagW = textWidth(tag, 10) + 16
+  const effort = effortLabel(a.effort)
+  const meta = [effort, a.type, modelName(a.model), a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const last = a.doing?.at(-1)
+  const lastCall = a.calls?.at(-1)
+  const latest = last ? `▶ ${last.title}` : lastCall ? `${lastCall.ok ? '✓' : '✗'} ${lastCall.title}` : ''
+  const timeRoom = Math.max(monoWidth(time, 13), textWidth(when, 10.5)) + 10
+  const p = progressOf(a)
+  const ok = (a.callCount ?? 0) - (a.callFails ?? 0)
+  const pct = contextPercent(a, window)
+  const meters: [string, string, number, string][] = [
+    ['STEPS', p ? `${p.done}/${p.total}` : a.status === 'done' ? 'done' : '—', p ? p.done / p.total : a.status === 'done' ? 1 : 0, moodColor(look, mood)],
+    ['CONTEXT', window ? `${tokens(a.contextTokens)} / ${tokens(window)}` : tokens(a.contextTokens), pct === undefined ? 0 : pct / 100, (pct ?? 0) >= FULL_AT ? look.bar('tasks', 'warn') : look.bar('context')],
+    ['CALLS', `✓${ok} ✗${a.callFails ?? 0}`, a.callCount ? ok / a.callCount : 0, look.bar('context')],
+  ]
+  // The meters span the card under Clawd, so a narrow pane still has room for their values.
+  const mx = 14
+  const mw = (right - mx - 12 * 2) / 3
+  const body =
+    `<rect class="p" width="${W}" height="${H}" rx="10"/>` +
+    agentClawd(look, a, mood, now, 14, 18, scale) +
+    `<text class="t" x="${tx}" y="26" font-family="${SANS}" font-size="15" font-weight="700">${xml(fit(`${typeEmoji(a.type)} ${a.description || a.type}`, 15, right - tx - timeRoom))}</text>` +
+    `<text class="t" x="${right}" y="26" text-anchor="end" font-family="${MONO}" font-size="13" font-weight="600">${time}</text>` +
+    `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${right}" y="44" text-anchor="end" font-family="${SANS}" font-size="10.5">${xml(when)}</text>` +
+    `<rect x="${tx}" y="34" width="${tagW.toFixed(1)}" height="16" rx="8" fill="${moodColor(look, mood)}" fill-opacity=".16"/>` +
+    `<text class="${MOOD_INK[mood]}" x="${tx + 8}" y="46" font-family="${SANS}" font-size="10" font-weight="700">${xml(tag)}</text>` +
+    `<text class="m" x="${tx + tagW + 8}" y="46" font-family="${MONO}" font-size="10.5">${xml(fitMono(meta, 10.5, Math.max(10, right - timeRoom - tx - tagW - 8)))}</text>` +
+    (latest ? `<text class="m" x="${tx}" y="68" font-family="${MONO}" font-size="11">${xml(fitMono(latest, 11, right - tx))}</text>` : '') +
+    meters
+      .map(([name, value, ratio, color], i) => {
+        const x = mx + i * (mw + 12)
+        const room = mw - monoWidth(name, 9) - name.length * 0.72 - 6
+        return label(x, 88, name) + `<text class="t" x="${(x + mw).toFixed(1)}" y="88" text-anchor="end" font-family="${MONO}" font-size="10">${xml(fitMono(value, 10, room))}</text>` + trackBar(x, 94, mw, 5, ratio, color)
+      })
+      .join('')
+  const alt = `${a.description || a.type}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest}` : ''}`
+  return paneDrawing(look, W, H, body, alt, moving(a, now))
+}
+
+// The tools an agent called, as chips in three rows (built-in, skills, MCP), each with how often.
+export function toolsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
+  const look = lookOf(skin)
+  const { builtin, skills, mcp } = toolsOf(a)
+  const rows = ([['BUILT-IN', builtin, RACE_BODY], ['SKILLS', skills, look.clawd], ['MCP', mcp, look.bar('week')]] as const).filter(r => r[1].length)
+  if (!rows.length) return undefined
+  const x0 = 84
+  let y = 8
+  let b = ''
+  for (const [name, list, color] of rows) {
+    b += label(10, y + 14, name)
+    let x = x0
+    for (const [tool, n] of list) {
+      const count = `×${n}`
+      // Sized as fitMono measures a mono line, so a name that fits its chip is never cut.
+      const w = Math.min(W - x0 - 8, (monoWidth(tool, 11) * 0.64) / 0.6 + monoWidth(count, 10.5) + 34)
+      if (x + w > W - 8 && x > x0) {
+        x = x0
+        y += 26
+      }
+      b +=
+        `<rect x="${x}" y="${y}" width="${w.toFixed(1)}" height="20" rx="10" fill="${color}" fill-opacity=".16"/><circle cx="${x + 10}" cy="${y + 10}" r="3.5" fill="${color}"/>` +
+        `<text class="t" x="${x + 19}" y="${y + 14}" font-family="${MONO}" font-size="11">${xml(fitMono(tool, 11, w - monoWidth(count, 10.5) - 31))}</text>` +
+        `<text class="m" x="${(x + w - 8).toFixed(1)}" y="${y + 14}" text-anchor="end" font-family="${MONO}" font-size="10.5">${count}</text>`
+      x += w + 6
+    }
+    y += 26
+  }
+  const H = y + 4
+  const alt = `Tools: ${[...builtin, ...skills, ...mcp].map(([t, n]) => `${t} ${n}×`).join(', ')}`
+  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt)
+}
+
+// The steps an agent reported through the step tool: those it moved past ticked, the one in
+// progress ringed, and how many more it planned.
+export function stepsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
+  const look = lookOf(skin)
+  const p = progressOf(a)
+  const notes = a.notes ?? []
+  if (!notes.length && !p) return undefined
+  const finished = a.status === 'done' || (p !== undefined && p.done >= p.total)
+  const rows = notes.length ? notes : [p!.title]
+  const more = p ? Math.max(0, p.total - Math.max(rows.length, p.done)) : 0
+  const H = rows.length * 20 + (more ? 18 : 0) + 8
+  let b = `<rect class="p" width="${W}" height="${H}" rx="8"/>`
+  rows.forEach((note, i) => {
+    const y = 14 + i * 20
+    const current = !finished && i === rows.length - 1
+    b += current
+      ? `<circle cx="16" cy="${y}" r="5.5" fill="none" stroke="${look.clawd}" stroke-width="2"/><circle cx="16" cy="${y}" r="2" fill="${look.clawd}"/>`
+      : `<circle cx="16" cy="${y}" r="6" fill="${look.bar('context')}"/><path d="M13 ${y}l2 2.2 4-4.4" stroke="#ffffff" stroke-width="1.5" fill="none"/>`
+    b += `<text class="${current ? 't' : 'm'}" x="30" y="${y + 4}" font-family="${SANS}" font-size="12"${current ? ' font-weight="600"' : ''}>${xml(fit(note, 12, W - 40))}</text>`
+  })
+  if (more) b += `<text class="m" x="30" y="${rows.length * 20 + 16}" font-family="${SANS}" font-size="11">${plural(more, 'more step')} planned</text>`
+  return paneDrawing(look, W, H, b, `Steps: ${rows.join('; ')}${more ? `; ${more} more` : ''}`)
+}
+
+// An agent's calls, latest last: a tile for its kind, its title, its time and whether it worked;
+// calls in flight at the end, and how many earlier ones are left out.
+export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max = 8): Drawing | undefined {
+  const look = lookOf(skin)
+  const calls = (a.calls ?? []).slice(-max)
+  const doing = a.doing ?? []
+  if (!calls.length && !doing.length) return undefined
+  const earlier = (a.callCount ?? calls.length) - calls.length
+  let y = earlier ? 22 : 6
+  let b = earlier ? `<text class="m" x="10" y="16" font-family="${SANS}" font-size="11">${plural(earlier, 'earlier call')}</text>` : ''
+  const row = (kind: ActKind, title: string, end: string, ok: boolean) => {
+    b +=
+      kindTile(look, kind, ok, 10, y + 4) +
+      `<text class="t" x="32" y="${y + 15}" font-family="${MONO}" font-size="11.5">${xml(fitMono(title, 11.5, W - 32 - 70))}</text>` +
+      end
+    y += 22
+  }
+  for (const c of calls)
+    row(c.kind, c.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">${secs(c.ms)}</text><text class="${c.ok ? 'c-ok' : 'c-alert'}" x="${W - 10}" y="${y + 15}" text-anchor="end" font-family="${SANS}" font-size="12">${c.ok ? '✓' : '✗'}</text>`, c.ok)
+  for (const d of doing)
+    row(d.kind, d.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">running…</text><circle cx="${W - 15}" cy="${y + 11}" r="4" fill="none" stroke="${look.clawd}" stroke-width="2" stroke-dasharray="12 6"/>`, true)
+  const H = y + 6
+  const alt = `Calls: ${calls.map(c => `${c.title} ${c.ok ? 'worked' : 'failed'}`).join('; ')}${doing.length ? `; running ${doing.map(d => d.title).join(', ')}` : ''}`
+  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt)
+}
+
+// The files an agent touched: the ones it changed first, each its name, folder, lines added and
+// removed with a five-cell bar, NEW when it made the file, and how often it edited and read it;
+// then the ones it only read, a line each.
+const READ_SHOWN = 8
+export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
+  const look = lookOf(skin)
+  const all = filesOf(a)
+  if (!all.length) return undefined
+  const changed = all.filter(f => f.file.edits > 0)
+  const read = all.filter(f => f.file.edits === 0)
+  const base = (p: string) => p.split('/').pop() ?? p
+  const dir = (p: string) => (p.includes('/') ? `${p.slice(0, p.lastIndexOf('/'))}/` : '')
+  let y = 0
+  let b = ''
+  const head = (name: string) => {
+    b += label(12, y + 16, name)
+    y += 24
+  }
+  if (changed.length) {
+    head(`CHANGED · ${changed.length}`)
+    for (const { path, file } of changed) {
+      const tint = file.created ? look.bar('context') : look.bar('session')
+      const name = fitMono(base(path), 12.5, W - 200)
+      const nameW = monoWidth(name, 12.5)
+      const n = Math.max(1, file.added + file.removed)
+      const greens = Math.round((5 * file.added) / n)
+      const reds = file.added + file.removed ? Math.min(5 - greens, Math.max(file.removed ? 1 : 0, Math.round((5 * file.removed) / n))) : 0
+      const cells = Array.from({ length: 5 }, (_, i) => `<rect x="${W - 62 + i * 9}" y="${y + 9}" width="7" height="7" rx="1.5" ${i < greens ? 'class="c-ok"' : i < greens + reds ? 'class="c-alert"' : 'class="k"'}/>`).join('')
+      b +=
+        `<rect class="k" fill-opacity=".4" x="8" y="${y}" width="${W - 16}" height="34" rx="7"/><rect x="8" y="${y}" width="3" height="34" rx="1.5" fill="${tint}"/>` +
+        `<text class="t" x="20" y="${y + 15}" font-family="${MONO}" font-size="12.5" font-weight="600">${xml(name)}</text>` +
+        (file.created ? `<rect x="${26 + nameW}" y="${y + 5}" width="30" height="13" rx="3" fill="${look.bar('context')}" fill-opacity=".18"/><text class="c-ok" x="${41 + nameW}" y="${y + 15}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="700">NEW</text>` : '') +
+        `<text class="m" x="20" y="${y + 28}" font-family="${MONO}" font-size="10">${xml(fitMono(dir(path), 10, W - 150))}</text>` +
+        `<text x="${W - 70}" y="${y + 16}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="600"><tspan class="c-ok">+${file.added}</tspan> <tspan class="c-alert">−${file.removed}</tspan></text>` +
+        cells +
+        `<text class="m" x="${W - 16}" y="${y + 28}" text-anchor="end" font-family="${SANS}" font-size="10">${plural(file.edits, 'edit')}${file.reads ? ` · read ${file.reads}×` : ''}</text>`
+      y += 40
+    }
+  }
+  if (read.length) {
+    head(`READ ONLY · ${read.length}`)
+    for (const { path, file } of read.slice(0, READ_SHOWN)) {
+      const name = fitMono(base(path), 12, W * 0.5)
+      b +=
+        `<circle cx="16" cy="${y + 8}" r="3" fill="${look.bar('context')}"/><text class="t" x="26" y="${y + 12}" font-family="${MONO}" font-size="12">${xml(name)}</text>` +
+        `<text class="m" x="${32 + monoWidth(name, 12)}" y="${y + 12}" font-family="${MONO}" font-size="10">${xml(fitMono(dir(path), 10, Math.max(10, W - 80 - monoWidth(name, 12))))}</text>` +
+        `<text class="m" x="${W - 16}" y="${y + 12}" text-anchor="end" font-family="${MONO}" font-size="10">${file.reads}×</text>`
+      y += 20
+    }
+    if (read.length > READ_SHOWN) {
+      b += `<text class="m" x="26" y="${y + 12}" font-family="${SANS}" font-size="11">${plural(read.length - READ_SHOWN, 'more file')}</text>`
+      y += 20
+    }
+  }
+  const H = y + 6
+  const alt = `Files: ${changed.map(f => `${f.path} +${f.file.added} −${f.file.removed}${f.file.created ? ' new' : ''}`).join(', ')}${read.length ? `; read ${read.map(f => f.path).join(', ')}` : ''}`
+  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt)
+}
+
+// An earlier crew in one line: when it started and how many it had, what they were about, and
+// how it went (done, failed, stopped), its time and tokens.
+export function earlierSvg(runs: readonly AgentRun[], W: number, skin: string = 'auto'): Drawing {
+  const look = lookOf(skin)
+  const start = Math.min(...runs.map(a => a.startedAt))
+  const end = Math.max(...runs.map(a => a.endedAt ?? a.startedAt))
+  const at = new Date(start)
+  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  const failed = runs.filter(a => a.status === 'failed' && a.reason !== 'aborted').length
+  const stopped = runs.filter(a => a.reason === 'aborted').length
+  const done = runs.filter(a => a.status === 'done').length
+  const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
+  const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
+  const title = `${hhmm} · ${plural(runs.length, 'agent')}`
+  const what = runs.map(a => a.description || a.type).join(' · ')
+  const tallyW = monoWidth(tally, 10.5)
+  const body =
+    `<rect class="p" width="${W}" height="40" rx="8"/>` +
+    `<text class="t" x="12" y="17" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` +
+    `<text class="m" x="${W - 10}" y="17" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(W - tallyW > 160 ? tally : '')}</text>` +
+    `<text class="m" x="12" y="32" font-family="${SANS}" font-size="11">${xml(fit(what, 11, W - 24))}</text>`
+  return paneDrawing(look, W, 40, body, `${title}: ${tally}. ${what}`)
 }
 
 export function emptyAgentsSvg(W: number, skin: string = 'auto'): Drawing {

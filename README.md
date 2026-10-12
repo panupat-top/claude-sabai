@@ -63,9 +63,9 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
 
     | Icon | Call | Colour |
     |---|---|---|
-    | magnifier | a read | the Context meter's teal |
+    | magnifier | a read (and, for a subagent, a search or a web fetch) | the Context meter's teal |
     | pencil | an edit or a write | the 5H meter's indigo |
-    | `>_` | a command | grey |
+    | `>_` | a command (and, for a subagent, a skill, an MCP tool or any other tool) | grey |
     | flask | a test run that passed | green |
     | cross | any call that failed | red |
 
@@ -82,12 +82,18 @@ The info row sits above the band on a card of its own, everything from the left 
 
 ### The agents panel
 
-Press the Agents icon or type `/sabai-agents` to see a card per subagent:
-- Clawd in a hat for its type;
-- the task, effort, model and step progress;
-- a status that pops when done or shakes on failure.
+Press the Agents icon or type `/sabai-agents`. The agents one of Claude's turns started are a **crew**; the panel shows the crew at work, top to bottom:
+- **The overview:** how many agents and how they stand, a Clawd for each in his type's hat and mood, a bar of each one's share done, then four tiles: calls (by kind, with failures), tokens, time and files (read and edited, with lines added and removed).
+- **A lane per agent:** its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
+- **The detail** of the agent you viewed (or, until you pick one, the one most worth a look: one gone quiet, one with its context nearly full, else the one that just finished):
+  - its head: mood, effort, type and model, its latest call, and steps, context and calls as meters;
+  - **Summary · ภาษาไทย** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then two to four lines Haiku writes in Thai from its report;
+  - **Tools**: built-in tools, skills and MCP tools, with how often each was called;
+  - **Steps** it reported, **Activity** (its latest calls, each with its time and whether it worked; **All calls** for up to 60), **Files** (the ones it changed first, with `+N −M` and NEW for a file it created, then the ones it only read);
+  - **▸ Report** (with earlier rounds, when it was sent more work after finishing) and **▸ Brief**, the task it was given.
+- **Earlier**: the last five crews before this one, in a box of their own, folded to one line while a crew is at work. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
 
-Finished agents fold behind **▸ Show**; press **▸ Report** on one to read what it found, and **Clear finished** to tidy up.
+An agent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done.
 
 ### In the conversation
 
@@ -140,7 +146,7 @@ Groups run from what you see most to what you set once. A part of the band with 
 | Usage | On or off; style (Tiles, Rings, Columns, Rows), each a sketch with its button; each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
 | Info row | On or off; each part: Folder, Branch, Git user, Node, with the row as it reads |
 | Clawd | On or off; Hats and props, Tricks (waves, yawns, looks) |
-| Agents | Race lanes or the crew row, on or off; Step reports: agents report their own progress to their lane and card (on; from the next session) |
+| Agents | Race lanes or the crew row, on or off; Step reports: agents report their own progress to their lane and the agents panel (on; from the next session); Thai summary: Haiku sums up each finished agent's report in Thai in the agents panel (on) |
 | Conversation | A sample of each touch that is on; Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Guard | Off by default. Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
 | Notifications | Turn ended: when a turn of a minute or more ends or an agent fails; Limit warnings: once per window when 5H or 7D passes your red mark (on) |
@@ -164,7 +170,7 @@ Restart Claude Code after either one.
 
 ## Privacy
 
-sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads.
+sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests of its own. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads. With **Thai summary** on, a finished agent's task, report, file names and failed calls are sent to Haiku through Claude Code's own API client (your session's account) to be summed up; turn it off in Settings › Agents to send nothing.
 
 ## Troubleshooting
 
@@ -175,7 +181,9 @@ sabai reads only what Claude Code gives a mod, and runs `git` and `node --versio
 | No Node or branch in the info row | `node` is not on Claude Code's `PATH`, or the folder is not a git repository |
 | Thai spinner words rarely show | The desktop usually names the step itself; the words replace only its generic `Working` |
 | Nothing of sabai in a terminal session | By design: the mod works only where the desktop draws |
-| An agent card shows a step count, not `3/5` | That agent type is not given the step tool (e.g. claude-code-guide) |
+| An agent shows no steps, only its calls | That agent type is not given the step tool (e.g. claude-code-guide) |
+| No Thai summary under a finished agent | Thai summary is off, the agent failed or was stopped, or Haiku gave no answer in 20 seconds |
+| No context meter or "context" mood for an agent | It runs on another model than Claude's, whose context window Claude Code does not report |
 
 ## Contributing
 

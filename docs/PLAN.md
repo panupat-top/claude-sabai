@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-12): sabai 2.12.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-13): sabai 2.13.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -52,13 +52,61 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ### P1 — ทำต่อเลย (เล็ก, ต่อยอดของเดิม)
 
-ว่าง (R1b เสร็จใน 2.10.0, B1 ใน 2.10.1, U1 ใน 2.11.0) · งานถัดไปคือ R2 ใน P2
+R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` ยังไม่ commit · ทำทีละขั้นตามลำดับข้างล่าง แต่ละขั้นเสร็จแล้วค่อยไปขั้นถัดไป
+
+#### ขั้น 0 — ปิด 2.13.0 (ของที่ทำไปแล้ว)
+
+สิ่งที่มีใน branch แล้ว (test 323 ผ่าน, `tsc`/validate ผ่าน):
+- **โครง pane:** Overview (crew ปัจจุบัน) → AGENTS (lane ละ agent + ปุ่ม View) → Detail ของตัวที่เลือก → กล่อง Earlier
+- **Overview (OV-1):** หัวเรื่อง · Clawd ทุกตัวพร้อม mood และป้าย · bar แบ่งช่องละ agent · tile CALLS/TOKENS/TIME/FILES
+- **Lane (D3):** Clawd ตาม mood · ชื่องาน · ประโยคไทยที่ใส่ตัวเลขจริง · bar ตามสไตล์ bar · เวลา
+- **Detail:** head (Clawd ใหญ่, tag mood, meta, call ล่าสุด, meter STEPS/CONTEXT/CALLS) · SUMMARY ภาษาไทย (บรรทัดข้อเท็จจริง + bullet จาก Haiku ผ่าน `$.model.complete`) · TOOLS แยก BUILT-IN/SKILLS/MCP · STEPS (note ของ step tool) · ACTIVITY (8 ล่าสุด / All calls) · FILES แบบ F1 (แก้ก่อน, +N −M, NEW) · Report (รวมรอบก่อน) · Brief
+- **Crew:** agent ที่ turn หลักเดียวกันสั่ง = crew เดียว (workflow ตาม `runId`, agent ลูกตาม parent, run เก่าก่อนมี crew = crew เดียว) · เก็บ 5 crew ล่าสุด + crew ที่ยังรัน · ส่งงานต่อให้ agent ที่จบแล้ว = รอบใหม่ใน crew ปัจจุบัน เก็บ report เดิมไว้ (≤ 3 รอบ) · หยุด (aborted) แยกจาก failed
+- **Earlier:** กล่องกรอบมน (E1) พับเป็นบรรทัดเดียวระหว่างที่ crew ปัจจุบันทำงาน (E2) · ป้ายวัน TODAY/YESTERDAY/วันที่ เฉพาะเมื่อข้ามวัน (D1) · Clear ที่หัวกล่อง
+- **Mood:** working / thinking / quiet (เงียบ ≥ 30 วิ) / context (≥ 80% เฉพาะเมื่อ model เดียวกับ Main จึงรู้ window) / failed / stopped / done
+- **ข้อมูล:** `tool.call` ไม่มี matcher บันทึกทุก tool ของ subagent (ไม่นับ Task tools และ step tool) · tool ที่ race ไม่เคยนับ (Grep, Skill, MCP …) นับใน lane ของ subagent บน band ด้วย ให้ตัวเลขตรงกับ pane
+- **Settings › Agents › Thai summary** (ค่าเริ่มต้นเปิด)
+- **ขนาด:** budget 70k วาดตามลำดับ overview → detail → แถว Earlier → lane · Clawd ใน pane เป็น path, ใส่เฉพาะสี/animation ที่ใช้, font ตั้งใน stylesheet, icon ใช้ `<use>` (agent 5 ตัว ≈ 44k)
+
+ยังต้องทำก่อน release:
+1. ✅ **A — ทดสอบบน desktop** (ผ่าน 2026-10-13: สรุปไทยจาก Haiku, MCP และ Skill มี `agentId`, NEW, stopped, Earlier, ป้ายวัน · เจอและแก้: detail แสดงภาพของ agent ตัวก่อนเพราะ key ของ Svg ตายตัว, path นอก project ยาว) เดิม: สรุปไทยจาก Haiku, MCP/Skill ใน TOOLS, badge NEW, สถานะ stopped, กล่อง Earlier พับ/กาง, ป้ายวัน · mood quiet และ context มีแค่ unit test · ถ้า engine ไม่ให้ข้อมูลส่วนไหน ส่วนนั้นซ่อน
+2. ✅ **B — docs:** README (pane ใหม่, privacy: ส่ง report ไปให้ Haiku สรุปผ่าน API ของ session, setting Thai summary) · CLAUDE.md (architecture ของ pane, ข้อยกเว้นภาษาไทยข้อ 2: ประโยคไทยใน lane และสรุปไทย) · §5 ของไฟล์นี้
+3. **C — release 2.13.0:** version ใน plugin.json และ marketplace.json · commit · merge · push · อัปเดต production (เมื่อเจ้าของสั่ง)
+
+#### ขั้น 1 — โครงและข้อมูล (preview รอบ A, งานของ 2.14.0)
+
+ทำ preview รอบเดียวกันเพราะตำแหน่งของ Main เปลี่ยนโครงทั้ง pane
+
+| ID | งาน | รายละเอียด | ขนาด |
+|---|---|---|---|
+| T1 | จัดโครงใหม่ แยก group ให้ชัด | ลำดับ Overview → Lanes → Earlier → Detail · แต่ละส่วนเป็น group ที่อ่านง่ายและสวย · เสนอไอเดียหลายแบบพร้อม preview · ข้อควรระวัง: Earlier ที่กางอยู่จะดัน Detail ลงไปไกล (เสนอทางเลือกไว้ใน preview ด้วย) | M |
+| T2 | ปิด view ได้ | กด View ซ้ำ หรือปุ่ม ✕ แล้ว Detail ไม่แสดง agent | S |
+| T3 | Empty state ของ Detail | ตอนยังไม่ได้เลือก agent หรือปิด view ไปแล้ว · ตัดสินใจว่าเลือกให้เองแบบเดิม (ตัวที่ควรเข้าไปดู) หรือไม่เลือกให้ | S |
+| T4 | แสดงงานของ Main ใน pane | เมื่อสั่งงานแล้วมีแค่ Main ทำ ก็ให้ pane แสดงด้วย · **กลับคำตัดสินใจเดิม** ("Main ไม่ต้องใส่ใน pane") · Main ไม่ใช่ `AgentRun` ข้อมูลต้องมาจาก race log / `turnLog` / receipt · ทางเลือก: lane แรกของ crew, การ์ดแยก, หรือเป็นประวัติ turn ใน Earlier ด้วย · ระวัง budget และซ้ำกับ chat/receipt | L |
+
+#### ขั้น 2 — งานเล็ก ไม่ต้อง preview
+
+| ID | งาน | รายละเอียด | ขนาด |
+|---|---|---|---|
+| T5 | tile ของ Overview ไม่มี bar | เอา bar/กราฟเล็กออกจาก tile ทั้ง 4 ช่อง เหลือตัวเลขและข้อความ | S |
+
+#### ขั้น 3 — หน้าตา (preview รอบ B รวมหน้าเดียว)
+
+| ID | งาน | รายละเอียด | ขนาด |
+|---|---|---|---|
+| T6 | bar ของ Overview | น่าสนใจขึ้น มีลูกเล่นหรือความสนุก และต้องมีประโยชน์ต่อผู้ใช้ · เสนอหลายแบบพร้อม preview | M |
+| T7 | lane ตอนถูกเลือก + ปุ่ม View | หน้าตาตอน selected และปุ่ม View ให้สวยขึ้น · preview | S–M |
+| T8 | Detail เป็น group + wording | แบ่ง group ให้อ่านง่าย · ปรับ wording · preview | M |
+
+#### ขั้น 4 — ปิด 2.14.0
+
+ทดสอบบน desktop → docs (README, CLAUDE.md, §5) → release 2.14.0 เมื่อเจ้าของสั่ง
 
 ### P2 — ถัดไป (กลาง)
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
 |---|---|---|---|---|
-| R2 | Agents pane | ให้สอดคล้องกับกล่อง race และแสดงข้อมูลมากขึ้น: tile ของทุก call, เวลาและ token ต่อ agent, ไฟล์ที่แตะ, ผลลัพธ์ | M–L | ระวัง `PANE_BUDGET` และ limit 100k |
+| R2 | Agents pane | ย้ายไป P1 (กำลังทำ, แผนละเอียดอยู่ข้างบน) | M–L | ระวัง `PANE_BUDGET` และ limit 100k |
 | R3 | Band · live strip | ต่อยอดการทำงานและการแสดงผล | M | ต้องกำหนด scope ก่อนเริ่ม (ยังไม่ชัดว่าจะเพิ่มอะไร) |
 
 ### P3 — ภายหลัง (ใหญ่)
@@ -85,6 +133,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.13.0** agents pane ใหม่ (R2 รอบแรก): Overview ของ crew (Clawd ตาม mood, bar แบ่งช่องละ agent, tile CALLS/TOKENS/TIME/FILES) · lane ละ agent พร้อมประโยคไทยตาม mood ที่ใส่ตัวเลขจริง · Detail (head + meter, สรุปไทย = ข้อเท็จจริงที่นับเอง + bullet จาก Haiku ผ่าน `$.model.complete`, TOOLS แยก built-in/skills/MCP, STEPS, ACTIVITY, FILES แบบ F1, Report รวมรอบก่อน, Brief) · crew ตาม turn หลัก (workflow ตาม `runId`, agent ลูกตาม parent) เก็บ 5 crew · กล่อง Earlier พับได้ แบ่งตามวันเมื่อข้ามวัน · stopped แยกจาก failed · บันทึกทุก tool ของ subagent และนับใน lane ของ race ด้วย · Settings › Agents › Thai summary · path นอก project ย่อเหลือ 2 folder · บทเรียน: Svg ใน pane ที่ key เดิมแต่เปลี่ยนเรื่องที่แสดง (สลับ agent) desktop คงภาพเก่าไว้ ต้องใส่ id ของเรื่องใน key · ประโยคไทยและสรุปไทยเป็นข้อยกเว้นภาษาไทยเพิ่มจาก spinner ตามที่เจ้าของเลือก
 - **2.12.0** settings pane ใหม่: เรียง group จากสิ่งที่เห็นบ่อยไปสิ่งที่ตั้งครั้งเดียว (Look → Usage → Info row → Clawd → Agents → Conversation → Guard → Notifications → Reset) · ส่วนของ band ที่มีตัวเลือกของตัวเองมีปุ่ม On/Off ที่หัว group และซ่อนตัวเลือกเมื่อปิด (Agents ยังแสดง Step reports เพราะใช้กับ agents pane ด้วย) · Tasks, Activity, Toolbar เป็น pill ใน Look · Layout, Cards และสไตล์ usage มีภาพโครง (`densityPreview`, `usageSketch`) หรือ swatch วางเหนือปุ่มของตัวเลือกนั้น อันที่ใช้อยู่มีกรอบสีของ Clawd กับ ✓ (เคยลองให้กดที่ภาพผ่าน Markdown image link แต่บน desktop ภาพใหญ่กดไม่ค่อยติด) · Svg ใน pane ต้องส่ง width/height ไม่งั้นถูกยืดเต็มความกว้าง · Bars ยังเป็นปุ่ม และ preview มีขนาดคงที่ (≤ 320 px) บนกรอบที่มีป้าย PREVIEW · แถว info ตามที่เปิด, ตัวอย่าง step/test/receipt ตาม toggle ของ chat · Safety เปลี่ยนชื่อเป็น Guard, ข้อความสั้นลงและไม่ใช้ px · pane ทั้งหมด ~50–67k ตัวอักษร
 - **2.11.0** ปิด U1: compact วาด usage ตาม `usageStyle` ทั้ง 4 แบบ ที่ความสูง 50 px (`USAGE_MIN_H` ความสูงต่ำสุดเดียวกับ comfortable) แทนการ์ดบรรทัดเดียว 22 px ซึ่งถูกลบออก · ที่ 40 px ตัวอักษรทับ bar จึงไม่เตี้ยกว่านี้ · band compact ที่กว้าง ≥ 720 px สูงขึ้น 28 px แต่ที่แคบกว่า 400 px เตี้ยลง (เดิมการ์ดเรียงลงเป็น 3 แถว) · comfortable ที่แคบกว่า 480 px ยังใช้การ์ดสองบรรทัด
 - **2.10.1** ปิด B1: แถว info ที่แคบไม่ตัดชื่อเหลือ `…` ล้วนอีก ลำดับการหลีกเมื่อที่ไม่พอเป็น Node → git user → ตัวนับ sync → ตัด folder (เหลืออย่างน้อย 3 ตัว) → เอา folder ออก → ตัด branch (เหลืออย่างน้อย 6 ตัว) ให้ branch อยู่นานที่สุด · ชื่อที่สั้นกว่าจำนวนตัวขั้นต่ำไม่ได้ `…` ต่อท้ายอีก (เดิม `main` กลายเป็น `main…`) · alt text บอกเฉพาะสิ่งที่วาด
