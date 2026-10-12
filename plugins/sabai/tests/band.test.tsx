@@ -419,27 +419,6 @@ test('/sabai-agents opens the panel and closes it again', async ($, on) => {
   expect([...open]).toEqual([])
 })
 
-test('a subagent shows running with its clock, then done when its turn ends', async ($, on) => {
-  const { clock } = engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'api routes')
-  await clock.advance(64_000)
-  for (const surface of SURFACES) {
-    const ui = await mountPane($, surface)
-    const words = [...(await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)), ...(await ui.findAll({ type: 'Text' })).map(t => t.text)].join(' | ')
-    await ui.unmount()
-    expect(words).toMatch(/api routes/)
-    expect(words).toMatch(/1m 4s/)
-    expect(words).toMatch(/sonnet 5\.5/)
-  }
-  await $.turn.complete({ turnId: 'sub', agentId: 'agent-api routes', answer: '', durationMs: 64_000, isAborted: false, reason: 'answer' })
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  const alts = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))
-  expect(alts).toContain('api routes: Explore, sonnet 5.5, done, 1m 4s')
-})
-
 test('/sabai-settings opens the settings panel and closes it again', async ($, on) => {
   engine(on)
   const open = panes(on)
@@ -568,32 +547,6 @@ test('a skin leaves the band on the surface’s own background, as auto does', a
   expect([tree.props.backgroundColor, tree.props.borderStyle]).toEqual([undefined, undefined])
 })
 
-test('a subagent’s own task list goes to its card, never the band; the band keeps the main list', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'scan')
-  await $.tool.call({ tool: 'TaskCreate', subject: 'main work', description: '' })
-  await $.tool.call({ tool: 'TaskUpdate', taskId: String('main work'.length), status: 'in_progress' })
-  // agentId rides along on a hook's event; the typed call input only admits it from a variable
-  const sub = {
-    tool: 'TodoWrite' as const,
-    agentId: 'agent-scan',
-    todos: [
-      { content: 'read', status: 'completed' as const, activeForm: 'Reading' },
-      { content: 'sum up', status: 'in_progress' as const, activeForm: 'Summing up' },
-    ],
-  }
-  await $.tool.call(sub)
-  const band = await shown($, 'desktop')
-  expect(band.words).toContain('main work')
-  // The band's tasks row keeps the main list; the agent's own step shows only in its race lane.
-  expect(band.words).not.toMatch(/main work: [^;]*Summing up/)
-  const ui = await mountPane($, 'desktop')
-  const cards = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string } }[]
-  expect(cards.some(c => c.props.source.includes('>Summing up<') && c.props.source.includes('>1/2<'))).toBe(true)
-})
-
 test('an empty panel invites a first agent', async ($, on) => {
   engine(on)
   panes(on)
@@ -604,153 +557,6 @@ test('an empty panel invites a first agent', async ($, on) => {
     await ui.unmount()
     expect(words).toMatch(/No subagents yet/)
   }
-})
-
-test('finished agents start folded; Show, Hide and Clear work and running ones stay', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'live')
-  await spawn($, 'old')
-  await $.turn.complete({ turnId: 't', agentId: 'agent-old', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  const ui = await mountPane($, 'desktop')
-  const alts = async () => (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))
-  expect((await alts()).some(a => a.startsWith('old:'))).toBe(false)
-  expect((await ui.find({ key: 'toggle-finished' }))?.props.label).toBe('▸ Show')
-  await ui.press({ key: 'toggle-finished' })
-  expect((await alts()).some(a => a.startsWith('old:'))).toBe(true)
-  expect((await ui.find({ key: 'toggle-finished' }))?.props.label).toBe('▾ Hide')
-  await ui.press({ key: 'clear-finished' })
-  expect((await alts()).some(a => a.startsWith('old:'))).toBe(false)
-  expect((await alts()).some(a => a.startsWith('live:'))).toBe(true)
-  expect(await ui.find({ key: 'clear-finished' })).toBeUndefined()
-})
-
-test('forty agents with results open stay under the engine’s tree limit', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  for (let i = 0; i < 40; i++) {
-    await spawn($, `job ${i}`)
-    if (i >= 2) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
-  }
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
-  expect(await ui.find({ type: 'Text', text: /^\+ \d+ more$/ })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-})
-
-test('a subagent’s answer and failure reason are kept for its Result', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'ok')
-  await spawn($, 'bad')
-  await $.turn.complete({ turnId: 't1', agentId: 'agent-ok', answer: 'Found 3 launches.', durationMs: 10, isAborted: false, reason: 'answer' })
-  await $.turn.complete({ turnId: 't2', agentId: 'agent-bad', answer: '', durationMs: 10, isAborted: true, reason: 'aborted' })
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  await ui.press({ key: 'result-agent-ok' })
-  expect(await ui.find({ type: 'Markdown', text: 'Found 3 launches.' })).toBeDefined()
-  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('▾ Report')
-  await ui.press({ key: 'result-agent-bad' })
-  expect(await ui.find({ type: 'Markdown', text: 'Stopped before it finished.' })).toBeDefined()
-})
-
-test('a wide pane in pixel blocks with eight finished agents open stays under the tree limit', async ($, on) => {
-  engine(on, { store: { bar: 'blocks' } })
-  panes(on)
-  await start($)
-  for (let i = 0; i < 12; i++) {
-    await spawn($, `job ${i}`)
-    if (i >= 2) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
-  }
-  const ui = await $.ui.mount({
-    plugin: 'sabai',
-    surface: 'desktop',
-    component: 'Pane',
-    requestId: 'sabai-agents',
-    viewport: { columns: 400, rows: 60 },
-    props: { title: 'Agents', isFocused: false, bodyColumns: 400, placement: 'dock', scroll: { offset: 0, bodyRows: 50 }, view: {} },
-  })
-  await ui.press({ key: 'toggle-finished' })
-  for (const b of await ui.findAll({ type: 'Button' })) if (String(b.props.key).startsWith('result-')) await ui.press({ key: String(b.props.key) })
-  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-})
-
-test('the band shows the crew while agents work, and drops it once cleared', async ($, on) => {
-  // Compact keeps the crew row; the comfortable band carries agents in its race instead.
-  engine(on, { store: { prefs: { density: 'compact' } } })
-  panes(on)
-  await start($)
-  await spawn($, 'scan the hooks')
-  const desktop = await shown($, 'desktop')
-  expect(desktop.words).toContain('Agents: 1 running; scan the hooks')
-  await $.turn.complete({ turnId: 't', agentId: 'agent-scan the hooks', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'desktop')).words).toContain('Agents: 1 done; All 1 done')
-  const pane = await mountPane($, 'desktop')
-  await pane.press({ key: 'clear-finished' })
-  expect((await shown($, 'desktop')).words).not.toContain('Agents:')
-})
-
-test('a finished agent’s Report button opens its report as Markdown; the card sets no colour its text cannot follow', async ($, on) => {
-  engine(on, { store: { skin: 'raised' } })
-  panes(on)
-  await start($)
-  await spawn($, 'ok')
-  await $.turn.complete({ turnId: 't', agentId: 'agent-ok', answer: '## Found\n- three launches', durationMs: 10, isAborted: false, reason: 'answer' })
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('▸ Report')
-  expect(await ui.find({ type: 'Text', text: '🔍 ok' })).toBeDefined()
-  // Native titles and Markdown take the OS theme's ink, so no Box behind them may force a colour.
-  expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
-  await ui.press({ key: 'result-agent-ok' })
-  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('## Found\n- three launches')
-})
-
-test('one report is open at a time', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  for (const name of ['a', 'b']) {
-    await spawn($, name)
-    await $.turn.complete({ turnId: name, agentId: `agent-${name}`, answer: `report ${name}`, durationMs: 10, isAborted: false, reason: 'answer' })
-  }
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  await ui.press({ key: 'result-agent-a' })
-  await ui.press({ key: 'result-agent-b' })
-  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toEqual(['report b'])
-})
-
-test('a running agent has its title and no Report button; once it ends, Report appears', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'scan')
-  const ui = await mountPane($, 'desktop')
-  expect(await ui.find({ key: 'result-agent-scan' })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '🔍 scan' })).toBeDefined()
-  await $.turn.complete({ turnId: 't', agentId: 'agent-scan', answer: 'done.', durationMs: 10, isAborted: false, reason: 'answer' })
-  await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('▸ Report')
-})
-
-test('a wide fan-out of running agents shows the newest few and counts the rest, under the tree limit', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  for (let i = 0; i < 20; i++) {
-    await spawn($, `job ${i}`)
-    await $.tool.call({ tool: 'TodoWrite', agentId: `agent-job ${i}`, todos: [
-      { content: 'a', status: 'completed', activeForm: 'A' }, { content: 'b', status: 'in_progress', activeForm: 'B' }, { content: 'c', status: 'pending', activeForm: 'C' },
-    ] } as Parameters<typeof $.tool.call>[0])
-  }
-  const ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: '+ 14 more running' })).toBeDefined()
-  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
 test('the crew counts failed agents apart from done ones', async ($, on) => {
@@ -779,63 +585,321 @@ const step = async ($: Engine, agentId: string, effort?: 'low' | 'high' | 'xhigh
   return stream.result
 }
 
+// The agents pane as drawn: each drawing's alt and source, and its Texts and Markdowns.
+type PaneUi = Awaited<ReturnType<typeof mountPane>>
+const svgsOf = async (ui: PaneUi) => (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
+const altsOf = async (ui: PaneUi) => (await svgsOf(ui)).map(s => s.props.alt)
+const laneOf = async (ui: PaneUi, name: string) => (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith(`${name}:`))
+// The detail's head: the drawing 112 px tall.
+const headOf = async (ui: PaneUi) => (await svgsOf(ui)).find(s => s.props.source.includes('height="112"'))
+const finish = ($: Engine, name: string, answer = 'ok', reason: 'answer' | 'aborted' = 'answer') =>
+  $.turn.complete({ turnId: `t-${name}`, agentId: `agent-${name}`, answer, durationMs: 10, isAborted: reason === 'aborted', reason })
+const subCall = ($: Engine, agentId: string, input: Record<string, unknown>) => $.tool.call({ ...input, agentId } as unknown as Parameters<typeof $.tool.call>[0])
+const widePane = ($: Engine, bodyColumns: number) =>
+  $.ui.mount({
+    plugin: 'sabai', surface: 'desktop', component: 'Pane', requestId: 'sabai-agents', viewport: { columns: bodyColumns, rows: 60 },
+    props: { title: 'Agents', isFocused: false, bodyColumns, placement: 'dock', scroll: { offset: 0, bodyRows: 50 }, view: {} },
+  })
+
+test('a subagent runs in its lane with its clock and Thai line, then is done when its turn ends', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'api routes')
+  await clock.advance(64_000)
+  let ui = await mountPane($, 'desktop')
+  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: quiet 64s, 1m 4s\. .*64 วิ/)
+  expect((await headOf(ui))?.props.alt).toContain('Explore · sonnet 5.5')
+  await ui.unmount()
+  await finish($, 'api routes')
+  ui = await mountPane($, 'desktop')
+  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: done, 1m 4s\./)
+})
+
+test('a subagent’s own task list shows in its detail, never the band’s row', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'scan')
+  await $.tool.call({ tool: 'TaskCreate', subject: 'main work', description: '' })
+  await $.tool.call({ tool: 'TaskUpdate', taskId: String('main work'.length), status: 'in_progress' })
+  await subCall($, 'agent-scan', { tool: 'TodoWrite', todos: [{ content: 'read', status: 'completed', activeForm: 'Reading' }, { content: 'sum up', status: 'in_progress', activeForm: 'Summing up' }] })
+  const band = await shown($, 'desktop')
+  expect(band.words).toContain('main work')
+  expect(band.words).not.toMatch(/main work: [^;]*Summing up/)
+  const ui = await mountPane($, 'desktop')
+  expect((await headOf(ui))?.props.source).toContain('>1/2<')
+  // The Task tools are its progress, not calls in its log.
+  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Tools:'))).toBe(false)
+})
+
+test('every call of a subagent lands in its detail: tools by group, the activity and the files', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'worker')
+  const id = 'agent-worker'
+  await subCall($, id, { tool: 'Read', file_path: '/work/hooks/svg.ts' })
+  await subCall($, id, { tool: 'Grep', pattern: 'on\\(', path: '/work/hooks' })
+  await subCall($, id, { tool: 'Skill', skill: 'superpowers:brainstorming' })
+  await subCall($, id, { tool: 'mcp__context7__query-docs', query: 'x' })
+  await subCall($, id, { tool: 'Edit', file_path: '/work/hooks/agents.ts', old_string: 'a', new_string: 'a\nb\nc' })
+  await subCall($, id, { tool: 'Read', file_path: '/private/tmp/scratch/sim/math.ts' })
+  const ui = await mountPane($, 'desktop')
+  const alts = await altsOf(ui)
+  expect(alts.find(a => a.startsWith('Tools:'))).toBe('Tools: Read 2×, Grep 1×, Edit 1×, superpowers:brainstorming 1×, context7 · query-docs 1×')
+  expect(alts.find(a => a.startsWith('Calls:'))).toContain('Read svg.ts worked; Grep on\\( · hooks worked; Skill superpowers:brainstorming worked; context7 · query-docs worked; Edit agents.ts worked')
+  // Paths under the project are shown from its root; an edit counts its lines.
+  // Paths outside it keep their last two folders.
+  expect(alts.find(a => a.startsWith('Files:'))).toBe('Files: hooks/agents.ts +2 −0; read hooks/svg.ts, …/scratch/sim/math.ts')
+  // The lane counts the calls the race's own hooks leave out too.
+  expect((await headOf(ui))?.props.source).toContain('✓6 ✗0')
+  // A call of the main loop is not an agent's.
+  await ui.unmount()
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
+  expect((await altsOf(await mountPane($, 'desktop'))).find(a => a.startsWith('Tools:'))).toContain('Grep 1×')
+})
+
+test('a finished agent’s report is summed up in Thai by Haiku; with the toggle off, or no answer, there is none', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  const asked: { model: string; prompt: string }[] = []
+  on('model.complete', ($, e) => {
+    asked.push({ model: e.model, prompt: e.prompt })
+    return { value: e.prompt.includes('silent') ? { isAnswered: false, reason: 'empty-reply' } : { isAnswered: true, text: '- นับ hook ได้ 30 จุด\n- ไม่ได้แก้ไฟล์', usage: {} } } as never
+  })
+  await start($)
+  await spawn($, 'count')
+  await finish($, 'count', 'Found 30 hooks.')
+  let ui = await mountPane($, 'desktop')
+  expect(await ui.find({ type: 'Text', text: 'Haiku กำลังสรุป…' })).toBeDefined()
+  await ui.unmount()
+  await clock.advance(5)
+  await settle()
+  ui = await mountPane($, 'desktop')
+  expect(asked[0]?.model).toBe('haiku')
+  expect(asked[0]?.prompt).toContain('Found 30 hooks.')
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('- นับ hook ได้ 30 จุด\n- ไม่ได้แก้ไฟล์')
+  expect(await ui.find({ type: 'Text', text: /^อ่าน 0 ไฟล์ · แก้ 0 ไฟล์ · 0 calls · / })).toBeDefined()
+  await ui.unmount()
+  await spawn($, 'quiet')
+  await finish($, 'quiet', 'silent')
+  await clock.advance(5)
+  await settle()
+  ui = await mountPane($, 'desktop')
+  await ui.press({ key: 'view-agent-quiet' })
+  expect(await ui.find({ type: 'Text', text: 'Haiku กำลังสรุป…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Markdown' })).toBeUndefined()
+  await ui.unmount()
+  // The toggle off: no call at all.
+  await settingsCommand($)
+  const settings = await mountPane($, 'desktop', 'sabai-skins')
+  await settings.press({ key: 'pref-agentSummary' })
+  await clock.advance(1)
+  const before = asked.length
+  await spawn($, 'third')
+  await finish($, 'third', 'r')
+  await clock.advance(5)
+  await settle()
+  expect(asked.length).toBe(before)
+})
+
+test('crews: a new turn’s agents are a new crew; the earlier one folds to a line, Show brings it back and Clear drops it', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'one' } as never)
+  await spawn($, 'old')
+  await finish($, 'old')
+  await clock.advance(60_000)
+  await $.turn.start({ turnId: 'two' } as never)
+  await spawn($, 'live')
+  const ui = await mountPane($, 'desktop')
+  expect(await laneOf(ui, 'live')).toBeDefined()
+  expect(await laneOf(ui, 'old')).toBeUndefined()
+  // While a crew works the earlier ones fold to one line in their own box; Show opens it.
+  expect(await ui.find({ type: 'Text', text: 'Earlier · 1 crew · 1 agent · ✓1' })).toBeDefined()
+  expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
+  await ui.press({ key: 'fold-earlier' })
+  expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
+  expect((await altsOf(ui)).find(a => /^\d\d:\d\d · 1 agent: ✓ 1/.test(a))).toContain('old')
+  // One day's crews carry no day label.
+  expect(await ui.find({ type: 'Text', text: 'TODAY' })).toBeUndefined()
+  const show = (await ui.findAll({ type: 'Button' })).find(b => String(b.props.key).startsWith('show-'))!
+  expect(show.props.label).toBe('▸ Show')
+  await ui.press({ key: String(show.props.key) })
+  expect(await laneOf(ui, 'old')).toBeDefined()
+  await ui.press({ key: 'clear-earlier' })
+  expect(await laneOf(ui, 'old')).toBeUndefined()
+  expect(await laneOf(ui, 'live')).toBeDefined()
+  expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
+})
+
+test('View picks the agent in the detail; with none picked it is the one most worth a look', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'a')
+  await spawn($, 'b')
+  await finish($, 'b')
+  const ui = await mountPane($, 'desktop')
+  // b just finished: the detail follows it while nobody has picked one.
+  expect((await headOf(ui))?.props.alt).toMatch(/^b:/)
+  expect((await ui.find({ key: 'view-agent-b' }))?.props.label).toBe('● View')
+  await clock.advance(61_000)
+  // a has been quiet past the mark: it needs a look.
+  expect((await headOf(ui))?.props.alt).toMatch(/^a: quiet/)
+  await ui.press({ key: 'view-agent-b' })
+  expect((await headOf(ui))?.props.alt).toMatch(/^b:/)
+})
+
+test('the report folds open as Markdown once an agent ends, a stop says so, and no colour is forced on native text', async ($, on) => {
+  engine(on, { store: { skin: 'raised' } })
+  panes(on)
+  await start($)
+  await spawn($, 'ok')
+  const ui = await mountPane($, 'desktop')
+  expect(await ui.find({ key: 'fold-report' })).toBeUndefined()
+  await finish($, 'ok', '## Found\n- three launches')
+  await spawn($, 'bad')
+  await finish($, 'bad', '', 'aborted')
+  await ui.press({ key: 'view-agent-ok' })
+  expect((await ui.find({ key: 'fold-report' }))?.props.label).toBe('▸ Report')
+  await ui.press({ key: 'fold-report' })
+  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toContain('## Found\n- three launches')
+  expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
+  await ui.press({ key: 'view-agent-bad' })
+  expect((await headOf(ui))?.props.alt).toMatch(/^bad: stopped/)
+  expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
+})
+
 test('an agent’s whole life through the hooks: spawn, steps with effort, own tasks, answer', async ($, on) => {
   engine(on)
   panes(on)
   steps(on)
   await start($)
   await spawn($, 'survey')
-  const cardOf = async () => {
+  const head = async () => {
     const ui = await mountPane($, 'desktop')
-    await ui.press({ key: 'toggle-finished' }).catch(() => undefined)
-    const svgs = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
-    const card = svgs.find(s => s.props.alt.startsWith('survey:'))
+    const h = await headOf(ui)
     await ui.unmount()
-    return card?.props.source ?? ''
+    return h?.props ?? { source: '', alt: '' }
   }
-  // Two model requests: the step count, the latest context, the model and the effort follow.
   await step($, 'agent-survey', 'xhigh')
   await step($, 'agent-survey', 'xhigh')
-  let card = await cardOf()
-  expect(card).toContain('>2 steps<')
-  expect(card).toContain('32k ctx')
-  expect(card).toContain('Explore · haiku 5.5')
-  expect(card).toContain('>xhigh<')
-  // A numeric effort is a thinking budget.
+  let h = await head()
+  expect(h.alt).toContain('xhigh · Explore · haiku 5.5')
+  // The latest context, and every request's tokens summed.
+  expect(h.source).toContain('>32k<')
   await step($, 'agent-survey', 32_000)
-  expect(await cardOf()).toContain('>budget 32k<')
-  // The agent's own task list drives its bar and pill; the band's row stays empty.
-  await $.tool.call({ tool: 'TaskCreate', subject: 'Read', description: '', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
-  await $.tool.call({ tool: 'TaskCreate', subject: 'Write up', description: '', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
-  await $.tool.call({ tool: 'TaskUpdate', taskId: String('Read'.length), status: 'completed', agentId: 'agent-survey' } as Parameters<typeof $.tool.call>[0])
-  card = await cardOf()
-  expect(card).toContain('>1/2<')
+  expect((await head()).alt).toContain('budget 32k · Explore')
+  await subCall($, 'agent-survey', { tool: 'TaskCreate', subject: 'Read', description: '' })
+  await subCall($, 'agent-survey', { tool: 'TaskCreate', subject: 'Write up', description: '' })
+  await subCall($, 'agent-survey', { tool: 'TaskUpdate', taskId: String('Read'.length), status: 'completed' })
+  h = await head()
+  expect(h.source).toContain('>1/2<')
   expect((await shown($, 'desktop')).words).not.toMatch(/tasks, \d+%/)
-  // A step of the main conversation (no agentId) touches no card.
-  const before = await cardOf()
+  // A step of the main loop is no step of the agent's (only its model's window is learned).
+  const before = await head()
   await step($, '')
-  expect(await cardOf()).toBe(before)
-  // The answer ends the run: a check, the report behind its title.
-  await $.turn.complete({ turnId: 't-agent-survey', agentId: 'agent-survey', answer: '## Found\n- 154 lines', durationMs: 10, isAborted: false, reason: 'answer' })
+  expect((await head()).alt).toBe(before.alt)
+  await finish($, 'survey', '## Found\n- 154 lines')
   const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  await ui.press({ key: 'result-agent-survey' })
-  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('## Found\n- 154 lines')
+  await ui.press({ key: 'fold-report' })
+  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toContain('## Found\n- 154 lines')
 })
 
-test('a workflow agent is marked as one on its card', async ($, on) => {
+test('a workflow agent says so in its detail, and its brief folds open', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
   await $.agent.spawn({
-    tool_use_id: 'tu-wf', prompt: 'go', description: 'fan out', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' },
-    parentModel: 'claude-opus-5-5', background: false, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
+    tool_use_id: 'tu-wf', prompt: 'Count the hooks and report.', description: 'fan out', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
   })
   const ui = await mountPane($, 'desktop')
-  const svgs = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
-  const source = svgs.find(s => s.props.alt.startsWith('fan out:'))?.props.source
-  expect(source).toContain('>general-purpose · sonnet 5.5<')
-  expect(source).toContain('>workflow · 0 steps<')
+  expect((await headOf(ui))?.props.alt).toContain('general-purpose · sonnet 5.5 · background · workflow')
+  await ui.press({ key: 'fold-brief' })
+  expect(await ui.find({ type: 'Text', text: 'Count the hooks and report.' })).toBeDefined()
+})
+
+test('a finished agent sent more work joins the crew at work as its next round, its report kept', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  steps(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'one' } as never)
+  await spawn($, 'scout')
+  await finish($, 'scout', 'first report')
+  await clock.advance(60_000)
+  await $.turn.start({ turnId: 'two' } as never)
+  await step($, 'agent-scout')
+  const ui = await mountPane($, 'desktop')
+  expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
+  expect(await ui.find({ type: 'Text', text: /^EARLIER/ })).toBeUndefined()
+  await finish($, 'scout', 'second report')
+  await ui.press({ key: 'fold-report' })
+  const md = (await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)
+  expect(md).toContain('second report')
+  expect(md).toContain('**Round 1**\n\nfirst report')
+})
+
+test('agents report their own steps through the mod’s tool, a checklist in their detail', async ($, on) => {
+  engine(on)
+  panes(on)
+  const tools: string[] = []
+  on('tool.register', ($, e) => {
+    tools.push(e.name)
+    return { value: { tool: `mcp__sabai__${e.name}` } }
+  })
+  await start($)
+  expect(tools).toEqual(['step'])
+  await spawn($, 'worker')
+  await subCall($, 'agent-worker', { tool: 'mcp__sabai__step', done: 1, total: 4, note: 'Reading the code' })
+  const reply = await subCall($, 'agent-worker', { tool: 'mcp__sabai__step', done: 2, total: 4, note: 'Reading the docs' })
+  expect(reply.result).toBe('ok')
+  const ui = await mountPane($, 'desktop')
+  expect((await headOf(ui))?.props.source).toContain('>2/4<')
+  expect((await altsOf(ui)).find(a => a.startsWith('Steps:'))).toBe('Steps: Reading the code; Reading the docs; 2 more')
+  // The step tool is the agent's report, not a call in its log.
+  expect((await altsOf(ui)).some(a => a.startsWith('Tools:'))).toBe(false)
+})
+
+test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide pane in blocks with every fold open', async ($, on) => {
+  const { clock } = engine(on, { store: { bar: 'blocks' } })
+  panes(on)
+  turnStarts(on)
+  await start($)
+  for (let c = 0; c < 6; c++) {
+    await $.turn.start({ turnId: `c${c}` } as never)
+    for (let i = 0; i < 7; i++) {
+      const name = `job ${c}-${i}`
+      await spawn($, name)
+      for (let k = 0; k < 12; k++) await subCall($, `agent-${name}`, { tool: 'Read', file_path: `/work/src/file-${k}.ts` })
+      await subCall($, `agent-${name}`, { tool: 'Edit', file_path: `/work/src/file-${i}.ts`, old_string: 'a', new_string: 'b' })
+      if (c < 5 || i > 1) await finish($, name, 'r'.repeat(5000))
+    }
+    await clock.advance(60_000)
+  }
+  for (const bodyColumns of [40, 160, 496]) {
+    const ui = await widePane($, bodyColumns)
+    for (const key of ['fold-report', 'fold-brief', 'fold-calls']) if (/^▸|^All calls$/.test(String((await ui.find({ key }))?.props.label ?? ''))) await ui.press({ key })
+    if ((await ui.find({ key: 'fold-earlier' }))?.props.label === '▸ Show') await ui.press({ key: 'fold-earlier' })
+    const shows = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).filter(k => k.startsWith('show-'))
+    expect(shows.length).toBe(4)
+    for (const key of shows) await ui.press({ key })
+    const size = JSON.stringify(await ui.drawn()).length
+    expect([bodyColumns, size < 100_000]).toEqual([bodyColumns, true])
+    await ui.unmount()
+  }
+  // Twenty at work in one crew: the lanes that do not fit are counted.
+  await $.turn.start({ turnId: 'fan' } as never)
+  for (let i = 0; i < 20; i++) await spawn($, `fan ${i}`)
+  const ui = await mountPane($, 'desktop')
+  expect(await ui.find({ type: 'Text', text: /^\+ \d+ more$/ })).toBeDefined()
+  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
 test('a remote workflow agent with no loop of its own gets no card that would never end', async ($, on) => {
@@ -847,23 +911,6 @@ test('a remote workflow agent with no loop of its own gets no card that would ne
   const ui = await mountPane($, 'desktop')
   expect(await ui.find({ type: 'Svg', text: /remote/ })).toBeUndefined()
   expect((await shown($, 'desktop')).words).not.toContain('Agents:')
-})
-
-test('six running and eight fresh finished agents with a report open still fit the tree limit', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  for (let i = 0; i < 14; i++) {
-    await spawn($, `job ${i}`)
-    await $.tool.call({ tool: 'TodoWrite', agentId: `agent-job ${i}`, todos: [
-      { content: 'a', status: 'completed', activeForm: 'A' }, { content: 'b', status: 'in_progress', activeForm: 'B' },
-    ] } as Parameters<typeof $.tool.call>[0])
-  }
-  for (let i = 6; i < 14; i++) await $.turn.complete({ turnId: `t${i}`, agentId: `agent-job ${i}`, answer: 'r'.repeat(5000), durationMs: 10, isAborted: false, reason: 'answer' })
-  const ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'toggle-finished' })
-  await ui.press({ key: 'result-agent-job 13' })
-  expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
 test('git runs with a timeout, and the band follows the session to a new folder', async ($, on) => {
@@ -1335,25 +1382,6 @@ test('the band with every row, a full crew and Clawd in the info row stays under
   expect(String(svg?.props.source)).toContain('class="run"')
   expect(String(svg?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
-})
-
-test('agents report their own steps through the mod’s tool, filling their card', async ($, on) => {
-  engine(on)
-  panes(on)
-  const tools: string[] = []
-  on('tool.register', ($, e) => {
-    tools.push(e.name)
-    return { value: { tool: `mcp__sabai__${e.name}` } }
-  })
-  await start($)
-  expect(tools).toEqual(['step'])
-  await spawn($, 'worker')
-  const reply = await $.tool.call({ tool: 'mcp__sabai__step', agentId: 'agent-worker', done: 2, total: 4, note: 'Reading the docs' } as unknown as Parameters<typeof $.tool.call>[0])
-  expect(reply.result).toBe('ok')
-  const ui = await mountPane($, 'desktop')
-  const card = ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]).find(c => c.props.alt.startsWith('worker:'))
-  expect(card?.props.source).toContain('>2/4<')
-  expect(card?.props.source).toContain('>Reading the docs<')
 })
 
 const mountTool = ($: Engine, surface: Surface, props: Record<string, unknown>) =>

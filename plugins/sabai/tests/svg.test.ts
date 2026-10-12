@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -869,17 +869,6 @@ test('a ring at 0% draws its track and no dot', () => {
   const source = bandSvg(undefined, list, 900, { hero: true, usageStyle: 'rings', clawd: false })!.source
   expect(source.match(/stroke-dasharray/g)!.length).toBe(1)
   expect(source).not.toContain('stroke-dasharray="0 ')
-})
-
-test('on a narrow pane an agent card’s type and model give way to the time', () => {
-  const a: AgentRun = { id: 'a', agentId: 'a', type: 'general-purpose', description: 'd', model: 'claude-opus-5-5', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, effort: '32000' }
-  for (const W of [240, 260, 420]) {
-    const body = agentCardSvg(a, W, 7_200_000).source
-    const time = endSpans(body, 18)[0]!
-    const meta = body.match(/<text class="m" x="([\d.]+)" y="18" font-family="[^"]*" font-size="11">([^<]*)<\/text>/)
-    if (meta) expect([W, Number(meta[1]) + monoWidth(meta[2]!, 11) + 4 <= time[0]]).toEqual([W, true])
-  }
-  expect(agentCardSvg(a, 420, 7_200_000).source).toContain('general-purpose')
 })
 
 test('a slow step’s tortoise time sits clear of its pill', () => {

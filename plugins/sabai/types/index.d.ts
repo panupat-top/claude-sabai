@@ -40,7 +40,38 @@ export type AgentRun = {
   workflow?: boolean
   // What the agent reported through the mod's step tool, when it did.
   progress?: { done: number; total: number; note?: string }
+  // The fields below are what the agents pane's detail shows; absent on runs from before them.
+  // The crew it belongs to: the main turn (or the workflow run) that started it.
+  crew?: string
+  // The task as the Agent call gave it, cut short.
+  brief?: string
+  background?: boolean
+  // Its latest calls, oldest first, with every call and failure counted past them.
+  calls?: AgentCall[]
+  callCount?: number
+  callFails?: number
+  // Calls in flight, oldest first: parallel calls each hold their own.
+  doing?: { kind: ActKind; title: string; target: string }[]
+  // How often each tool was called; a skill as `skill:<name>`.
+  tools?: Record<string, number>
+  files?: Record<string, AgentFile>
+  // The step tool's notes, in the order they came.
+  notes?: string[]
+  // Every request's tokens, summed.
+  spent?: number
+  // Clock time of its latest call, call's end or request.
+  lastActiveAt?: number
+  // The Thai summary of its report: bullets, `pending` while Haiku writes them.
+  summary?: string[] | 'pending'
+  // Earlier rounds' reports, when it was sent more work after finishing.
+  rounds?: AgentRound[]
 }
+
+// What a subagent's call was: the race's kinds and the tools they leave out.
+export type ActKind = CallKind | 'search' | 'web' | 'skill' | 'mcp' | 'other'
+export type AgentCall = { kind: ActKind; title: string; ok: boolean; ms: number }
+export type AgentFile = { reads: number; edits: number; added: number; removed: number; created?: boolean }
+export type AgentRound = { result?: string; reason?: AgentRun['reason']; summary?: string[] }
 
 // The person's choices in the settings pane, kept across sessions.
 export type Prefs = {
@@ -58,6 +89,8 @@ export type Prefs = {
   // Clawd's hats and props for the hour and holidays, and his tricks.
   extras: { accessories: boolean; tricks: boolean }
   usageStyle: UsageStyle
+  // A finished agent's report summed up in Thai by Haiku.
+  agentSummary: boolean
 }
 
 // What the band shows: each info chip, each usage card, and Clawd.
@@ -108,10 +141,17 @@ declare module 'claude-code' {
       skin: string
       bar: BarStyle
       prefs: Prefs
-      finishedOpen: boolean
       // Reset was pressed once and waits a few seconds for the second press.
       resetArmed: boolean
-      openResults: string[]
+      // The agents pane: the agent its detail shows (null: the one most worth a look), the
+      // detail's folds that are open, and the earlier crews shown in full.
+      selectedAgent: string | null
+      detailOpen: string[]
+      earlierOpen: string[]
+      // The earlier crews' box folded or not; null: folded while a crew is at work.
+      earlierFolded: boolean | null
+      // The main loop's model, whose context window a subagent on the same model shares.
+      mainModel: string
       agents: AgentRun[]
       durations: StateFamily<number>
       turnLog: TurnLog
