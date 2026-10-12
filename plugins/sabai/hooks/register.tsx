@@ -4,11 +4,11 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import { clearFinished, clock, finished, groups, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, summarySvg, toolIconSvg } from './svg'
-import type { ToolIcon } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, summarySvg, toolIconSvg, usageSketch } from './svg'
+import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
-import type { Logged, StepIcon } from './chat'
+import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
 
@@ -101,6 +101,13 @@ const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && Objec
 
 const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
+// The settings' drawn choices: layouts and looks two to a row, the usage styles four.
+const PICK_W = 220
+const USAGE_PICK_W = 132
+// What the settings show of the chat's touches: an edit, a test run and a turn's receipt.
+const SAMPLE_EDIT: Step = { icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/sabai/hooks/', result: [{ text: '+3 −2', tone: 'text' }], meter: { good: 3, bad: 2 } }
+const SAMPLE_TEST: Step = { icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 159 passed', tone: 'ok' }], meter: { good: 159, bad: 0 }, time: '5.4s' }
+const SAMPLE_RECEIPT: Receipt = { tone: 'ok', headline: 'All green', files: { count: 3, added: 40, removed: 12 }, test: { passed: 159, failed: 0 }, commands: { count: 4, failed: 0 } }
 
 // The desktop's toolbar icons are links a press answers (onLinkPress); this address is never opened.
 const TOOL_HREF = 'https://sabai.invalid/'
@@ -733,25 +740,34 @@ export const register: Register = on => {
     text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.',
   }))
 
-  // The settings: the band's rows, the bar style, alerts, agents and safety, then the look. Each
-  // choice is a name and a note on the left with its control on the right; the looks and the bar
-  // style carry a sample.
+  // The settings, most seen first: the look, the usage, the info row, Clawd, agents, the chat, the
+  // guard, notifications. A part of the band with choices of its own is a group with its On/Off in
+  // the group's head; each choice is a name and a note on the left with its control on the right,
+  // and a choice that changes a drawing shows it.
   on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const current = await read($, skin)
     const style = await read($, bar)
     const p = await read($, prefs)
     const armed = await read($, resetArmed)
+    const known = await read($, env)
     const { Box, Button, Svg, Text } = $.ui.resolve(e)
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
-    // One group: a bordered card with its mark, title and what it is about, then its rows.
-    const group = (key: string, mark: string, title: string, note: string, rows: RenderNode) => (
+    // One group: a bordered card with its mark, title and what it is about, its On/Off at the right
+    // when the part can be hidden, then its rows (left out while the part is off, unless they reach
+    // past it).
+    const group = (key: string, mark: string, title: string, note: string, rows: RenderNode, power?: { key: string; on: boolean; flip: (p: Prefs) => Prefs }, keep = false) => (
       <Box key={`group-${key}`} borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-        <Text>
-          <Text bold>{`${mark}  ${title}`}</Text>
-          <Text dimColor>{`  ${note}`}</Text>
-        </Text>
-        {rows}
+        <Box flexDirection="row" alignItems="center" columnGap={2}>
+          <Box flexGrow={1}>
+            <Text wrap="truncate-end">
+              <Text bold>{`${mark}  ${title}`}</Text>
+              <Text dimColor>{`  ${note}`}</Text>
+            </Text>
+          </Box>
+          {power ? <Button key={`pref-${power.key}`} label={power.on ? '● On' : '○ Off'} onPress={() => setPrefs($, power.flip)} /> : null}
+        </Box>
+        {!power || power.on || keep ? rows : null}
       </Box>
     )
     const subheading = (title: string, note: string) => (
@@ -796,12 +812,11 @@ export const register: Register = on => {
         ))}
       </Box>
     )
-    const flag = (key: 'notify' | 'limits' | 'guard' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
-    const showToggle = (key: keyof Prefs['show'], name: string, note: string) =>
-      toggle(`show-${key}`, name, note, p.show[key], x => ({ ...x, show: { ...x.show, [key]: !x.show[key] } }))
+    const flag = (key: 'notify' | 'limits' | 'steps', name: string, note: string) => toggle(key, name, note, p[key], x => ({ ...x, [key]: !x[key] }))
+    const rowPower = (key: keyof Prefs['rows']) => ({ key, on: p.rows[key], flip: (x: Prefs) => ({ ...x, rows: { ...x.rows, [key]: !x.rows[key] } }) })
     const thresholdRow = (key: 'warn' | 'alert', name: string, values: number[], current: number) => (
       <Box key={`row-${key}`} flexDirection="row" alignItems="center" columnGap={2}>
-        {named(name, key === 'warn' ? 'Amber from this percent' : 'Red from this percent')}
+        {named(name, '')}
         <Box flexDirection="row" columnGap={1}>
           {values.map(v => (
             <Button key={`${key}-${v}`} label={`${v}%`} variant={v === current ? 'primary' : 'secondary'} onPress={() => setPrefs($, x => ({ ...x, [key === 'warn' ? 'warnAt' : 'alertAt']: v }))} />
@@ -812,94 +827,137 @@ export const register: Register = on => {
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = barPreview(style, current, W)
-    // The two looks side by side, each a swatch of its cards in the app's light or dark.
-    const looks = SKINS.map(k => {
-      const swatch = skinPreview(k, Math.floor(W / 2) - 8, k === current)
-      return <Svg key={`swatch-${k}`} source={swatch.source} alt={swatch.alt} />
-    })
+    // A row of drawn choices, each its sketch over a Button with its name. The sketch is not the
+    // control: on the desktop a press on a large image link often lands as a drag of the image.
+    const picks = <T extends string>(prefix: string, values: readonly T[], name: (v: T) => string, current: T, draw: (v: T) => Drawing, pick: (v: T) => Promise<void>) => (
+      <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap">
+        {values.map(v => {
+          const d = draw(v)
+          return (
+            <Box key={`pick-${prefix}-${v}`} flexDirection="column" rowGap={1} alignItems="flex-start">
+              <Svg key={`${prefix}-${v}-sketch`} source={d.source} alt={d.alt} width={d.width} height={d.height} />
+              <Button key={`${prefix}-${v}`} label={name(v)} variant={v === current ? 'primary' : 'secondary'} onPress={() => pick(v)} />
+            </Box>
+          )
+        })}
+      </Box>
+    )
+    // One part of a group: its heading, then what it holds, a row apart.
+    const part = (key: string, title: string, note: string, ...rows: RenderNode[]) => (
+      <Box key={`part-${key}`} flexDirection="column" rowGap={1}>
+        {subheading(title, note)}
+        {rows}
+      </Box>
+    )
+    const skinInUse = (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised'
+    // The info row as it reads.
+    const infoNow = infoSvg({ ...chips(known, p.show), pending: !known.read }, W, { skin: current })
+    // A sample of each chat touch that is on.
+    const chatSamples = [
+      ...(p.chat.tools ? [stepSvg(SAMPLE_EDIT), ...(p.chat.tests ? [stepSvg(SAMPLE_TEST)] : [])] : []),
+      ...(p.chat.receipt ? [receiptSvg(SAMPLE_RECEIPT)] : []),
+    ]
     return (
       <Box flexDirection="column" rowGap={1}>
-        <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
+        <Text dimColor>Changes apply at once and stay for new sessions. Esc closes.</Text>
         {group(
-          'layout',
-          '▤',
-          'Layout',
-          'What the band shows',
-          <>
-            {named('Density', 'Comfortable: Clawd, usage and the race while work runs. Compact: one-line rows')}
-            {choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d })))}
-            {subheading('Rows', 'Tap to show or hide')}
-            {pills([rowPill('info', 'Info'), rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('crew', 'Agents'), rowPill('usage', 'Usage'), rowPill('toolbar', 'Toolbar')])}
-            <Text dimColor>Activity is the race when the band is 760 px or wider, else the live strip. Agents are lanes in the race, or the crew row. With the toolbar hidden, /sabai-settings brings you back here.</Text>
-          </>,
+          'look',
+          '◐',
+          'Look',
+          'How the band is laid out and drawn',
+          <Box flexDirection="column" rowGap={2}>
+            {part('layout', 'Layout', 'Side by side, or stacked and shorter', picks('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => densityPreview(d, current, PICK_W, d === p.density), d => setPrefs($, x => ({ ...x, density: d }))))}
+            {part('cards', 'Cards', 'Raised or flat; both follow light and dark', picks('skin', SKINS, k => SKIN_NAMES[k]!, skinInUse, k => skinPreview(k, PICK_W, k === skinInUse), k => setSkin($, k)))}
+            {part(
+              'bars',
+              'Bars',
+              'Tasks and usage (Rings draw their own)',
+              <Svg key="bar-sample" source={preview.source} alt={preview.alt} width={preview.width} height={preview.height} />,
+              choice('bar', Object.keys(BAR_STYLES) as BarStyle[], b => BAR_STYLES[b], style, b => void setBar($, b)),
+            )}
+            {part(
+              'rows',
+              'Also show',
+              'Tap to show or hide',
+              pills([rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('toolbar', 'Toolbar')]),
+              <Text key="rows-note" dimColor>Activity is the race on a wide window, else a one-line strip of what Claude is doing. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
+            )}
+          </Box>,
         )}
-        {group('info', '▣', 'Info', 'The info row', pills([showPill('folder', 'Folder'), showPill('gitUser', 'Git user'), showPill('branch', 'Branch'), showPill('node', 'Node')]))}
         {group(
           'usage',
           '◔',
           'Usage',
-          'Limits and when they turn amber and red',
-          <>
-            {subheading('Style', 'In the compact band, and the comfortable one from 480 px')}
-            {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
-            {subheading('Limits', 'Which ones show')}
-            {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
-            {thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt)}
-            {thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt)}
-          </>,
+          'Context, 5H and 7D',
+          <Box flexDirection="column" rowGap={2}>
+            {part('style', 'Style', '', picks('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => usageSketch(u, current, USAGE_PICK_W, u === p.usageStyle), u => setPrefs($, x => ({ ...x, usageStyle: u }))))}
+            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
+          </Box>,
+          rowPower('usage'),
+        )}
+        {group(
+          'info',
+          '▣',
+          'Info row',
+          'Above the band',
+          <Box flexDirection="column" rowGap={1}>
+            {pills([showPill('folder', 'Folder'), showPill('branch', 'Branch'), showPill('gitUser', 'Git user'), showPill('node', 'Node')])}
+            {infoNow ? <Svg source={infoNow.source} alt={infoNow.alt} width={infoNow.width} height={infoNow.height} /> : null}
+          </Box>,
+          rowPower('info'),
         )}
         {group(
           'clawd',
           '☻',
           'Clawd',
-          'The pixel crab',
+          'His mood, beside the usage',
           <>
-            {showToggle('clawd', 'Clawd', 'His mood and what it means')}
-            {subheading('Extras', 'Hats and props for the hour and holidays; waves, yawns and looks')}
-            {pills([extraPill('accessories', 'Accessories'), extraPill('tricks', 'Tricks')])}
+            {pills([extraPill('accessories', 'Hats and props'), extraPill('tricks', 'Tricks')])}
+            <Text dimColor>Coffee in the morning, a hat on holidays; waves, yawns and looks.</Text>
           </>,
+          { key: 'show-clawd', on: p.show.clawd, flip: x => ({ ...x, show: { ...x.show, clawd: !x.show.clawd } }) },
         )}
-        {group('agents', '✻', 'Agents', 'Subagents', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
+        {group('agents', '✻', 'Agents', 'Race lanes, or a row of small Clawds', flag('steps', 'Step reports', 'Agents report their progress to their lane and card; from the next session'), rowPower('crew'), true)}
         {group(
           'chat',
           '❯',
           'Conversation',
-          "How Claude's work shows in the chat",
-          <>
-            {chatToggle('tools', 'Tool summaries', 'Edits, reads and commands as one-line steps; off, the native rows that expand to output')}
-            {chatToggle('tests', 'Test results', 'Counts and a meter for test runs (needs Tool summaries)')}
-            {chatToggle('callouts', 'Callouts', 'Boxes for notes and warnings; Claude is told it may use them')}
-            {chatToggle('receipt', 'Turn receipt', 'One line under a working turn’s answer: files changed, tests, commands')}
+          'How Claude’s work shows in the chat',
+          <Box flexDirection="column" rowGap={1}>
+            {chatSamples.map((d, i) => (
+              <Svg key={`chat-sample-${i}`} source={d.source} alt={d.alt} width={d.width} height={d.height} />
+            ))}
+            {chatToggle('tools', 'Tool summaries', 'Each call as one line; off, the native rows that expand to output')}
+            {chatToggle('tests', 'Test results', 'Pass and fail counts on test runs (with Tool summaries)')}
+            {chatToggle('callouts', 'Callouts', 'Notes and warnings as coloured boxes; Claude is told it may use them')}
+            {chatToggle('receipt', 'Turn receipt', 'A line under each working turn: files, tests, commands')}
             {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
-          </>,
+          </Box>,
         )}
         {group(
-          'safety',
+          'guard',
           '◈',
-          'Safety',
-          'What Claude may not run',
+          'Guard',
+          'Stops risky commands before they run',
           <Box flexDirection="column" rowGap={1}>
-            {flag('guard', 'Guard', 'Catch the commands below; a shield in the band counts what it caught. In auto mode, Ask goes to the classifier')}
-            {p.guard ? (
-              <Box flexDirection="column" rowGap={1}>
-                {(Object.keys(GUARD_RULES) as GuardRule[]).map(rule => (
-                  <Box key={`row-guard-${rule}`} flexDirection="row" alignItems="center" columnGap={2}>
-                    {named(GUARD_RULES[rule].name, GUARD_RULES[rule].note)}
-                    <Box flexDirection="row" columnGap={1}>
-                      {(['block', 'ask', 'off'] as GuardAction[]).map(action => (
-                        <Button
-                          key={`guard-${rule}-${action}`}
-                          label={action === 'block' ? 'Block' : action === 'ask' ? 'Ask' : 'Off'}
-                          variant={p.guardRules[rule] === action ? 'primary' : 'secondary'}
-                          onPress={() => setPrefs($, x => ({ ...x, guardRules: { ...x.guardRules, [rule]: action } }))}
-                        />
-                      ))}
-                    </Box>
-                  </Box>
-                ))}
+            <Text dimColor>A shield in the info row counts what it caught. In auto mode, Ask goes to the classifier.</Text>
+            {(Object.keys(GUARD_RULES) as GuardRule[]).map(rule => (
+              <Box key={`row-guard-${rule}`} flexDirection="row" alignItems="center" columnGap={2}>
+                {named(GUARD_RULES[rule].name, GUARD_RULES[rule].note)}
+                <Box flexDirection="row" columnGap={1}>
+                  {(['block', 'ask', 'off'] as GuardAction[]).map(action => (
+                    <Button
+                      key={`guard-${rule}-${action}`}
+                      label={action === 'block' ? 'Block' : action === 'ask' ? 'Ask' : 'Off'}
+                      variant={p.guardRules[rule] === action ? 'primary' : 'secondary'}
+                      onPress={() => setPrefs($, x => ({ ...x, guardRules: { ...x.guardRules, [rule]: action } }))}
+                    />
+                  ))}
+                </Box>
               </Box>
-            ) : null}
+            ))}
           </Box>,
+          { key: 'guard', on: p.guard, flip: x => ({ ...x, guard: !x.guard }) },
         )}
         {group(
           'alerts',
@@ -907,26 +965,12 @@ export const register: Register = on => {
           'Notifications',
           'Outside the band',
           <>
-            {flag('notify', 'Turn notifications', 'When a turn of a minute or more ends, or an agent fails')}
-            {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes your red mark')}
-          </>,
-        )}
-        {group(
-          'look',
-          '◐',
-          'Look',
-          'Cards and bars',
-          <>
-            {subheading('Cards', 'Raised off the band, or flat on it; both follow the app’s light or dark look')}
-            {choice('skin', SKINS, k => SKIN_NAMES[k]!, (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised', k => void setSkin($, k))}
-            <Box flexDirection="row" columnGap={1}>{looks}</Box>
-            {subheading('Progress bar', 'Tasks and usage bars (Rings draw their own)')}
-            {choice('bar', Object.keys(BAR_STYLES) as BarStyle[], b => BAR_STYLES[b], style, b => void setBar($, b))}
-            <Svg source={preview.source} alt={preview.alt} />
+            {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or an agent fails')}
+            {flag('limits', 'Limit warnings', 'Once per window, when 5H or 7D passes red')}
           </>,
         )}
         <Box flexDirection="row" alignItems="center" columnGap={2}>
-          {named('Reset', 'Back to how sabai started: these settings (the guard off), the look and the bar style')}
+          {named('Reset', 'Every setting, the look and the bars; the guard off')}
           {/* It undoes every choice and turns the guard off, so the first press only asks for a second. */}
           <Button
             key="reset-defaults"

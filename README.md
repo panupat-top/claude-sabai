@@ -132,17 +132,18 @@ It needs `jq` and `git`, reads only what Claude Code passes it and the folder's 
 
 Press the gear or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
 
+Groups run from what you see most to what you set once. A part of the band with choices of its own has its On/Off at the right of its group's title. A choice of how something looks shows a sketch over its button, the one in use ringed and ticked.
+
 | Group | Choices |
 |---|---|
-| Layout | Density (comfortable or compact); each row as a toggle: Info, Tasks, Activity (the race from 760 px, else the live strip), Agents (race lanes or the crew row), Usage, Toolbar |
-| Info | Each part: Folder, Git user, Branch, Node |
-| Usage | Style (Tiles, Rings, Columns, Rows); each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
-| Clawd | Clawd on or off; extras: Accessories (hats and props) and Tricks (waves, yawns, looks) |
-| Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
-| Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
-| Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
-| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes your red mark (on) |
-| Look | Cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; the progress bar style |
+| Look | Layout: **Comfortable** (side by side) or **Compact** (stacked and shorter), and cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; each a sketch with its button under it. The bar style, with a sample; and Tasks, Activity (the race on a wide window, else a one-line strip) and Toolbar to show or hide |
+| Usage | On or off; style (Tiles, Rings, Columns, Rows), each a sketch with its button; each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
+| Info row | On or off; each part: Folder, Branch, Git user, Node, with the row as it reads |
+| Clawd | On or off; Hats and props, Tricks (waves, yawns, looks) |
+| Agents | Race lanes or the crew row, on or off; Step reports: agents report their own progress to their lane and card (on; from the next session) |
+| Conversation | A sample of each touch that is on; Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
+| Guard | Off by default. Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
+| Notifications | Turn ended: when a turn of a minute or more ends or an agent fails; Limit warnings: once per window when 5H or 7D passes your red mark (on) |
 
 **Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the look and the bar style back.
 

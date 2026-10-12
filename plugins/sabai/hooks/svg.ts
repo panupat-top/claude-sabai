@@ -937,21 +937,42 @@ export function infoSvg(
   return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}"><style>${leanCss(look, INFO_INKS)}</style>${body}</svg>`, width: W, height: h, alt: part.alt }
 }
 
-// The look picker's swatch: a strip of the look's card colour with its text colours (`Aa`) and
-// the four accents as segmented bars. Kept small, since a pane's whole tree
-// must stay under 100,000 characters: only the skin in use carries Clawd (~14k), walking.
+// A choice's sketch in the settings, its Button under it: the sample on a tint of the track, and
+// when in use a ring and a check in Clawd's colour.
+const PICK_PAD = 8
+function pickTile(look: Look, w: number, innerH: number, inner: string, inUse: boolean): { body: string; height: number } {
+  const h = PICK_PAD * 2 + innerH
+  const mark = inUse
+    ? `<rect x="1" y="1" width="${w - 2}" height="${h - 2}" rx="10" fill="none" stroke="${look.clawd}" stroke-width="2"/>` +
+      `<circle cx="${w - 9}" cy="9" r="6.5" fill="${look.clawd}"/><path d="M${w - 12.2} 9l2.3 2.3l4.2-4.6" stroke="#ffffff" stroke-width="1.5" fill="none"/>`
+    : ''
+  return { body: `<rect class="k" fill-opacity=".45" width="${w}" height="${h}" rx="10"/><g transform="translate(${PICK_PAD},${PICK_PAD})">${inner}</g>${mark}`, height: h }
+}
+const PICK_INKS = ['p', 'k', 't', 'm'] as const
+const leanPick = (look: Look, w: number, tile: { body: string; height: number }, alt: string, inks: readonly string[] = PICK_INKS): Drawing => ({
+  source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${tile.height}" viewBox="0 0 ${w} ${tile.height}"><style>${leanCss(look, inks)}</style>${tile.body}</svg>`,
+  width: w,
+  height: tile.height,
+  alt,
+})
+const sketchBlock = (x: number, y: number, w: number, h: number, paint = 'class="p"', rx = 3) =>
+  `<rect ${paint} x="${+x.toFixed(1)}" y="${+y.toFixed(1)}" width="${+Math.max(0, w).toFixed(1)}" height="${+h.toFixed(1)}" rx="${rx}"/>`
+const filled = (color: string) => `fill="${color}"`
+
+// The look picker's choice: a strip of the look's card colour with its text colours (`Aa`) and the
+// four accents as segmented bars. Only the look in use carries Clawd (~14k), walking, since a
+// pane's whole tree must stay under 100,000 characters.
 const SWATCH_H = 32
-const SWATCH_TOP = 8
 const SEGMENTS = 6
 const SAMPLE_FILL: Record<MeterKind | 'tasks', number> = { tasks: 5, context: 3, session: 2, week: 4 }
-
 export function skinPreview(skin: string, W: number, inUse = false): Drawing {
   const look = lookOf(skin)
   const w = Math.max(200, W)
+  const sw = w - PICK_PAD * 2
   const clawd = spriteSize('tasks')
   const textX = PAD + (inUse ? clawd.width + 8 : 0)
   const cardX = textX + 52
-  const cardW = w - cardX - 6
+  const cardW = sw - cardX - 6
   const kinds = Object.keys(SAMPLE_FILL) as (MeterKind | 'tasks')[]
   const barW = (cardW - PAD * 2 - GAP * (kinds.length - 1)) / kinds.length
   const segW = barW / SEGMENTS
@@ -964,29 +985,109 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
       }).join(''),
     )
     .join('')
-  const body =
-    strip(w) +
+  const inner =
+    strip(sw) +
     (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
     `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
     bars
-  return swatch(look, w, body, `${SKIN_NAMES[skin] ?? SKIN_NAMES.auto} cards`, !inUse)
+  const name = SKIN_NAMES[skin] ?? SKIN_NAMES.auto!
+  const tile = pickTile(look, w, SWATCH_H, inner, inUse)
+  return drawing(look, w, tile.height, tile.body, `${name} cards${inUse ? ', in use' : ''}`, !inUse)
 }
 
-// The picker's sample of a bar style: one bar, part filled, in the skin's task colour.
+// The layout picker's choice: the band sketched in either layout, Clawd's block in his colour,
+// the usage as cards with their bars, and in the comfortable one the race's lanes.
+const SKETCH_H = 56
+export function densityPreview(density: 'comfortable' | 'compact', skin: string, W: number, inUse = false): Drawing {
+  const look = lookOf(skin)
+  const w = Math.max(160, W)
+  const sw = w - PICK_PAD * 2
+  const tones = [look.bar('context'), look.bar('session'), look.bar('week')]
+  const fills = [0.26, 0.1, 0.32]
+  // Clawd in a few pixels: his body, his claws and two eyes.
+  const crab = (x: number, y: number, u: number) =>
+    [[1, 0, 4, 1], [0, 1, 6, 2], [0, 3, 1, 1], [5, 3, 1, 1], [1, 3, 1, 1], [4, 3, 1, 1]].map(([a, b, c, d]) => sketchBlock(x + a! * u, y + b! * u, c! * u, d! * u, filled(look.clawd), 0)).join('') +
+    sketchBlock(x + 2 * u, y + u, u * 0.6, u * 0.6, 'class="t"', 0) + sketchBlock(x + 4 * u, y + u, u * 0.6, u * 0.6, 'class="t"', 0)
+  const meter = (x: number, y: number, mw: number, mh: number, i: number) =>
+    sketchBlock(x, y, mw, mh) + sketchBlock(x + 5, y + 5, 14, 3, 'class="k"', 1) + sketchBlock(x + 5, y + 11, 18, 5, filled(tones[i]!), 1) +
+    sketchBlock(x + 5, y + mh - 9, mw - 10, 3, 'class="k"', 1) + sketchBlock(x + 5, y + mh - 9, (mw - 10) * fills[i]!, 3, filled(tones[i]!), 1)
+  const lane = (x: number, y: number, lw: number, color: string, at: number) => sketchBlock(x, y + 6, lw, 1.5, 'class="k"', 0) + sketchBlock(x + lw * at, y + 1, 5, 5, filled(color), 1)
+  let inner: string
+  if (density === 'comfortable') {
+    const raceX = sw * 0.66
+    const mw = (raceX - 46 - 12) / 3
+    inner = sketchBlock(0, 0, 40, SKETCH_H) + crab(7, 18, 4) + [0, 1, 2].map(i => meter(44 + i * (mw + 4), 0, mw, SKETCH_H, i)).join('') + sketchBlock(raceX, 0, sw - raceX, SKETCH_H) +
+      [look.clawd, tones[0]!, tones[1]!].map((c, i) => lane(raceX + 4, 8 + i * 16, sw - raceX - 8, c, [0.55, 0.3, 0.75][i]!)).join('')
+  } else {
+    const cw = (sw - 8) / 3
+    inner = sketchBlock(0, 0, sw, 14) + crab(4, 3, 1.4) + sketchBlock(18, 5, 50, 4, 'class="k"', 1) +
+      sketchBlock(0, 18, sw, 14) + sketchBlock(4, 23, sw * 0.6, 4, 'class="k"', 1) + sketchBlock(4, 23, sw * 0.25, 4, filled(look.bar('tasks')), 1) +
+      [0, 1, 2].map(i => sketchBlock(i * (cw + 4), 36, cw, 20) + sketchBlock(4 + i * (cw + 4), 49, cw - 8, 3, 'class="k"', 1) + sketchBlock(4 + i * (cw + 4), 49, (cw - 8) * fills[i]!, 3, filled(tones[i]!), 1)).join('')
+  }
+  const name = density === 'comfortable' ? 'Comfortable' : 'Compact'
+  return leanPick(look, w, pickTile(look, w, SKETCH_H, inner, inUse), `${name} layout${inUse ? ', in use' : ''}`)
+}
+
+// The usage style picker's choice: one card of the style sketched, its words as track lines and
+// its meter in the context's colour (Rows: the three limits in theirs).
+const USAGE_SKETCH_H = 44
+export function usageSketch(style: UsageStyle, skin: string, W: number, inUse = false): Drawing {
+  const look = lookOf(skin)
+  const w = Math.max(110, W)
+  const cw = w - PICK_PAD * 2
+  const h = USAGE_SKETCH_H
+  const tone = look.bar('context')
+  const p = 0.62
+  const k = 'class="k"'
+  let inner = sketchBlock(0, 0, cw, h, 'class="p"', 6)
+  if (style === 'tiles')
+    inner += sketchBlock(8, 8, cw * 0.3, 4, k, 2) + sketchBlock(8, 17, cw * 0.38, 10, filled(tone), 2) + sketchBlock(8, h - 15, cw - 16, 4, k, 2) + sketchBlock(8, h - 15, (cw - 16) * p, 4, filled(tone), 2)
+  else if (style === 'rings') {
+    const r = h / 2 - 8
+    const cx = 10 + r
+    const c = 2 * Math.PI * r
+    inner +=
+      `<circle class="k-stroke" cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke-width="4"/>` +
+      `<circle cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke="${tone}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${h / 2})"/>` +
+      sketchBlock(18 + r * 2, h / 2 - 7, cw * 0.3, 4, k, 2) + sketchBlock(18 + r * 2, h / 2 + 3, cw * 0.4, 4, 'class="m"', 2)
+  } else if (style === 'columns') {
+    const ch = h - 14
+    inner += sketchBlock(8, 7, 10, ch, k, 3) + sketchBlock(8, 7 + ch * (1 - p), 10, ch * p, filled(tone), 3) + sketchBlock(26, 9, cw * 0.3, 4, k, 2) + sketchBlock(26, 18, cw * 0.36, 10, filled(tone), 2)
+  } else {
+    const rh = (h - 8) / 3
+    const tones = [tone, look.bar('session'), look.bar('week')]
+    inner += [0, 1, 2]
+      .map(i => {
+        const y = 4 + i * rh + rh / 2
+        return (
+          (i ? sketchBlock(6, 4 + i * rh, cw - 12, 0.8, k, 0) : '') +
+          sketchBlock(8, y - 2, cw * 0.18, 4, k, 2) + sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4, 4, k, 2) +
+          sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4 * [p, 0.3, 0.45][i]!, 4, filled(tones[i]!), 2) + sketchBlock(cw - 8 - cw * 0.14, y - 3, cw * 0.14, 6, filled(tones[i]!), 2)
+        )
+      })
+      .join('')
+  }
+  const name = USAGE_STYLES[style]
+  return leanPick(look, w, pickTile(look, w, h, inner, inUse), `${name} usage${inUse ? ', in use' : ''}`, [...PICK_INKS, 'k-stroke'])
+}
+
+// The bar style's sample: one bar, part filled, in the skin's task colour, on a framed strip
+// marked as a preview. Drawn at a set width, so a wide pane does not stretch it.
+const PREVIEW_W = 320
 export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
   const look = lookOf(skin)
-  const w = Math.max(200, W)
-  const body = strip(w) + pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, w - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)
-  return swatch(look, w, body, `${BAR_STYLES[style]} progress bars`, style !== 'dither')
+  const w = Math.max(200, Math.min(PREVIEW_W, W))
+  const sw = w - PICK_PAD * 2
+  const top = 22
+  const h = top + SWATCH_H + PICK_PAD
+  const body =
+    `<rect class="k" fill-opacity=".45" width="${w}" height="${h}" rx="10"/>` +
+    `<text class="m" x="10" y="15" font-family="${MONO}" font-size="9" letter-spacing=".08em">PREVIEW</text>` +
+    `<g transform="translate(${PICK_PAD},${top})">${strip(sw)}${pixelBar(`sabai-sample-${style}`, PAD, (SWATCH_H - 12) / 2, sw - PAD * 2, 12, 0.62, look.bar('tasks'), 5, style)}</g>`
+  return drawing(look, w, h, body, `${BAR_STYLES[style]} progress bars`, style !== 'dither')
 }
 
 const strip = (w: number) => `<rect class="p" width="${w}" height="${SWATCH_H}" rx="8"/>`
-
-// The pane has no spacing finer than a row, so the gap under a swatch's name row is drawn here.
-function swatch(look: Look, w: number, body: string, alt: string, still = false): Drawing {
-  const h = SWATCH_TOP + SWATCH_H
-  return { source: svg(look, w, h, `<g transform="translate(0,${SWATCH_TOP})">${body}</g>`, still), width: w, height: h, alt }
-}
 
 const drawing = (look: Look, W: number, height: number, body: string, alt: string, still = false): Drawing => ({
   source: svg(look, W, height, body, still),
