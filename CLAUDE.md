@@ -22,6 +22,15 @@ git config core.hooksPath .githooks                       # once per clone: pre-
 - `plugins/sabai/tsconfig.json` extends `.claude-plugin/types/tsconfig.json`, which Claude Code writes beside a mod only after it has loaded it (hot reload or `--plugin-dir`). That folder is gitignored and absent on a fresh clone, so `tsc` works only after one load. CI (`.github/workflows/check.yml`) therefore only validates and tests; the pre-commit hook type-checks when the types exist.
 - The API reference is that laid file, `.claude-plugin/types/claude-code/index.d.ts` (~14k lines, every event, `$` noun and element prop). Grep it rather than guessing an API.
 
+## Dev and production installs on the owner's machine
+
+An installed plugin runs from a copy in `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`, re-copied only when the version changes: `/reload-plugins` reloads that copy, not the repo. So the machine keeps two channels apart:
+
+- **Production**: the `claude-sabai` marketplace comes from GitHub (`claude plugin marketplace add panupat-top/claude-sabai`), as users install it. After a release is merged and pushed, `claude plugin marketplace update claude-sabai` then `claude plugin update sabai@claude-sabai`.
+- **Dev**: `~/.claude/settings.json` sets `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "<repo>/plugins/sabai" }`. Every session, the desktop Code tab included, then loads the checked-out branch in place as `sabai@inline`, which silently wins over the installed copy; a save reloads it. The env is read when a session starts, so a change to it needs a new session.
+- `claude plugin list` shows which is loaded (`sabai@inline` with a path is dev). To see a release as users get it, remove the env line, open a new session, then put it back.
+- To preview a drawing outside the engine, show each SVG as its own `<img>` (a data URI): inline SVGs in one HTML page share their `<style>` rules, so class colours leak between skins.
+
 ## sabai architecture
 
 A band above the prompt (comfortable: three panels — Clawd large with his mood, a reason and his tricks, the info row with the usage limits in one of four styles filling the band's height, and a race box where Main and each subagent run a lane while work runs; compact and narrow: stacked rows with the live strip and crew; a toolbar of Buttons under it), two panes (agents: cards and reports; settings: layout, info chips, usage style and limits, Clawd's extras, agents, chat, the guard, notifications, bar style, ten skins, reset), and touches to the conversation (tool calls drawn as one-line steps, test results, callouts, Thai spinner words, a receipt under each working turn). Clawd shows the session's mood in the band.
