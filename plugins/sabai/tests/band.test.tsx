@@ -120,6 +120,19 @@ async function toolsOf(ui: Mounted) {
     })
 }
 const pressTool = (ui: Mounted, kind: string) => ui.press({ key: `tool-${kind}`, link: { href: `https://sabai.invalid/${kind}` } })
+// The settings' drawn choices (layout, cards, usage style): each a sketch over its Button.
+type Pane = Awaited<ReturnType<typeof mountPane>>
+// A drawing keeps no key, so a picker's sketches are known by what their alt names.
+const PICKED: Record<string, string> = { density: 'layout', skin: 'cards', usage: 'usage' }
+async function picksOf(ui: Pane, prefix: string) {
+  return ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[])
+    .filter(d => new RegExp(`^\\w+ ${PICKED[prefix]}(, in use)?$`).test(d.props.alt))
+    .map(d => ({ alt: d.props.alt, source: d.props.source }))
+}
+async function choose(ui: Pane, clock: { advance: (ms: number) => Promise<unknown> }, key: string) {
+  await ui.press({ key })
+  await clock.advance(1)
+}
 
 const measure = ($: Engine, percent: number) =>
   $.session.measure({
@@ -439,25 +452,25 @@ test('/sabai-settings opens the settings panel and closes it again', async ($, o
 })
 
 test('the look picker offers raised and flat cards, each with its swatch, and a press switches', async ($, on) => {
-  const { store } = engine(on)
+  const { store, clock } = engine(on)
   panes(on)
   await start($)
   const desk = await mountPane($, 'desktop', 'sabai-skins')
+  expect((await picksOf(desk, 'skin')).map(c => c.alt)).toEqual(['Raised cards, in use', 'Flat cards'])
   expect([(await desk.find({ key: 'skin-raised' }))?.props.variant, (await desk.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
-  // Two swatches and one preview of the chosen bar style.
-  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(2 + 1)
+  // Two layouts, two looks, the bar style's sample, four usage styles, the info row and three chat samples.
+  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(2 + 2 + 1 + 4 + 1 + 3)
   expect(JSON.stringify(await desk.drawn()).length).toBeLessThan(100_000)
   await desk.unmount()
   const ui = await mountPane($, 'desktop', 'sabai-skins')
-  await ui.press({ key: 'skin-auto' })
+  await choose(ui, clock, 'skin-auto')
   expect(store.skin).toBe('auto')
-  expect((await ui.find({ key: 'skin-auto' }))?.props.variant).toBe('primary')
-  const previews = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
-  const flat = previews.find(p => p.props.alt === 'Flat cards')
+  const previews = await picksOf(ui, 'skin')
+  const flat = previews.find(p => p.alt === 'Flat cards, in use')
   // The look in use carries Clawd, walking.
-  expect(flat?.props.source).toContain('.p{fill:#f4f4f2}')
-  expect(flat?.props.source).toContain('class="run"')
-  expect(previews.find(p => p.props.alt === 'Raised cards')?.props.source).not.toContain('class="run"')
+  expect(flat?.source).toContain('.p{fill:#f4f4f2}')
+  expect(flat?.source).toContain('class="run"')
+  expect(previews.find(p => p.alt === 'Raised cards')?.source).not.toContain('class="run"')
 })
 
 test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {
@@ -884,10 +897,12 @@ test('settings: each band row can be hidden, and the choice is kept', async ($, 
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   for (const key of ['info', 'tasks', 'crew', 'usage', 'toolbar', 'notify', 'limits', 'guard', 'steps']) expect([key, await pane.find({ key: `pref-${key}` })]).not.toEqual([key, undefined])
-  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('● Usage')
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('● On')
   await pane.press({ key: 'pref-usage' })
   await pane.press({ key: 'pref-toolbar' })
-  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('○ Usage')
+  expect((await pane.find({ key: 'pref-usage' }))?.props.label).toBe('○ Off')
+  // Off, the usage group keeps only its head.
+  expect(await pane.find({ key: 'usage-tiles' })).toBeUndefined()
   const band = await shown($, 'desktop')
   expect(band.words).not.toContain('Context 24.5k')
   expect(band.buttons).toBe(0)
@@ -1116,7 +1131,7 @@ test('with every chip and Clawd hidden and nothing else to show, the band is lef
 })
 
 test('the density setting switches the band to compact', async ($, on) => {
-  engine(on)
+  const { clock } = engine(on)
   panes(on)
   await start($)
   const height = async () => {
@@ -1127,7 +1142,7 @@ test('the density setting switches the band to compact', async ($, on) => {
   }
   const roomy = await height()
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  await pane.press({ key: 'density-compact' })
+  await choose(pane, clock, 'density-compact')
   expect(await height()).toBeLessThan(roomy)
 })
 
@@ -1219,7 +1234,7 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
 })
 
 test('a wide band with every limit near full, tasks, agents and the race stays under the tree limit in every usage style', async ($, on) => {
-  engine(on, { percents: [100, 100, 100], contextTokens: 200_000 })
+  const { clock } = engine(on, { percents: [100, 100, 100], contextTokens: 200_000 })
   panes(on)
   turnStarts(on)
   await start($)
@@ -1231,7 +1246,7 @@ test('a wide band with every limit near full, tasks, agents and the race stays u
   for (let i = 0; i < 20; i++) await bash($, `npm run step-${i}`)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   for (const style of ['tiles', 'rings', 'columns', 'rows']) {
-    await pane.press({ key: `usage-${style}` })
+    await choose(pane, clock, `usage-${style}`)
     for (const columns of [194, 300, 496]) {
       const ui = await mountBand($, 'desktop', true, columns)
       expect([style, columns, JSON.stringify(await ui.drawn()).length < 100_000]).toEqual([style, columns, true])
@@ -1241,7 +1256,7 @@ test('a wide band with every limit near full, tasks, agents and the race stays u
 })
 
 test('the comfortable band draws the Clawd panel; compact keeps the stacked band', async ($, on) => {
-  engine(on)
+  const { clock } = engine(on)
   panes(on)
   await start($)
   const source = async () => {
@@ -1252,7 +1267,7 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   }
   expect(await source()).toMatch(/scale\(3\)/)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  await pane.press({ key: 'density-compact' })
+  await choose(pane, clock, 'density-compact')
   expect(await source()).not.toMatch(/scale\(3\)/)
 })
 
@@ -1640,18 +1655,59 @@ test('a reply too long to redraw within the tree limit is left to the engine, ca
   expect(await isStock(await mountReply($, 'desktop', `> [!NOTE]\n> x\n\n${'word '.repeat(19_000)}`))).toBe(true)
 })
 
-test('settings are nine bordered groups in order: layout, info, usage, Clawd, agents, conversation, safety, notifications, look', async ($, on) => {
+test('settings are eight bordered groups in order: look, usage, info row, Clawd, agents, conversation, guard, notifications', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-  const titles = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look']
+  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications']
   expect(cards.length).toBe(titles.length)
   const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
   const order = titles.map(t => words.indexOf(`  ${t}`))
   expect(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))).toBe(true)
-  for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+  for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto', 'density-compact', 'usage-rows']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+})
+
+test('settings preview what they change: the layout in use, the usage in its style, the info row, the chat; a part off keeps only its head', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  const svgs = async () => (await pane.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
+  const alts = async () => (await svgs()).map(s => s.props.alt)
+  const chosen = async (prefix: string) => (await picksOf(pane, prefix)).map(c => c.alt)
+  expect(await chosen('density')).toEqual(['Comfortable layout, in use', 'Compact layout'])
+  await choose(pane, clock, 'density-compact')
+  expect(await chosen('density')).toEqual(['Comfortable layout', 'Compact layout, in use'])
+  expect(await chosen('usage')).toEqual(['Tiles usage, in use', 'Rings usage', 'Columns usage', 'Rows usage'])
+  await choose(pane, clock, 'usage-rings')
+  expect(await chosen('usage')).toEqual(['Tiles usage', 'Rings usage, in use', 'Columns usage', 'Rows usage'])
+  // Each style's sketch is its own: the rings' alone draws a ring.
+  expect((await picksOf(pane, 'usage')).map(c => c.source.includes('stroke-dasharray'))).toEqual([false, true, false, false])
+  expect((await alts()).some(a => a.startsWith('Folder work'))).toBe(true)
+  await pane.press({ key: 'pref-show-folder' })
+  expect((await alts()).some(a => a.includes('Folder'))).toBe(false)
+  // The chat's samples follow its toggles.
+  expect((await alts()).filter(a => /Edited svg\.ts|Run the tests|Turn receipt/.test(a))).toHaveLength(3)
+  await pane.press({ key: 'pref-chat-tools' })
+  expect((await alts()).filter(a => /Edited svg\.ts|Run the tests|Turn receipt/.test(a))).toHaveLength(1)
+  for (const [power, inside] of [['pref-info', 'pref-show-node'], ['pref-show-clawd', 'pref-extras-tricks']] as const) {
+    await pane.press({ key: power })
+    expect([power, await pane.find({ key: inside })]).toEqual([power, undefined])
+  }
+  // Agents off still lets step reports be set: they feed the agents pane too.
+  await pane.press({ key: 'pref-crew' })
+  expect(await pane.find({ key: 'pref-steps' })).toBeDefined()
+  // Every preview drawn, on the widest pane, the tree stays under the limit.
+  await pane.unmount()
+  for (const bodyColumns of [40, 160, 496]) {
+    const wide = await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'Pane', requestId: 'sabai-skins', viewport: { columns: 500, rows: 30 }, props: { title: 'Settings', isFocused: false, bodyColumns, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} } })
+    for (const key of ['pref-info', 'pref-show-clawd', 'pref-chat-tools', 'pref-guard']) await wide.press({ key })
+    const size = JSON.stringify(await wide.drawn()).length
+    expect([bodyColumns, size < 100_000]).toEqual([bodyColumns, true])
+    await wide.unmount()
+  }
 })
 
 for (const bar of ['dither', 'blocks', 'solid'] as const)
@@ -1736,14 +1792,14 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   const labels = async () => (await pane.findAll({ type: 'Button' })).map(b => String(b.props.label))
   const all = await labels()
-  for (const l of ['● Info', '● Activity', '● Agents', '● Folder', '● Context', '● Accessories', '● Tricks', 'Tiles', 'Rings', 'Columns', 'Rows', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
+  for (const l of ['● Tasks', '● Activity', '● Toolbar', '● Folder', '● Context', '● Hats and props', '● Tricks', 'Dither', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
   const text = JSON.stringify(await pane.drawn())
-  const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(g => text.indexOf(`  ${g}`))
+  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
   expect(order.every(i => i >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
   await pane.press({ key: 'pref-show-folder' })
   expect(await labels()).toContain('○ Folder')
-  await pane.press({ key: 'usage-rings' })
+  await choose(pane, clock, 'usage-rings')
   const svg = async () => {
     const band = await mountBand($, 'desktop')
     const s = String((await bandOf(band))?.props.source)
@@ -1753,7 +1809,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(await svg()).toContain('stroke-dasharray')
   await pane.press({ key: 'pref-extras-tricks' })
   expect(await labels()).toContain('○ Tricks')
-  await pane.press({ key: 'skin-auto' })
+  await choose(pane, clock, 'skin-auto')
   expect(await svg()).toContain('.p{fill:#f4f4f2}')
   // The first press only asks; the second, within five seconds, resets.
   await pane.press({ key: 'reset-defaults' })

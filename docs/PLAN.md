@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-12): sabai 2.11.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-12): sabai 2.12.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -85,6 +85,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.12.0** settings pane ใหม่: เรียง group จากสิ่งที่เห็นบ่อยไปสิ่งที่ตั้งครั้งเดียว (Look → Usage → Info row → Clawd → Agents → Conversation → Guard → Notifications → Reset) · ส่วนของ band ที่มีตัวเลือกของตัวเองมีปุ่ม On/Off ที่หัว group และซ่อนตัวเลือกเมื่อปิด (Agents ยังแสดง Step reports เพราะใช้กับ agents pane ด้วย) · Tasks, Activity, Toolbar เป็น pill ใน Look · Layout, Cards และสไตล์ usage มีภาพโครง (`densityPreview`, `usageSketch`) หรือ swatch วางเหนือปุ่มของตัวเลือกนั้น อันที่ใช้อยู่มีกรอบสีของ Clawd กับ ✓ (เคยลองให้กดที่ภาพผ่าน Markdown image link แต่บน desktop ภาพใหญ่กดไม่ค่อยติด) · Svg ใน pane ต้องส่ง width/height ไม่งั้นถูกยืดเต็มความกว้าง · Bars ยังเป็นปุ่ม และ preview มีขนาดคงที่ (≤ 320 px) บนกรอบที่มีป้าย PREVIEW · แถว info ตามที่เปิด, ตัวอย่าง step/test/receipt ตาม toggle ของ chat · Safety เปลี่ยนชื่อเป็น Guard, ข้อความสั้นลงและไม่ใช้ px · pane ทั้งหมด ~50–67k ตัวอักษร
 - **2.11.0** ปิด U1: compact วาด usage ตาม `usageStyle` ทั้ง 4 แบบ ที่ความสูง 50 px (`USAGE_MIN_H` ความสูงต่ำสุดเดียวกับ comfortable) แทนการ์ดบรรทัดเดียว 22 px ซึ่งถูกลบออก · ที่ 40 px ตัวอักษรทับ bar จึงไม่เตี้ยกว่านี้ · band compact ที่กว้าง ≥ 720 px สูงขึ้น 28 px แต่ที่แคบกว่า 400 px เตี้ยลง (เดิมการ์ดเรียงลงเป็น 3 แถว) · comfortable ที่แคบกว่า 480 px ยังใช้การ์ดสองบรรทัด
 - **2.10.1** ปิด B1: แถว info ที่แคบไม่ตัดชื่อเหลือ `…` ล้วนอีก ลำดับการหลีกเมื่อที่ไม่พอเป็น Node → git user → ตัวนับ sync → ตัด folder (เหลืออย่างน้อย 3 ตัว) → เอา folder ออก → ตัด branch (เหลืออย่างน้อย 6 ตัว) ให้ branch อยู่นานที่สุด · ชื่อที่สั้นกว่าจำนวนตัวขั้นต่ำไม่ได้ `…` ต่อท้ายอีก (เดิม `main` กลายเป็น `main…`) · alt text บอกเฉพาะสิ่งที่วาด
 - **2.10.0** ปิด R1b: บรรทัด step ของ lane บอก call ล่าสุดเมื่อไม่มี progress (agent และ Main ระหว่าง call เช่น `· Edited svg.ts` แทน `· Working`), แต่ละ lane นับ `✓`/`✗` ของตัวเองข้างเวลา (lane ที่ merge รวมกัน, lane แบบ slim ก็มี), alt text บอกจำนวนต่อ lane · ความหมายของ icon และสีของ tile อยู่ใน README แทนการวาดใน band
