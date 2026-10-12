@@ -62,6 +62,9 @@ const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // Recent turns' logs by their final answer, so the reply that answer is drawn as carries its
 // receipt card; the engine names no turn on a reply, but its text is the answer's.
 const receipts = atom({ plugin: 'sabai', key: 'receipts' } as const, {} as Record<string, TurnLog>)
+// A receipt is filed under a short key of its answer, not the answer itself: every reply row reads
+// the map while it draws, streaming included, and it holds the last RECEIPTS_KEPT turns.
+const receiptKey = (answer: string) => `${seedOf(answer)}:${answer.length}`
 const RECEIPTS_KEPT = 40
 // The main turn as it runs, for the live strip: when it began, and the step in flight.
 const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
@@ -452,9 +455,9 @@ export const register: Register = on => {
         const answer = e.answer.trim()
         // An answer an earlier turn gave word for word ("Done.") would draw this receipt under that
         // turn's reply too, so it goes in the notice; the earlier reply keeps its own.
-        if (!answer || Object.hasOwn(await read($, receipts), answer))
+        if (!answer || Object.hasOwn(await read($, receipts), receiptKey(answer)))
           return { ...completed, text: completed.text ? `${completed.text}\n${receiptText(log)!}` : receiptText(log)! }
-        await update($, receipts, all => Object.fromEntries([...Object.entries(all), [answer, log]].slice(-RECEIPTS_KEPT)))
+        await update($, receipts, all => Object.fromEntries([...Object.entries(all), [receiptKey(answer), log]].slice(-RECEIPTS_KEPT)))
       }
     } else {
       const at = await $.clock.now()
@@ -1023,7 +1026,7 @@ export const register: Register = on => {
     const { Box, Markdown, Text } = ui
     const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
     // The turn's receipt, when this reply holds a working turn's final answer.
-    const log = p.chat.receipt && !e.props.isSummary ? (await read($, receipts))[e.props.text.trim()] : undefined
+    const log = p.chat.receipt && !e.props.isSummary ? (await read($, receipts))[receiptKey(e.props.text.trim())] : undefined
     const receipt = log && receiptOf(log)
     const parts = e.props.isSummary || e.props.text.length > REPLY_REDRAW_MAX || !p.chat.callouts ? [] : splitCallouts(e.props.text)
     const body = !parts.some(s => s.kind === 'callout') ? (

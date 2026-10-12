@@ -374,7 +374,9 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(3)
+  // The merged lane draws its runner once and its two ghosts by reference.
+  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(1)
+  expect(part.body.match(/<use href="#sabai-run-1"/g)!.length).toBe(2)
   expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
 })
 
@@ -434,7 +436,7 @@ test('Main waiting and a finished agent fold to one line: a mark, the name, the 
   const part = racePart(lookOf('auto'), race as never, 300, 0)
   expect(part.height).toBe(24 + 3 * 18 + 6)
   for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', 'fill-rule="evenodd"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  for (const s of ['scale(.8)', 'class="flag', '<path transform="translate(', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  for (const s of ['scale(.8)', 'class="flag', '<use href="#sabai-tr-', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
   // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
   for (const m of part.body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
     const x = Number(m[1])
@@ -776,13 +778,22 @@ test('the race header’s figures never overlap, however long the time or the co
 })
 
 // A one-lane race's footprints (tile x positions) and runners (x of each runner group).
+// A footprint is a <use> of its kind's shape in <defs>; a merged lane's ghosts are <use>s of its
+// runner, offset from it.
 const trail = (lane: object) => {
   const body = racePart(lookOf('auto'), { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [lane] } as never, 300, 0).body
+  const runner = [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1]))
+  const ghosts = [...body.matchAll(/<use href="#sabai-run-\d+" x="(-?[\d.]+)"/g)].map(m => runner[0]! + Number(m[1]))
   return {
     body,
-    tiles: [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)"/g)].map(m => Number(m[1])),
-    runners: [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1])),
+    tiles: [...body.matchAll(/<use href="#sabai-tr-\w+" x="([\d.]+)"/g)].map(m => Number(m[1])),
+    runners: [...ghosts, ...runner],
   }
+}
+// The trail's icons left to right: each footprint's shape (from <defs>) and its paint.
+const trailIcons = (body: string) => {
+  const shapes = Object.fromEntries([...body.matchAll(/<path id="sabai-tr-(\w+)" d="([^"]+)"\/>/g)].map(m => [m[1], m[2]]))
+  return [...body.matchAll(/<use href="#sabai-tr-(\w+)" x="([\d.]+)" y="[\d.]+" ([^/]+)\/>/g)].sort((a, b) => Number(a[2]) - Number(b[2])).map(m => [shapes[m[1]!], m[3]!.trim()])
 }
 const reads = (n: number) => Array.from({ length: Math.min(n, 16) }, () => ({ kind: 'read', ok: true }))
 
@@ -806,7 +817,7 @@ test('each call leaves its kind’s icon in its colour, and a failed one a red c
   const calls = [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }, { kind: 'command', ok: true }, { kind: 'test', ok: true }, { kind: 'edit', ok: false }]
   const { body } = trail({ id: 'main', who: 'Main', step: 'n', count: 5, calls, state: 'running' })
   // Oldest first, left to right: the icon and the paint of each.
-  const icons = [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)" d="([^"]+)" ([^/]+)\/>/g)].sort((a, b) => Number(a[1]) - Number(b[1])).map(m => [m[2], m[3]!.trim()])
+  const icons = trailIcons(body)
   expect(icons).toEqual([
     [TRAIL_ICONS.read, `fill="${look.bar('context')}"`],
     [TRAIL_ICONS.edit, `fill="${look.bar('session')}"`],
@@ -843,7 +854,7 @@ test('only a moving lane scrolls its dashed ground, each lane clipped by its own
   const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
   expect([moving.includes('class="scroll"'), moving.includes('h6v1h-6zm10 0'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
   // The tiles are history: they sit outside the scrolling group.
-  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<path transform=')
+  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<use href="#sabai-tr-')
   const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
   expect([still.includes('class="scroll"'), still.includes('h6v1h-6z')]).toEqual([false, false])
   const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
