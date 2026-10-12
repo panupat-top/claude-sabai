@@ -69,11 +69,11 @@ In the comfortable density (the default) the band is three panels:
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
 
-Under it, the toolbar: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
+In the desktop app the info row sits above the band, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear). In the terminal the info row stays in the band and the toolbar sits under it: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
 
 ### The agents panel
 
-Press `✻ Agents` or type `/sabai-agents` to see a card per subagent:
+Press the Agents icon (`✻ Agents` in the terminal) or type `/sabai-agents` to see a card per subagent:
 - Clawd in a hat for its type;
 - the task, effort, model and step progress;
 - a status that pops when done or shakes on failure.
@@ -98,7 +98,7 @@ Want the native rows that expand to output and diffs? Turn **Tool summaries** of
 
 ## Settings
 
-Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
+Press the gear (`⚙ Settings` in the terminal) or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
 
 | Group | Choices |
 |---|---|

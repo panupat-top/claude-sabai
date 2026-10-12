@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg, TRAIL_ICONS } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -579,7 +579,7 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
   const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
   expect(rowTexts(d.source)).toEqual([
     ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
-    ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
+    ['sm', 'guard 7'], ['sm', 'v24.21.0'], ['sm', 'Panupat'],
   ])
   // The tag's words sit 8 px from either end.
   expect(infoRow(d.source)).toContain('width="92.4"')
@@ -591,16 +591,16 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
 test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
   const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [], show: true } as const
   expect(rowTexts(bandSvg(undefined, row, [], 80, { clawd: false })!.source)[1]).toEqual(['s-session', 'abcdef…'])
-  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24']])
+  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24.1.0']])
 })
 
 test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
   const at = (W: number) => rowTexts(bandSvg(undefined, ROW, [], W, { hero: true, clawd: false })!.source).map(t => t[1]!)
-  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24'])
+  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24.21.0'])
   expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7'])
   const tiny = at(240)
   expect(tiny.some(t => t.endsWith('…'))).toBe(true)
-  expect(tiny).not.toContain('v24')
+  expect(tiny).not.toContain('v24.21.0')
   expect(tiny).not.toContain('guard 7')
 })
 
@@ -639,11 +639,44 @@ test('no two info-row texts overlap at any width', () => {
   }
 })
 
+test('the desktop top row packs every chip from the left and is as wide as what it draws', () => {
+  const d = infoSvg(ROW, 900)!
+  expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24.21.0', 'Panupat'])
+  // The guard follows the counts a gap apart, not from the right edge; the drawing ends at the user.
+  const counts = d.source.match(/<text class="s-warn" x="([\d.]+)"/)!
+  // The folder's mark is the first muted path; the guard's shield the second.
+  const guard = [...d.source.matchAll(/<path class="sm" transform="translate\(([\d.]+),/g)][1]!
+  expect(Number(guard[1]) - (Number(counts[1]) + monoWidth('±3', 10.5) + 7)).toBe(8)
+  const user = d.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat</)!
+  expect(Math.abs(Number(user[1]) + monoWidth('Panupat', 10.5) - d.width)).toBeLessThan(1)
+  expect(d.width).toBeLessThan(600)
+  // Short of room it drops from the right as the band's row does, and never draws past W.
+  expect(infoSvg(ROW, 390)!.alt).not.toContain('Git user')
+  expect(infoSvg(ROW, 390)!.width).toBeLessThanOrEqual(390)
+  // Clawd leads it when he stands here; with nothing to show and no Clawd there is no drawing.
+  expect(infoSvg(ROW, 900, { clawd: { mood: 'idle' } })!.source).toContain('crispEdges')
+  expect(infoSvg(ROW, 900)!.source).not.toContain(MOTION)
+  expect(infoSvg({ left: [], right: [] }, 900)).toBeUndefined()
+})
+
+test('a toolbar icon draws its Lucide shape, its count and the ink that marks it, in both themes', () => {
+  const quiet = toolIconSvg('settings')
+  expect([quiet.width, quiet.height]).toEqual([16, 16])
+  expect(quiet.source).toContain(`.i{stroke:${TEXT.m[0]}}`)
+  expect(quiet.source).toContain(`@media (prefers-color-scheme: dark){.i{stroke:${TEXT.m[1]}}`)
+  expect(quiet.source).not.toContain('<text')
+  const busy = toolIconSvg('compact', '82%', 'warn')
+  expect(busy.source).toContain('>82%</text>')
+  expect(busy.source).toContain(`.i{stroke:${TEXT.warn[0]}}`)
+  expect(busy.width).toBe(16 + 4 + Math.ceil(monoWidth('82%', 11)))
+  expect(toolIconSvg('agents', '2', 'tasks').source).toContain('<rect width="16" height="12" x="4" y="8" rx="2"/>')
+})
+
 test('a long branch name is cut before it pushes the guard and Node off a wide row', () => {
   const long = { ...ROW, left: [ROW.left[0], ROW.left[1], { icon: 'branch', label: 'Branch', value: 'x', branch: 'dependabot/npm_and_yarn/some-package-1.2.3-beta', ahead: 1 }] }
   const texts = rowTexts(bandSvg(undefined, long as never, [], 900, { hero: true, clawd: false })!.source).map(t => t[1]!)
   expect(texts).toContain('guard 7')
-  expect(texts).toContain('v24')
+  expect(texts).toContain('v24.21.0')
   expect(texts.find(t => t.startsWith('dependabot'))!.endsWith('…')).toBe(true)
 })
 

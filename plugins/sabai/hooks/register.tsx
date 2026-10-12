@@ -5,7 +5,8 @@ import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, 
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, usageNote, value } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, summarySvg, toolIconSvg } from './svg'
+import type { ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
@@ -111,6 +112,8 @@ const SKIN_PANE = 'sabai-skins'
 // and resume to move through the conversation. Each label leads with a mark, as Agents and
 // Settings do.
 const QUICK: Record<string, string> = { review: '◎ Review', compact: '⇲ Compact', rewind: '↶ Rewind', resume: '↻ Resume' }
+// The desktop's toolbar icons are links a press answers (onLinkPress); this address is never opened.
+const TOOL_HREF = 'https://sabai.invalid/'
 
 const TICK_MS = 30_000
 const CREW_LINGER_MS = 60_000
@@ -1160,10 +1163,9 @@ export const register: Register = on => {
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
 
-    // Common commands on the left, the mod's panels on the right, all framed buttons. The desktop
-    // draws a Button's `label` alone (and a hotkey as a keycap, so these take none), so the glyph
-    // and the word are the label; the terminal draws the children: a pixel tile of half blocks
-    // round the glyph on the skin's colour, then the word.
+    // The terminal's toolbar: common commands on the left, the mod's panels on the right, all
+    // framed buttons drawn from their children: a pixel tile of half blocks round the glyph on
+    // the skin's colour, then the word. The label names the control.
     const tile = (glyph: string, color: string) => (
       <Text>
         <Text color={color}>▐</Text>
@@ -1174,10 +1176,8 @@ export const register: Register = on => {
       </Text>
     )
     const toolbar = (
-      // The terminal's rows are already a row apart; the desktop's band image sits flush on it.
-      // Native buttons carry their own padding, so on the desktop they sit with no gap between.
-      <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1} marginTop={e.surface === 'terminal' ? 0 : 1}>
-        <Box flexDirection="row" columnGap={e.surface === 'terminal' ? 2 : 1}>
+      <Box flexDirection="row" columnGap={2}>
+        <Box flexDirection="row" columnGap={2}>
           {quick.map(c => (
             // A press's own work ends with the press, so the command is queued from a timer.
             // One primary at a time: running agents outrank a full context.
@@ -1200,15 +1200,46 @@ export const register: Register = on => {
 
     // The terminal's table names Svg too but cannot draw one, so the surface decides.
     if (e.surface !== 'terminal' && 'Svg' in ui) {
-      const { Svg } = ui
+      const { Svg, Markdown } = ui
+      const accessory = shownPrefs.extras.accessories ? accessoryOf(new Date(at)) : undefined
+      // The toolbar as icons at the right of the top row. A Button draws its text label alone and
+      // holds no Svg, so each icon is an image link in a Markdown whose press runs it. Each says
+      // when it is worth a press: compact the context once it reaches the amber mark (in colour
+      // while no agents run, one call to press at a time), agents how many are working.
+      const lvl = ctx === undefined ? undefined : level(ctx, shownPrefs.warnAt, shownPrefs.alertAt)
+      const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks'; press: () => void }[] = rows.toolbar
+        ? [
+            ...(quick.includes('compact')
+              ? [{ kind: 'compact' as const, label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : ('m' as const), press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) }]
+              : []),
+            { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+            { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: () => void togglePane($, SKIN_PANE, 'Settings', true) },
+          ]
+        : []
+      const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone) }))
+      // Room the icons take with the chip the desktop draws round each image.
+      const iconsW = icons.reduce((n, t) => n + t.drawn.width + 20, icons.length ? 16 : 0)
+      // The info row leads the top row; in the stacked band Clawd stands in it when no tasks
+      // row or live strip holds him, as he did in the band's own info row.
+      const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
+      const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
+      const top = infoSvg(info, Math.max(160, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
+      const band = bandSvg(p, { left: [], right: [] }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
       return (
         <Box flexDirection="column">
+          {(top || icons.length > 0) && (
+            <Box flexDirection="row" alignItems="center" columnGap={1}>
+              {top && <Svg source={top.source} alt={top.alt} />}
+              <Box flexGrow={1} />
+              {icons.map(t => (
+                <Markdown key={`tool-${t.kind}`} text={`[![${t.label}](data:image/svg+xml;base64,${btoa(t.drawn.source)})](${TOOL_HREF}${t.kind})`} onLinkPress={t.press} />
+              ))}
+            </Box>
+          )}
           {band && <Svg source={band.source} alt={band.alt} />}
-          {rows.toolbar && toolbar}
           {theirs}
         </Box>
       )
