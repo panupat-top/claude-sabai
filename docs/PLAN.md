@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-12): sabai 2.9.1 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-12): sabai 2.10.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -54,7 +54,6 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
 |---|---|---|---|---|
-| R1b | Band · race | ส่วนที่เหลือของ R1: บอก call ล่าสุดในบรรทัด step, ✓/✗ ต่อ lane, คำอธิบายสี tile | S | R1 หลักเสร็จใน 2.5.0 |
 | B1 | Band · info | ที่ 240 px ชื่อ folder ภาษา CJK กับ branch ยาวถูกตัดเหลือ `…` ล้วน | S | พบตอน review 2.4 · ตรวจซ้ำก่อนว่ายังเกิดหลังแถวบนแบบใหม่ใน 2.7 |
 
 ### P2 — ถัดไป (กลาง)
@@ -89,6 +88,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.10.0** ปิด R1b: บรรทัด step ของ lane บอก call ล่าสุดเมื่อไม่มี progress (agent และ Main ระหว่าง call เช่น `· Edited svg.ts` แทน `· Working`), แต่ละ lane นับ `✓`/`✗` ของตัวเองข้างเวลา (lane ที่ merge รวมกัน, lane แบบ slim ก็มี), alt text บอกจำนวนต่อ lane · ความหมายของ icon และสีของ tile อยู่ใน README แทนการวาดใน band
 - **2.9.1** mod เริ่มทำงานได้ทุกครั้งใน session ใหม่: `session.attach` เช็ก surface ใน hook เอง (ไม่ใช้ matcher) และการวาด band ครั้งแรกที่มาก่อน attach เรียก setUp ครั้งเดียว · มี test กันไว้
 - **hub 1.0.0** status line สำหรับ terminal (`statusline/hub.sh`) 2 บรรทัดแบบ C1: โฟลเดอร์ · branch ↑↓± · model · effort · ค่าใช้จ่าย · เวลา / CTX · 5H (เวลาที่เหลือ `1h 12m`) · 7D (วันและเวลา `Fri 04:00`) ใช้สี ANSI ตาม theme ของ terminal, jq ครั้งเดียว git ครั้งเดียว ~35 ms (ตัวเดิม ~300 ms), ไม่ใช้ network ไม่แตะ token, มี test และรันใน CI
 - **2.9.0** mod ทำงานเฉพาะ desktop Code tab: session ที่เป็น terminal หรือ `-p` ไม่ถูกแตะเลย (ไม่รัน git/node, ไม่ลงทะเบียนคำสั่งหรือ tool `step`, ไม่เพิ่ม callout ใน system prompt, ไม่มี guard/การแจ้งเตือน, ไม่วาดอะไร) เพื่อให้ terminal เบาที่สุด · mod เริ่มทำงานตอน `session.start` ถ้ามี desktop อยู่แล้ว ไม่งั้นรอ `session.attach` ของ desktop · ลบโค้ดวาด terminal ทั้งหมด (toolbar แบบปุ่ม, แถวข้อความ, SessionMode) และ path ที่ไม่ได้ใช้แล้ว (`info` ใน `bandSvg`, chip โล่ใน info row, `blocks`)

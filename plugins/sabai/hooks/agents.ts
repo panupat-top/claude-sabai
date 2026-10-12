@@ -1,6 +1,6 @@
 import type { AgentRun, CallKind, RaceLog, Task } from '../types'
 import type { Progress } from './model'
-import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, countOf, doingOf, tokens } from './model'
+import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, countOf, doingOf, failsOf, tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -143,7 +143,7 @@ export function groups(list: AgentRun[]): { running: AgentRun[]; finished: Agent
 }
 
 export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
-export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; count: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
+export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; count: number; fails: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
 export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
@@ -164,12 +164,14 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
   const main: Lane = {
     id: 'main',
     who: 'Main',
-    step: mainStep ?? (mainWorking ? 'Working' : 'Waiting'),
+    // Between calls, the latest one; a log kept from before calls were named has none.
+    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : 'Waiting'),
     // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { progress: tasks.done / tasks.total } : {}),
     calls: log.calls.main ?? [],
     count: countOf(log, 'main'),
+    fails: failsOf(log, 'main'),
     ...doingFor(['main']),
     // Working between calls is thinking; waiting is Main not working while agents run.
     state: timed('main') ?? (!mainWorking ? 'waiting' : doingOf(log, 'main').length ? 'running' : 'thinking'),
@@ -203,6 +205,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         // Every member's tiles, agent by agent: no call carries its time to interleave them by.
         calls: ids.flatMap(i => log.calls[i] ?? []).slice(-RACE_TILES),
         count: ids.reduce((n, i) => n + countOf(log, i), 0),
+        fails: ids.reduce((n, i) => n + failsOf(log, i), 0),
         ...doingFor(ids),
         state: ids.some(i => timed(i) === 'tripped') ? 'tripped' : 'running',
       }
@@ -213,11 +216,12 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       id,
       who: a.description || laneName(a.type),
       type: a.type,
-      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? `${p.done}/${p.total} · ${p.title}` : 'Working',
+      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? `${p.done}/${p.total} · ${p.title}` : (log.said?.[id] ?? 'Working'),
       timeMs: time(a),
       ...(state === 'finished' ? { progress: 1 } : p ? { progress: p.done / p.total } : {}),
       calls: log.calls[id] ?? [],
       count: countOf(log, id),
+      fails: failsOf(log, id),
       ...doingFor([id]),
       state,
     }

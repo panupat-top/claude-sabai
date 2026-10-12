@@ -250,8 +250,10 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
 }
 
 // The main turn's step in flight, for the live strip: the step's running title; a subagent's
-// calls leave it alone.
+// calls leave it alone. Every member's race lane keeps the call's name as it reads once done.
 async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
+  const said = stepOf({ tool, input, isRunning: false, isErrored: false, isInterrupted: false })?.title
+  if (said) await update($, race, r => ({ ...r, said: { ...r.said, [agentId ?? 'main']: said } }))
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   await update($, liveStep, () => (s ? { icon: s.icon, title: s.title } : null))
