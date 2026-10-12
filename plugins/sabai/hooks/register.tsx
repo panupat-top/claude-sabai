@@ -647,12 +647,12 @@ export const register: Register = on => {
     const fold = (key: string, open: string, closed: string) => (
       <Button key={`fold-${key}`} label={folds.includes(key) ? open : closed} onPress={() => update($, detailOpen, ks => (ks.includes(key) ? ks.filter(k => k !== key) : [...ks, key]))} />
     )
-    // What a box's round border and padding take from a drawing's width.
-    const BOX_INSET = 36
+    // What a box's round border and padding take from a drawing's width, as measured on the desktop.
+    const BOX_INSET = 20
     const inner = W - BOX_INSET
     // A lane and its View button; the lane viewed is ringed and its button reads Viewing, and a
     // press there closes the view.
-    const LANE_BUTTON = 96
+    const LANE_BUTTON = 78
     const view = (id: string) => update($, selectedAgent, cur => (cur === id ? null : id))
     const laneOf = (a: AgentRun, inset: number) => {
       const viewed = a.id === selected?.id
