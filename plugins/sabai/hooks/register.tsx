@@ -355,9 +355,9 @@ export const register: Register = on => {
     if ((await $.session.surfaces()).includes('desktop')) await setUp($)
     return started
   })
-  on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
+  on('session.attach', async ($, e, next) => {
     const attached = await next(e)
-    if (!desktop) await setUp($)
+    if (e.surface === 'desktop' && !desktop) await setUp($)
     return attached
   })
 

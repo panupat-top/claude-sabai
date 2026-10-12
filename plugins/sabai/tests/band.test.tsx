@@ -180,6 +180,20 @@ test('a desktop that draws before it is seen to attach sets the mod up from its 
   expect(runs.filter(r => r === 'node --version')).toHaveLength(1)
 })
 
+test('a first draw then the desktop attaching sets the mod up once, and a terminal attaching not at all', async ($, on) => {
+  const { runs, clock } = engine(on, { surfaces: [] })
+  on('session.attach', ($, e) => ({ clientId: e.clientId }))
+  await $.session.start({ surface: null, isInteractive: false, cwd: '/work' })
+  await $.session.attach({ surface: 'terminal', clientId: 'terminal:1' })
+  await settle()
+  expect(runs).toEqual([])
+  await (await mountBand($, 'desktop')).unmount()
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:2' })
+  await clock.advance(1)
+  await settle()
+  expect(runs.filter(r => r === 'node --version')).toHaveLength(1)
+})
+
 test('what a machine cannot tell is hidden: no node, no upstream, no repository', async ($, on) => {
   engine(on, { failing: ['node', 'git'] })
   await start($)
