@@ -153,6 +153,8 @@ declare module 'claude-code' {
       // The main loop's model, whose context window a subagent on the same model shares.
       mainModel: string
       agents: AgentRun[]
+      // The main loop's turns as the agents pane draws them: the one at work, and those whose crew had agents.
+      mains: AgentRun[]
       durations: StateFamily<number>
       turnLog: TurnLog
       guardCaught: number

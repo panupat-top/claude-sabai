@@ -303,6 +303,7 @@ export function actOf(tool: string, input: unknown): Act {
     const name = firstLine(str(i.skill))
     return act('skill', 'Skill', name, name ? `skill:${name}` : tool)
   }
+  if (tool === 'Agent' || tool === 'Task') return act('other', 'Agent', firstLine(str((i as { description?: unknown }).description)))
   const mcp = tool.match(/^mcp__(.+?)__(.+)$/)
   if (mcp) return act('mcp', `${mcp[1]} ·`, mcp[2]!)
   return act('other', tool, '')

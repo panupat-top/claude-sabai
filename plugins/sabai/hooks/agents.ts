@@ -12,6 +12,12 @@ export function modelName(id: string): string {
   return m ? `${m[1]} ${m[2]}${m[3] ? `.${m[3]}` : ''}` : id
 }
 
+// A run's key in the reducers: a subagent's id from the engine, or a main turn's own id.
+export const runKey = (a: AgentRun): string => a.agentId ?? a.id
+// The main loop's turn, drawn in the pane as a member of its crew; it is never a subagent.
+export const MAIN_TYPE = 'main'
+export const isMain = (a: AgentRun): boolean => a.type === MAIN_TYPE
+
 // A run's crew: the main turn (or workflow run) that started it; runs from before crews are one.
 export const crewOf = (a: AgentRun): string => a.crew ?? 'before'
 // The pane keeps the newest crews, and any crew with an agent still at work.
@@ -38,7 +44,7 @@ type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tok
 // its tokens add to what the run spent. A finished agent sent more work runs again in the crew at
 // work now (`crew`), its report kept as an earlier round.
 export function stepped(list: AgentRun[], agentId: string, model: string, u: Usage, effort?: string | number, at?: number, crew?: string): AgentRun[] {
-  const run = list.find(a => a.agentId === agentId)
+  const run = list.find(a => runKey(a) === agentId)
   if (!run) return list
   const total = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
   const again = run.status !== 'running'
@@ -67,7 +73,7 @@ const cut = (s: string, n: number) => Array.from(s).slice(0, n).join('')
 
 export const finished = (list: AgentRun[], agentId: string, reason: NonNullable<AgentRun['reason']>, at: number, answer?: string): AgentRun[] =>
   list.map(a =>
-    a.agentId !== agentId
+    runKey(a) !== agentId
       ? a
       : {
           ...a,
@@ -101,7 +107,7 @@ export function progressOf(a: Pick<AgentRun, 'progress' | 'tasks'>): Progress | 
 // A step report from the agent itself, clamped to sense.
 export const reported = (list: AgentRun[], agentId: string, input: { done?: unknown; total?: unknown; note?: unknown }): AgentRun[] =>
   list.map(a => {
-    if (a.agentId !== agentId) return a
+    if (runKey(a) !== agentId) return a
     const num = (v: unknown, prev: number) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.round(v)) : prev)
     const total = num(input.total, a.progress?.total ?? 0)
     const done = num(input.done, a.progress?.done ?? 0)
@@ -129,6 +135,7 @@ const TYPES: Record<string, { hat: HatKind; accent: 'tasks' | 'context' | 'sessi
 const PLUGIN_AGENT = { hat: 'tophat', accent: 'session' } as const
 // A mark for each type's title, matching its hat and tool.
 const EMOJI: Record<string, string> = {
+  main: '✻',
   Explore: '🔍',
   Plan: '📐',
   'general-purpose': '🔧',
@@ -270,7 +277,7 @@ const BRIEF_MAX = 600
 
 export const briefOf = (prompt: string): string => (Array.from(prompt).length > BRIEF_MAX ? `${cut(prompt, BRIEF_MAX - 1)}…` : prompt)
 
-const withRun = (list: AgentRun[], agentId: string, fn: (a: AgentRun) => AgentRun): AgentRun[] => list.map(a => (a.agentId === agentId ? fn(a) : a))
+const withRun = (list: AgentRun[], agentId: string, fn: (a: AgentRun) => AgentRun): AgentRun[] => list.map(a => (runKey(a) === agentId ? fn(a) : a))
 
 // A call starts: it is in flight, and its tool is counted.
 export const calling = (list: AgentRun[], agentId: string, act: { kind: ActKind; title: string; target: string; key: string }, at: number): AgentRun[] =>
@@ -371,7 +378,8 @@ export function agentMood(a: AgentRun, now: number, window?: number): AgentMood 
   if (a.status === 'done') return 'done'
   if ((contextPercent(a, window) ?? 0) >= FULL_AT) return 'context'
   if (a.doing?.length) return 'working'
-  return now - (a.lastActiveAt ?? a.startedAt) >= QUIET_MS ? 'quiet' : 'thinking'
+  // Claude writing a long answer is quiet too, and no sign of a stuck main turn.
+  return !isMain(a) && now - (a.lastActiveAt ?? a.startedAt) >= QUIET_MS ? 'quiet' : 'thinking'
 }
 
 // m:ss, for the Thai lines.
@@ -418,7 +426,7 @@ export function thaiLine(a: AgentRun, now: number, window?: number): string {
   }
   if (mood === 'working') {
     const d = a.doing!.at(-1)!
-    return round + DOING[d.kind](d.target)
+    return round + (d.title.startsWith('Agent') ? `รอ agent "${d.target}" อยู่ 🤝` : DOING[d.kind](d.target))
   }
   if (mood === 'done') {
     if (a.summary === 'pending') return 'เสร็จแล้ว! กำลังสรุปให้อ่าน… 📝'
@@ -427,12 +435,12 @@ export function thaiLine(a: AgentRun, now: number, window?: number): string {
   return round + pick(a.id, LINES[mood])(f)
 }
 
-// The run the detail shows when the person has picked none: one at work that needs a look
-// (quiet, then context nearly full), else the newest finished in the last minute, else the newest.
-export function attentionOf(list: readonly AgentRun[], now: number, windowOf: (a: AgentRun) => number | undefined = () => undefined): AgentRun | undefined {
+// An agent at work that needs a look, quiet ones first, then those with their context nearly
+// full: the detail names it while no agent is viewed.
+export function needsLook(list: readonly AgentRun[], now: number, windowOf: (a: AgentRun) => number | undefined = () => undefined): AgentRun | undefined {
   const newest = [...list].reverse()
   const mood = (a: AgentRun) => agentMood(a, now, windowOf(a))
-  return newest.find(a => mood(a) === 'quiet') ?? newest.find(a => mood(a) === 'context') ?? newest.find(a => a.status !== 'running' && now - (a.endedAt ?? 0) < 60_000) ?? newest[0]
+  return newest.find(a => mood(a) === 'quiet') ?? newest.find(a => mood(a) === 'context')
 }
 
 // ---- The Thai summary Haiku writes of a finished run.

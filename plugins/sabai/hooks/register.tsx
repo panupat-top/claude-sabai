@@ -2,9 +2,9 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
-import { CALLS_KEPT, SUMMARY_SYSTEM, attentionOf, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
+import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, actOf, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -18,6 +18,7 @@ const now = atom({ plugin: 'sabai', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
 const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'raised')
 const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
+const mains = atom({ plugin: 'sabai', key: 'mains' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
 const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
 const DEFAULT_PREFS: Prefs = {
@@ -297,6 +298,8 @@ const UNLOGGED = new Set(['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'To
 // The tools whose own hooks run the race; any other a subagent calls runs in its lane from here,
 // so the lane and the pane count the same calls.
 const RACED = new Set(['Read', 'Edit', 'Write', 'Bash'])
+// The id of the main turn's run that started at `at`.
+const mainKey = (at: number) => `main:${at}`
 // A path under the project, as the pane shows it, from the project's root; one outside it, by its
 // last two folders.
 const inProject = (path: string) => {
@@ -308,13 +311,18 @@ const inProject = (path: string) => {
 // A subagent's call for the agents pane: in flight while it runs, then in its log with its time
 // and whether it worked (a refused call, or one that never came back, is not logged), its tool
 // counted and the file it read or changed. A test run works only when no test failed.
-async function logAgentCall<R extends { deny?: string; isError?: boolean; result?: unknown }>($: EngineInterface, agentId: string, tool: string, input: unknown, run: () => Promise<R>): Promise<R> {
+// The runs a call belongs to: the main turns' or the subagents' (each atom named where it is
+// updated, as the engine reads a module's state).
+const updateRuns = ($: EngineInterface, main: boolean, fn: (l: AgentRun[]) => AgentRun[]) => (main ? update($, mains, fn) : update($, agents, fn))
+
+async function logAgentCall<R extends { deny?: string; isError?: boolean; result?: unknown }>($: EngineInterface, main: boolean, agentId: string, tool: string, input: unknown, run: () => Promise<R>): Promise<R> {
   if (UNLOGGED.has(tool)) return run()
   const act = actOf(tool, input)
-  const raced = RACED.has(tool)
+  // Main's own calls run in its lane through the race's hooks alone, as before.
+  const raced = RACED.has(tool) || main
   const kind: CallKind = act.kind === 'read' || act.kind === 'edit' || act.kind === 'command' || act.kind === 'test' ? act.kind : act.kind === 'search' || act.kind === 'web' ? 'read' : 'command'
   const start = await $.clock.now()
-  await update($, agents, l => calling(l, agentId, act, start))
+  await updateRuns($, main, l => calling(l, agentId, act, start))
   if (!raced) await racing($, agentId, kind)
   let result: R | undefined
   try {
@@ -325,15 +333,15 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
     const i = (input ?? {}) as { command?: string; file_path?: string; old_string?: string; new_string?: string; content?: string }
     const output = typeof result?.result === 'string' ? result.result : `${(result?.result as { stdout?: string } | undefined)?.stdout ?? ''}`
     const ok = result === undefined || result.deny !== undefined ? undefined : !result.isError && (act.kind !== 'test' || (testResult(output)?.failed ?? 0) === 0)
-    await update($, agents, l => called(l, agentId, act, end, end - start, ok))
+    await updateRuns($, main, l => called(l, agentId, act, end, end - start, ok))
     if (ok && typeof i.file_path === 'string') {
       const path = inProject(i.file_path)
-      if (tool === 'Read') await update($, agents, l => touched(l, agentId, path, { read: true }))
+      if (tool === 'Read') await updateRuns($, main, l => touched(l, agentId, path, { read: true }))
       else if (tool === 'Edit' || tool === 'Write') {
         const r = result!.result as { structuredPatch?: BuiltinToolResults['Edit']['structuredPatch']; type?: string } | undefined
         const c: Logged = tool === 'Edit' ? { tool, path, oldText: i.old_string ?? '', newText: i.new_string ?? '', ...(r?.structuredPatch ? { patch: r.structuredPatch } : {}) } : { tool, path, content: i.content ?? '', ...(r?.type === 'update' && r.structuredPatch ? { patch: r.structuredPatch } : {}) }
         const delta = logged(EMPTY_LOG, c).files[path] ?? { added: 0, removed: 0 }
-        await update($, agents, l => touched(l, agentId, path, { ...delta, ...(r?.type === 'create' ? { created: true } : {}) }))
+        await updateRuns($, main, l => touched(l, agentId, path, { ...delta, ...(r?.type === 'create' ? { created: true } : {}) }))
       }
     }
     if (!raced) await racing($, agentId, kind, result ?? UNFINISHED, ok)
@@ -439,6 +447,7 @@ export const register: Register = on => {
     if (!desktop) return next(e)
     await update($, tasks, () => [])
     await update($, agents, () => [])
+    await update($, mains, () => [])
     await update($, selectedAgent, () => null)
     await update($, detailOpen, () => [])
     await update($, earlierOpen, () => [])
@@ -490,6 +499,11 @@ export const register: Register = on => {
     const { usage: used } = result
     if (!agentId) {
       if (used?.model || e.model) await update($, mainModel, () => used?.model || e.model)
+      if (used) {
+        const key = mainKey(await read($, turnStartedAt))
+        const at = await $.clock.now()
+        await update($, mains, l => stepped(l, key, used.model || e.model, used, e.effort, at))
+      }
       return result
     }
     if (used) {
@@ -507,6 +521,9 @@ export const register: Register = on => {
     const { agentId } = e
     const { notify } = await read($, prefs)
     if (agentId === undefined) {
+      const key = mainKey(await read($, turnStartedAt))
+      const endedAt = await $.clock.now()
+      await update($, mains, l => finished(l, key, e.reason, endedAt, e.answer))
       // Not waited on: a large repository's status must not delay the turn's end.
       void readRepo($)
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
@@ -547,12 +564,16 @@ export const register: Register = on => {
     text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
   }))
 
-  // The agents pane: the crews at work (the newest, and any still running) as an overview and a
-  // lane per agent, one agent's detail below them, then the earlier crews a line each. The
-  // detail shows the agent picked with View, else the one most worth a look.
+  // The agents pane in three boxes: Now (the crews at work: an overview, then a lane for Main and
+  // each agent), Earlier (the crews before, a line each) and Detail (the run viewed, or how to
+  // view one). View on a lane opens its detail; pressing it again, or Close, closes it.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
-    const list = await read($, agents)
+    const subagents = await read($, agents)
+    // A finished turn that called nothing and started no agents (a notification's, a quick reply)
+    // is no crew: the work before it stays at the top.
+    const turns = (await read($, mains)).filter(m => m.status === 'running' || (m.callCount ?? 0) > 0 || subagents.some(a => crewOf(a) === crewOf(m)))
+    const mainTasks = await read($, tasks)
     const at = await read($, now)
     const skinName = await read($, skin)
     const style = await read($, bar)
@@ -566,17 +587,29 @@ export const register: Register = on => {
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const look = lookOf(skinName)
 
+    // Each main turn just before its crew's first agent; one with no agents (the turn at work)
+    // last. The turn at work carries the main task list as its progress.
+    const list: AgentRun[] = []
+    for (const a of subagents) {
+      const turn = turns.find(m => crewOf(m) === crewOf(a) && !list.includes(m))
+      if (turn) list.push(turn)
+      list.push(a)
+    }
+    for (const m of turns) if (!list.includes(m)) list.push(m)
+    const latest = turns.at(-1)
+    const withTasks = (a: AgentRun) => (a === latest && mainTasks.length ? { ...a, tasks: mainTasks } : a)
+
     if (list.length === 0) {
       const empty = emptyAgentsSvg(W, skinName)
       return <Svg source={empty.source} alt={empty.alt} width={empty.width} height={empty.height} />
     }
 
-    // A subagent on the main loop's model has its context window; on another model it is unknown.
+    // A run on the main loop's model has its context window; on another model it is unknown.
     const windowOf = (a: AgentRun) => (main && a.model === main ? window : undefined)
     const { now: current, earlier } = openCrews(crewsOf(list))
     const currentIds = new Set(current.map(c => c.id))
-    const runs = list.filter(a => currentIds.has(crewOf(a)))
-    const selected = list.find(a => a.id === picked) ?? attentionOf(runs, at, windowOf)
+    const runs = list.filter(a => currentIds.has(crewOf(a))).map(withTasks)
+    const selected = list.map(withTasks).find(a => a.id === picked)
     // Each drawing spends from the pane's budget, the overview and the detail first; what does
     // not fit is counted instead.
     let spent = 0
@@ -594,23 +627,44 @@ export const register: Register = on => {
         {button}
       </Box>
     )
+    // A box's title row: its name in bold, what it holds, and its buttons.
+    const boxHead = (title: string, note: string, ...buttons: (RenderNode | false | undefined)[]) => (
+      <Box flexDirection="row" alignItems="center" columnGap={1}>
+        <Box flexGrow={1} flexDirection="row">
+          <Text bold>{title}</Text>
+          {note ? <Text dimColor>{` · ${note}`}</Text> : null}
+        </Box>
+        {buttons.filter(b => b !== false && b !== undefined)}
+      </Box>
+    )
+    // One part of the detail: a small box with its title, its count and its button.
+    const part = (key: string, title: string, note: string, body: RenderNode | null, button?: RenderNode) => (
+      <Box key={`part-${key}`} borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
+        {boxHead(title, note, button)}
+        {body}
+      </Box>
+    )
     const fold = (key: string, open: string, closed: string) => (
       <Button key={`fold-${key}`} label={folds.includes(key) ? open : closed} onPress={() => update($, detailOpen, ks => (ks.includes(key) ? ks.filter(k => k !== key) : [...ks, key]))} />
     )
-    // A lane and its View button; the lane in the detail is ringed and its button lit.
-    const LANE_BUTTON = 76
     // What a box's round border and padding take from a drawing's width.
     const BOX_INSET = 36
-    const laneOf = (a: AgentRun, inset = 0) => {
-      const d = laneSvg(a, W - LANE_BUTTON - inset, at, skinName, windowOf(a), a.id === selected?.id, style)
+    const inner = W - BOX_INSET
+    // A lane and its View button; the lane viewed is ringed and its button reads Viewing, and a
+    // press there closes the view.
+    const LANE_BUTTON = 96
+    const view = (id: string) => update($, selectedAgent, cur => (cur === id ? null : id))
+    const laneOf = (a: AgentRun, inset: number) => {
+      const viewed = a.id === selected?.id
+      const d = laneSvg(a, W - LANE_BUTTON - inset, at, skinName, windowOf(a), viewed, style)
       return fits(d) ? (
         <Box key={`lane-${a.id}`} flexDirection="row" alignItems="center" columnGap={1}>
           {image(`lane-svg-${a.id}`, d)}
-          <Button key={`view-${a.id}`} label={a.id === selected?.id ? '● View' : 'View'} variant={a.id === selected?.id ? 'primary' : 'secondary'} onPress={() => update($, selectedAgent, () => a.id)} />
+          <Button key={`view-${a.id}`} label={viewed ? 'Viewing' : 'View'} variant={viewed ? 'primary' : 'secondary'} onPress={() => view(a.id)} />
         </Box>
       ) : undefined
     }
-    const lanes = (key: string, of: readonly AgentRun[], inset = 0) => {
+    const lanes = (key: string, of: readonly AgentRun[], inset: number) => {
       const drawn = of.map(a => laneOf(a, inset))
       const left = drawn.filter(x => !x).length
       return (
@@ -621,96 +675,112 @@ export const register: Register = on => {
       )
     }
 
-    const overview = crewSvg(runs, W, at, skinName, windowOf)
+    const overview = crewSvg(runs, inner, at, skinName, windowOf)
     const top = fits(overview) ? image('crew', overview) : undefined
 
-    // The detail: the head, the Thai summary of a finished run, its tools, steps, calls and files,
-    // then its report and brief folded.
+    // The detail: its head, then its parts, each a small box with its title and count: Summary,
+    // Plan, Tools used, Calls, Files, then its Report (Claude's answer for Main) and its Task, the
+    // long ones folded. Haiku sums up agents only.
+    const deep = inner - BOX_INSET
     const detail = (a: AgentRun) => {
       const w = windowOf(a)
-      const head = agentHeadSvg(a, W, at, skinName, w)
-      const tools = toolsSvg(a, W, skinName)
-      const steps = stepsSvg(a, W, skinName)
+      const head = agentHeadSvg(a, inner, at, skinName, w)
+      const tools = toolsSvg(a, deep, skinName)
+      const steps = stepsSvg(a, deep, skinName)
       const allCalls = folds.includes('calls')
-      const calls = activitySvg(a, W, skinName, allCalls ? CALLS_KEPT : 8)
-      const files = filesSvg(a, W, skinName)
+      const calls = activitySvg(a, deep, skinName, allCalls ? CALLS_KEPT : 8)
+      const files = filesSvg(a, deep, skinName)
       const summary = a.status === 'running' ? undefined : a.summary
+      const p = progressOf(a)
+      const kept = Object.values(a.files ?? {})
+      const changed = kept.filter(f => f.edits > 0).length
+      const n = a.callCount ?? 0
+      const showHide = (key: string) => fold(key, '▾ Hide', '▸ Show')
       return (
         <Box key={`detail-${a.id}`} flexDirection="column" rowGap={1}>
           {fits(head) && image(`detail-head-${a.id}`, head)}
-          {a.status !== 'running' && heading('summary', 'SUMMARY · ภาษาไทย')}
-          {a.status !== 'running' && (
-            <Box key="summary" borderStyle="round" borderColor={a.status === 'done' ? look.bar('context') : look.bar('tasks', 'alert')} paddingX={1} flexDirection="column">
-              <Text dimColor>{factsLine(a, at)}</Text>
-              {summary === 'pending' && <Text dimColor>Haiku กำลังสรุป…</Text>}
-              {Array.isArray(summary) && <Markdown text={summary.map(l => `- ${l}`).join('\n')} />}
-              {a.status === 'failed' && <Text>{resultText(a)}</Text>}
-            </Box>
-          )}
-          {tools && heading('tools', `TOOLS · ${a.callCount ?? 0} calls`)}
-          {fits(tools) && image(`detail-tools-${a.id}`, tools)}
-          {steps && heading('steps', 'STEPS')}
-          {fits(steps) && image(`detail-steps-${a.id}`, steps)}
-          {calls && heading('calls', 'ACTIVITY', (a.callCount ?? 0) > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
-          {fits(calls) && image(`detail-calls-${a.id}`, calls)}
-          {files && heading('files', 'FILES')}
-          {fits(files) && image(`detail-files-${a.id}`, files)}
-          {a.status !== 'running' && heading('report', `REPORT${a.rounds?.length ? ` · round ${a.rounds.length + 1}` : ''}`, fold('report', '▾ Report', '▸ Report'))}
-          {a.status !== 'running' && folds.includes('report') && (
-            // Agents write their reports in markdown, so they are drawn as such; earlier rounds after.
-            <Box key="report" borderStyle="round" borderColor={look.bar(typeStyle(a.type).accent ?? 'session')} paddingX={1} flexDirection="column" rowGap={1}>
-              <Markdown text={resultText(a)} />
-              {(a.rounds ?? [])
-                .map((r, i) => <Markdown key={`round-${i}`} text={`**Round ${i + 1}**\n\n${r.summary ? r.summary.map(l => `- ${l}`).join('\n') : (r.result ?? 'No report.')}`} />)
-                .reverse()}
-            </Box>
-          )}
-          {a.brief && heading('brief', 'BRIEF', fold('brief', '▾ Brief', '▸ Brief'))}
-          {a.brief && folds.includes('brief') && <Text key="brief" dimColor>{a.brief}</Text>}
+          {a.status !== 'running' &&
+            part(
+              'summary',
+              'Summary',
+              summary === undefined ? '' : 'by Haiku',
+              <Box flexDirection="column">
+                <Text dimColor>{factsLine(a, at)}</Text>
+                {summary === 'pending' && <Text dimColor>Haiku กำลังสรุป…</Text>}
+                {Array.isArray(summary) && <Markdown text={summary.map(l => `- ${l}`).join('\n')} />}
+                {a.status === 'failed' && <Text>{resultText(a)}</Text>}
+              </Box>,
+            )}
+          {steps && fits(steps) && part('plan', 'Plan', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
+          {tools && fits(tools) && part('tools', 'Tools used', `${n} ${n === 1 ? 'call' : 'calls'}`, image(`detail-tools-${a.id}`, tools))}
+          {calls && fits(calls) && part('calls', 'Calls', n <= 8 ? String(n) : allCalls ? `latest ${Math.min(n, CALLS_KEPT)} of ${n}` : `latest 8 of ${n}`, image(`detail-calls-${a.id}`, calls), n > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
+          {files && fits(files) && part('files', 'Files', `${changed} changed · ${kept.length - changed} read`, image(`detail-files-${a.id}`, files))}
+          {a.status !== 'running' &&
+            part(
+              'report',
+              isMain(a) ? 'Answer' : 'Report',
+              a.rounds?.length ? `round ${a.rounds.length + 1}` : '',
+              folds.includes('report') ? (
+                // Reports are markdown, so they are drawn as such; earlier rounds after.
+                <Box flexDirection="column" rowGap={1}>
+                  <Markdown text={resultText(a)} />
+                  {(a.rounds ?? [])
+                    .map((r, i) => <Markdown key={`round-${i}`} text={`**Round ${i + 1}**\n\n${r.summary ? r.summary.map(l => `- ${l}`).join('\n') : (r.result ?? 'No report.')}`} />)
+                    .reverse()}
+                </Box>
+              ) : null,
+              showHide('report'),
+            )}
+          {a.brief && part('brief', 'Task', 'what it was asked', folds.includes('brief') ? <Text dimColor>{a.brief}</Text> : null, showHide('brief'))}
         </Box>
       )
     }
     const shown = selected ? detail(selected) : undefined
+    // With none viewed: how to view one, and the agent that needs a look, if any.
+    const empty = emptyDetailSvg(inner, skinName)
+    const stuck = selected ? undefined : needsLook(runs, at, windowOf)
     // The earlier crews in a box of their own, folded to one line at first while a crew is at work.
     // Open, their lines are drawn before any lane, so each keeps its Show however many lanes fill
     // the pane.
     const isFolded = folded ?? runs.some(a => a.status === 'running')
-    const rows = isFolded ? [] : earlier.map(c => ({ crew: c, row: earlierSvg(c.runs, W - LANE_BUTTON - BOX_INSET, skinName) })).filter(r => fits(r.row))
-    const laneList = lanes('now', runs)
-    const past = earlier.flatMap(c => c.runs)
+    const rows = isFolded ? [] : earlier.map(c => ({ crew: c, row: earlierSvg(c.runs, W - LANE_BUTTON - BOX_INSET * 2, skinName) })).filter(r => fits(r.row))
+    const laneList = lanes('now', runs, BOX_INSET)
+    const past = earlier.flatMap(c => c.runs).filter(a => !isMain(a))
     const stopped = past.filter(a => a.reason === 'aborted').length
     const failed = past.filter(a => a.status === 'failed').length - stopped
     // Crews under their day's label, shown only when the earlier crews span more than one day.
     const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
     const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
     const tally = [`✓${past.filter(a => a.status === 'done').length}`, stopped ? `✋${stopped}` : '', failed ? `✗${failed}` : ''].filter(Boolean).join(' ')
+    const helpers = runs.filter(a => !isMain(a)).length
 
     return (
       <Box flexDirection="column" rowGap={1}>
-        {top}
-        {heading('agents', `AGENTS · ${runs.length}`)}
-        {laneList}
-        {shown}
+        <Box key="now" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
+          {boxHead('Now', helpers ? `${runs.some(isMain) ? 'Main + ' : ''}${helpers} ${helpers === 1 ? 'agent' : 'agents'}` : 'Claude')}
+          {top}
+          {laneList}
+        </Box>
         {earlier.length > 0 && (
           <Box key="earlier" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-            <Box flexDirection="row" alignItems="center" columnGap={1}>
-              <Box flexGrow={1}>
-                <Text bold>{`Earlier · ${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${past.length} ${past.length === 1 ? 'agent' : 'agents'}${isFolded ? ` · ${tally}` : ''}`}</Text>
-              </Box>
-              {!isFolded && (
+            {boxHead(
+              'Earlier',
+              `${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${past.length} ${past.length === 1 ? 'agent' : 'agents'}${isFolded ? ` · ${tally}` : ''}`,
+              !isFolded && (
                 <Button
                   key="clear-earlier"
                   label="Clear"
                   onPress={async () => {
                     await update($, agents, clearEarlier)
+                    await update($, mains, clearEarlier)
                     await update($, earlierOpen, () => [])
                     await update($, earlierFolded, () => null)
                     await update($, selectedAgent, id => (id && runs.some(a => a.id === id) ? id : null))
                   }}
                 />
-              )}
-              <Button key="fold-earlier" label={isFolded ? '▸ Show' : '▾ Hide'} onPress={() => update($, earlierFolded, () => !isFolded)} />
-            </Box>
+              ),
+              <Button key="fold-earlier" label={isFolded ? '▸ Show' : '▾ Hide'} onPress={() => update($, earlierFolded, () => !isFolded)} />,
+            )}
             {rows.map(({ crew: c, row }, i) => {
               const open = shownEarlier.includes(c.id)
               const day = dayFor(c)
@@ -725,12 +795,24 @@ export const register: Register = on => {
                     {image(`crew-svg-${c.id}`, row)}
                     <Button key={`show-${c.id}`} label={open ? '▾ Hide' : '▸ Show'} onPress={() => update($, earlierOpen, ids => (ids.includes(c.id) ? ids.filter(i => i !== c.id) : [...ids, c.id]))} />
                   </Box>
-                  {open && lanes(c.id, c.runs, BOX_INSET)}
+                  {open && lanes(c.id, c.runs, BOX_INSET * 2)}
                 </Box>
               )
             })}
           </Box>
         )}
+        <Box key="detail" borderStyle="round" borderColor={selected ? look.clawd : 'subtle'} paddingX={1} flexDirection="column" rowGap={1}>
+          {boxHead('Detail', selected ? (isMain(selected) ? 'Claude (main)' : selected.description || selected.type) : '', selected && <Button key="close-detail" label="✕ Close" onPress={() => update($, selectedAgent, () => null)} />)}
+          {shown ?? image('detail-empty', empty)}
+          {stuck && (
+            <Box flexDirection="row" alignItems="center" columnGap={1}>
+              <Box flexGrow={1}>
+                <Text>{`⚠ ${stuck.description || stuck.type}: ${moodLabel(stuck, at, windowOf(stuck))}`}</Text>
+              </Box>
+              <Button key="view-needs-look" label="View it" onPress={() => update($, selectedAgent, () => stuck.id)} />
+            </Box>
+          )}
+        </Box>
       </Box>
     )
   })
@@ -869,8 +951,9 @@ export const register: Register = on => {
       await update($, agents, list => reported(list, agentId, e as unknown as { done?: unknown; total?: unknown; note?: unknown }))
       return { result: 'ok' } as never
     }
-    if (!desktop || e.agentId === undefined) return next(e)
-    return logAgentCall($, e.agentId, e.tool, e, () => next(e))
+    if (!desktop) return next(e)
+    if (e.agentId !== undefined) return logAgentCall($, false, e.agentId, e.tool, e, () => next(e))
+    return logAgentCall($, true, mainKey(await read($, turnStartedAt)), e.tool, e, () => next(e))
   })
 
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
@@ -1236,6 +1319,12 @@ export const register: Register = on => {
     const shown = (await read($, agents)).filter(a => a.status === 'running' || began - (a.endedAt ?? 0) < RACE_LINGER_MS)
     await update($, race, r => nextTurnRace(r, new Set(shown.map(a => a.agentId ?? a.id))))
     await update($, turnStartedAt, () => began)
+    // The turn's own run for the pane; earlier turns stay only where their crew had agents.
+    const withAgents = new Set((await read($, agents)).map(crewOf))
+    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Claude', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, steps: 0, crew: `turn:${began}`, lastActiveAt: began }
+    // A turn starting means the one before has ended, whether or not its end was seen.
+    const ended = (m: AgentRun): AgentRun => (m.status === 'running' ? { ...m, status: 'done', reason: 'answer', endedAt: began } : m)
+    await update($, mains, l => [...l.filter(m => withAgents.has(crewOf(m))).slice(1 - CREWS_KEPT).map(ended), main])
     return next(e)
   })
 

@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-13): sabai 2.13.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-13): sabai 2.14.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -73,7 +73,7 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 2. ✅ **B — docs:** README (pane ใหม่, privacy: ส่ง report ไปให้ Haiku สรุปผ่าน API ของ session, setting Thai summary) · CLAUDE.md (architecture ของ pane, ข้อยกเว้นภาษาไทยข้อ 2: ประโยคไทยใน lane และสรุปไทย) · §5 ของไฟล์นี้
 3. **C — release 2.13.0:** version ใน plugin.json และ marketplace.json · commit · merge · push · อัปเดต production (เมื่อเจ้าของสั่ง)
 
-#### ขั้น 1 — โครงและข้อมูล (preview รอบ A, งานของ 2.14.0)
+#### ขั้น 1 — โครงและข้อมูล (preview รอบ A, งานของ 2.14.0) ✅ เลือก A3 · ปิดได้ทั้งสองทาง · T3-a · M1 (ทดสอบบน desktop ผ่าน)
 
 ทำ preview รอบเดียวกันเพราะตำแหน่งของ Main เปลี่ยนโครงทั้ง pane
 
@@ -84,13 +84,13 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 | T3 | Empty state ของ Detail | ตอนยังไม่ได้เลือก agent หรือปิด view ไปแล้ว · ตัดสินใจว่าเลือกให้เองแบบเดิม (ตัวที่ควรเข้าไปดู) หรือไม่เลือกให้ | S |
 | T4 | แสดงงานของ Main ใน pane | เมื่อสั่งงานแล้วมีแค่ Main ทำ ก็ให้ pane แสดงด้วย · **กลับคำตัดสินใจเดิม** ("Main ไม่ต้องใส่ใน pane") · Main ไม่ใช่ `AgentRun` ข้อมูลต้องมาจาก race log / `turnLog` / receipt · ทางเลือก: lane แรกของ crew, การ์ดแยก, หรือเป็นประวัติ turn ใน Earlier ด้วย · ระวัง budget และซ้ำกับ chat/receipt | L |
 
-#### ขั้น 2 — งานเล็ก ไม่ต้อง preview
+#### ขั้น 2 — งานเล็ก ไม่ต้อง preview ✅
 
 | ID | งาน | รายละเอียด | ขนาด |
 |---|---|---|---|
 | T5 | tile ของ Overview ไม่มี bar | เอา bar/กราฟเล็กออกจาก tile ทั้ง 4 ช่อง เหลือตัวเลขและข้อความ | S |
 
-#### ขั้น 3 — หน้าตา (preview รอบ B รวมหน้าเดียว)
+#### ขั้น 3 — หน้าตา (preview รอบ B รวมหน้าเดียว) ✅ T6 คงแบบเดิม · T7 S3 · T8 G1 + wording ตามตาราง · เอา tile FILES ออกจาก overview
 
 | ID | งาน | รายละเอียด | ขนาด |
 |---|---|---|---|
@@ -98,7 +98,7 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 | T7 | lane ตอนถูกเลือก + ปุ่ม View | หน้าตาตอน selected และปุ่ม View ให้สวยขึ้น · preview | S–M |
 | T8 | Detail เป็น group + wording | แบ่ง group ให้อ่านง่าย · ปรับ wording · preview | M |
 
-#### ขั้น 4 — ปิด 2.14.0
+#### ขั้น 4 — ปิด 2.14.0 ✅
 
 ทดสอบบน desktop → docs (README, CLAUDE.md, §5) → release 2.14.0 เมื่อเจ้าของสั่ง
 
@@ -133,6 +133,7 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.14.0** agents pane รอบสอง (R2 ต่อ): แบ่งเป็น 3 กล่อง Now (overview + lane) / Earlier / Detail (A3) · Main เป็น lane ของทุก crew (M1, atom `mains` แยกจาก `agents` ไม่ให้ band/race เห็น, บันทึกทุก tool ของ Main, คำตอบของ Claude เป็น Answer, ไม่เรียก Haiku, ไม่มี mood quiet) · turn ที่จบโดยไม่มี call และไม่มี agent ไม่นับเป็น crew (กัน turn ของ notification ดัน crew ลง) · turn ใหม่ปิด run ของ Main ตัวก่อนเสมอ · กด View ซ้ำหรือ ✕ Close เพื่อปิด, ไม่เลือก agent ให้เองแล้ว: Detail ว่างเป็น Clawd หลับ + บรรทัดเตือนตัวที่ควรดูพร้อม View it (T2/T3-a) · lane ที่ดูอยู่: แถบซ้ายสี Clawd + ชื่อตัวหนา + ปุ่ม Viewing (S3) · Detail เป็นกล่องย่อย Summary / Plan / Tools used / Calls / Files / Report (Answer) / Task พร้อมจำนวนที่หัว (G1) · overview เหลือ 3 tile (CALLS/TOKENS/TIME) ไม่มี bar · บทเรียน: `update()` ต้องอ้าง atom ตรง ๆ ในที่เรียก ส่ง atom ผ่านตัวแปรไม่ได้ (module ไม่โหลด)
 - **2.13.0** agents pane ใหม่ (R2 รอบแรก): Overview ของ crew (Clawd ตาม mood, bar แบ่งช่องละ agent, tile CALLS/TOKENS/TIME/FILES) · lane ละ agent พร้อมประโยคไทยตาม mood ที่ใส่ตัวเลขจริง · Detail (head + meter, สรุปไทย = ข้อเท็จจริงที่นับเอง + bullet จาก Haiku ผ่าน `$.model.complete`, TOOLS แยก built-in/skills/MCP, STEPS, ACTIVITY, FILES แบบ F1, Report รวมรอบก่อน, Brief) · crew ตาม turn หลัก (workflow ตาม `runId`, agent ลูกตาม parent) เก็บ 5 crew · กล่อง Earlier พับได้ แบ่งตามวันเมื่อข้ามวัน · stopped แยกจาก failed · บันทึกทุก tool ของ subagent และนับใน lane ของ race ด้วย · Settings › Agents › Thai summary · path นอก project ย่อเหลือ 2 folder · บทเรียน: Svg ใน pane ที่ key เดิมแต่เปลี่ยนเรื่องที่แสดง (สลับ agent) desktop คงภาพเก่าไว้ ต้องใส่ id ของเรื่องใน key · ประโยคไทยและสรุปไทยเป็นข้อยกเว้นภาษาไทยเพิ่มจาก spinner ตามที่เจ้าของเลือก
 - **2.12.0** settings pane ใหม่: เรียง group จากสิ่งที่เห็นบ่อยไปสิ่งที่ตั้งครั้งเดียว (Look → Usage → Info row → Clawd → Agents → Conversation → Guard → Notifications → Reset) · ส่วนของ band ที่มีตัวเลือกของตัวเองมีปุ่ม On/Off ที่หัว group และซ่อนตัวเลือกเมื่อปิด (Agents ยังแสดง Step reports เพราะใช้กับ agents pane ด้วย) · Tasks, Activity, Toolbar เป็น pill ใน Look · Layout, Cards และสไตล์ usage มีภาพโครง (`densityPreview`, `usageSketch`) หรือ swatch วางเหนือปุ่มของตัวเลือกนั้น อันที่ใช้อยู่มีกรอบสีของ Clawd กับ ✓ (เคยลองให้กดที่ภาพผ่าน Markdown image link แต่บน desktop ภาพใหญ่กดไม่ค่อยติด) · Svg ใน pane ต้องส่ง width/height ไม่งั้นถูกยืดเต็มความกว้าง · Bars ยังเป็นปุ่ม และ preview มีขนาดคงที่ (≤ 320 px) บนกรอบที่มีป้าย PREVIEW · แถว info ตามที่เปิด, ตัวอย่าง step/test/receipt ตาม toggle ของ chat · Safety เปลี่ยนชื่อเป็น Guard, ข้อความสั้นลงและไม่ใช้ px · pane ทั้งหมด ~50–67k ตัวอักษร
 - **2.11.0** ปิด U1: compact วาด usage ตาม `usageStyle` ทั้ง 4 แบบ ที่ความสูง 50 px (`USAGE_MIN_H` ความสูงต่ำสุดเดียวกับ comfortable) แทนการ์ดบรรทัดเดียว 22 px ซึ่งถูกลบออก · ที่ 40 px ตัวอักษรทับ bar จึงไม่เตี้ยกว่านี้ · band compact ที่กว้าง ≥ 720 px สูงขึ้น 28 px แต่ที่แคบกว่า 400 px เตี้ยลง (เดิมการ์ดเรียงลงเป็น 3 แถว) · comfortable ที่แคบกว่า 480 px ยังใช้การ์ดสองบรรทัด
