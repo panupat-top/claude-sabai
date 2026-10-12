@@ -25,3 +25,5 @@ jobs:
             claude plugin validate "$mod"
             claude plugin test "$mod"
           done
+      - name: Test the terminal status line
+        run: bash statusline/hub.test.sh

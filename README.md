@@ -96,6 +96,27 @@ Finished agents fold behind **▸ Show**; press **▸ Report** on one to read wh
 
 Want the native rows that expand to output and diffs? Turn **Tool summaries** off.
 
+## In a terminal: the hub status line
+
+sabai stays out of terminal sessions. For a terminal, the repository carries **hub**, a two-line status line with the band's essentials:
+
+```
+▤ claude-skins  ⎇ main ↑2 ±3    Opus 5.5 · high · $1.42 · 38m
+CTX ▰▱▱▱▱▱▱▱▱▱▱▱   7%     5H ▰▰▰▱▱▱▱▱▱▱▱▱  27%  1h 12m     7D ▰▰▱▱▱▱▱▱▱▱▱▱  18%  Fri 04:00
+```
+
+- the folder, its branch with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then the model, effort, cost and time;
+- context, 5H and 7D as bars, amber from 70% and red from 90%, with when each limit resets (5H as time left, 7D as the local day and time);
+- in your terminal's own colours, so it reads on a light or dark theme; a part with nothing to read is left out.
+
+It needs `jq` and `git`, reads only what Claude Code passes it and the folder's git, makes no network requests and touches no credentials. Adding the marketplace puts it on your machine; point `statusLine` in `~/.claude/settings.json` at it:
+
+```json
+"statusLine": { "type": "command", "command": "bash ~/.claude/plugins/marketplaces/claude-sabai/statusline/hub.sh" }
+```
+
+`claude plugin marketplace update claude-sabai` updates it with the mod. The desktop Code tab does not use it.
+
 ## Settings
 
 Press the gear or type `/sabai-settings`. Changes apply at once and are kept for new sessions.

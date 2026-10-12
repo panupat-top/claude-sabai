@@ -2,6 +2,7 @@
 set -e
 CLAUDE=claude
 [ -x "$HOME/.local/bin/claude" ] && CLAUDE="$HOME/.local/bin/claude"
+git diff --cached --quiet -- statusline || bash statusline/hub.test.sh >/dev/null || { bash statusline/hub.test.sh; exit 1; }
 git diff --cached --quiet -- plugins .claude-plugin && exit 0
 "$CLAUDE" plugin validate .claude-plugin/marketplace.json >/dev/null || { "$CLAUDE" plugin validate .claude-plugin/marketplace.json; exit 1; }
 for manifest in plugins/*/.claude-plugin/plugin.json; do
