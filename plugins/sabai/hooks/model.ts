@@ -217,23 +217,27 @@ export function accessoryOf(d: Date): Accessory | undefined {
   return undefined
 }
 
-export const EMPTY_RACE: RaceLog = { calls: {}, doing: {}, fellAt: {}, scoredAt: {}, fails: 0, total: 0 }
+export const EMPTY_RACE: RaceLog = { calls: {}, count: {}, doing: {}, fellAt: {}, scoredAt: {}, fails: 0, total: 0 }
 // A member's calls in flight, oldest first; a log kept from before they were a list reads as none.
 export const doingOf = (log: RaceLog, member: string): CallKind[] => {
   const d = log.doing[member]
   return Array.isArray(d) ? d : []
 }
+// A member's finished calls; a log kept from before they were counted reads as none.
+export const countOf = (log: RaceLog, member: string): number => log.count?.[member] ?? 0
 export const TRIP_MS = 4000
 export const SCORE_MS = 3000
 export const RACE_TILES = 16
 export const RACE_LANES = 3
 // How long a finished agent keeps its lane, as the crew row keeps it.
 export const RACE_LINGER_MS = 60_000
+// Where a runner with no known progress stands: quick at first, slower as calls add up, never at the flag.
+export const paceOf = (count: number): number => Math.max(0.1, Math.min(0.85, 1 - 0.5 ** (count / 8)))
 
 // A new main turn's race: Main and the counts start over, and only agents the race can still show keep their lanes.
 export function nextTurnRace(log: RaceLog, kept: Set<string>): RaceLog {
   const keep = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => kept.has(k)))
-  return { ...EMPTY_RACE, calls: keep(log.calls), doing: keep(log.doing), fellAt: keep(log.fellAt), scoredAt: keep(log.scoredAt) }
+  return { ...EMPTY_RACE, calls: keep(log.calls), count: keep(log.count ?? {}), doing: keep(log.doing), fellAt: keep(log.fellAt), scoredAt: keep(log.scoredAt) }
 }
 
 // One finished call of a member folded into the race: its tile, its fall or score, the turn's counts.
@@ -241,6 +245,7 @@ export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: 
   return {
     ...log,
     calls: { ...log.calls, [member]: [...(log.calls[member] ?? []), call].slice(-RACE_TILES) },
+    count: { ...log.count, [member]: countOf(log, member) + 1 },
     fails: log.fails + (call.ok ? 0 : 1),
     fellAt: call.ok ? log.fellAt : { ...log.fellAt, [member]: at },
     scoredAt: call.kind === 'test' && call.ok ? { ...log.scoredAt, [member]: at } : log.scoredAt,

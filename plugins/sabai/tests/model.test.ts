@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, moodLine, moodOf, nextTurnRace, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -145,7 +145,23 @@ test('raced keeps each member’s last tiles and counts the turn’s calls and f
 test('a new turn’s race keeps only the lanes of agents it can still show', () => {
   const c = { kind: 'read', ok: true } as const
   const log = raced(raced(raced(EMPTY_RACE, 'main', c, 1), 'gone', { kind: 'command', ok: false }, 1), 'live', c, 1)
-  expect(nextTurnRace(log, new Set(['live']))).toEqual({ ...EMPTY_RACE, calls: { live: [c] } })
+  expect(nextTurnRace(log, new Set(['live']))).toEqual({ ...EMPTY_RACE, calls: { live: [c] }, count: { live: 1 } })
+  // A log from before calls were counted starts the turn with none.
+  expect(nextTurnRace({ ...log, count: undefined } as never, new Set(['live'])).count).toEqual({})
+})
+
+test('raced counts each member’s calls past the tiles it keeps; an old log counts from none', () => {
+  let log = EMPTY_RACE
+  for (let i = 0; i < 20; i++) log = raced(log, 'main', { kind: 'read', ok: true }, i)
+  expect([log.calls.main!.length, countOf(log, 'main'), countOf(log, 'other')]).toEqual([16, 20, 0])
+  // A log stored before calls were counted (the atom outlives a reload) reads as none and counts on.
+  const old = { ...EMPTY_RACE, count: undefined } as never
+  expect(countOf(old, 'main')).toBe(0)
+  expect(countOf(raced(old, 'main', { kind: 'edit', ok: true }, 1), 'main')).toBe(1)
+})
+
+test('paceOf moves a runner quickly at first, then slower, never under 10% or past 85%', () => {
+  expect([0, 1, 8, 16, 100].map(n => +paceOf(n).toFixed(3))).toEqual([0.1, 0.1, 0.5, 0.75, 0.85])
 })
 
 test('raceOf lays out Main and up to three agents, each in its state, and stays away when idle', () => {

@@ -66,6 +66,8 @@ export type Show = { folder: boolean; gitUser: boolean; branch: boolean; node: b
 export type CallKind = 'read' | 'edit' | 'command' | 'test'
 export type RaceLog = {
   calls: Record<string, { kind: CallKind; ok: boolean }[]>
+  // Each member's finished calls, past the last tiles `calls` keeps.
+  count: Record<string, number>
   // Each member's calls in flight, oldest first: parallel calls each hold their own.
   doing: Record<string, CallKind[]>
   fellAt: Record<string, number>
