@@ -46,7 +46,7 @@ In the comfortable density (the default) the band is three panels:
 
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
-  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), Node and your git user. On a narrow window the user goes first, then Node; the guard holds on longest, as just its shield and count when room is tight;
+  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), your git user and Node. In the desktop app the guard stands apart at the right end instead, as a green shield leading the toolbar's icons; pressing it opens the settings. On a narrow window the user goes first, then Node; the guard holds on longest, as just its shield and count when room is tight;
   - Claude's task list as a progress bar, when it keeps one;
   - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`). Until the session has read them, the band stands as a still outline with no numbers; with nothing to read yet, it says so.
   - Pick how they look in Settings → Usage → Style:
@@ -69,11 +69,11 @@ In the comfortable density (the default) the band is three panels:
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
 
-Under it, the toolbar: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
+In the desktop app the info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear). In the terminal the info row stays in the band and the toolbar sits under it: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
 
 ### The agents panel
 
-Press `✻ Agents` or type `/sabai-agents` to see a card per subagent:
+Press the Agents icon (`✻ Agents` in the terminal) or type `/sabai-agents` to see a card per subagent:
 - Clawd in a hat for its type;
 - the task, effort, model and step progress;
 - a status that pops when done or shakes on failure.
@@ -98,7 +98,7 @@ Want the native rows that expand to output and diffs? Turn **Tool summaries** of
 
 ## Settings
 
-Press `⚙ Settings` or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
+Press the gear (`⚙ Settings` in the terminal) or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
 
 | Group | Choices |
 |---|---|

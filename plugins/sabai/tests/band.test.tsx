@@ -1,6 +1,6 @@
 import type { On, RenderElement } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Engine, Mounted as TestMounted } from 'claude-code/testing'
 
 const SURFACES = ['terminal', 'desktop'] as const
 type Surface = (typeof SURFACES)[number]
@@ -91,13 +91,30 @@ async function shown($: Engine, surface: Surface, isWorking = false) {
   const svgs = await ui.findAll({ type: 'Svg' })
   const texts = await ui.findAll({ type: 'Text' })
   const buttons = await ui.findAll({ type: 'Button' })
+  const tools = await toolsOf(ui)
   await ui.unmount()
   return {
-    words: [...svgs.map(s => String(s.props.alt)), ...texts.map(t => t.text)].join(' | '),
+    words: [...svgs.map(s => String(s.props.alt)), ...tools.map(t => t.alt), ...texts.map(t => t.text)].join(' | '),
     buttons: buttons.length,
     svgs: svgs.length,
+    tools: tools.map(t => t.alt),
   }
 }
+
+// A band mounted on either surface, or one a test mounted on the desktop itself.
+type Mounted = Awaited<ReturnType<typeof mountBand>> | TestMounted<'desktop', 'AbovePrompt'>
+// The desktop's top row is the info row's own drawing; the band is the other one.
+const bandOf = async (ui: Mounted) => (await ui.findAll({ type: 'Svg' })).find(s => !String(s.props.source).includes('<!--info-->'))
+// The desktop toolbar: each icon an image link in its own Markdown, named by its alt.
+async function toolsOf(ui: Mounted) {
+  return (await ui.findAll({ type: 'Markdown' }))
+    .filter(m => String(m.props.key).startsWith('tool-'))
+    .map(m => {
+      const [, alt, data, href] = String(m.props.text).match(/^\[!\[([^\]]*)\]\(data:image\/svg\+xml;base64,([^)]+)\)\]\(([^)]+)\)$/) ?? []
+      return { key: String(m.props.key), alt, icon: atob(data ?? ''), href }
+    })
+}
+const pressTool = (ui: Mounted, kind: string) => ui.press({ key: `tool-${kind}`, link: { href: `https://sabai.invalid/${kind}` } })
 
 const measure = ($: Engine, percent: number) =>
   $.session.measure({
@@ -109,7 +126,8 @@ const measure = ($: Engine, percent: number) =>
 test('the info row leads with directory, git user and branch, node at the right', async ($, on) => {
   engine(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/^(Clawd: [^;]+; )?Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0; Context/)
+  // On the desktop it is the top row's own drawing, above the band.
+  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -118,7 +136,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^(Clawd: [^;]+; )?Directory work; Context/)
+  expect(words).toMatch(/^Directory work \| (Clawd: [^;]+; )?Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -177,12 +195,14 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
   engine(on)
   await start($)
   const desktop = await shown($, 'desktop')
-  expect(desktop.svgs).toBe(1)
+  expect(desktop.svgs).toBe(2)
   expect(desktop.words).toContain(
     'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
-  expect(desktop.buttons).toBe(5)
+  // The desktop's toolbar is icons, not Buttons: compact (the one command it keeps), agents, settings.
+  expect(desktop.buttons).toBe(0)
+  expect(desktop.tools).toEqual(['Compact', 'Agents', 'Settings'])
   const terminal = await shown($, 'terminal')
   expect(terminal.svgs).toBe(0)
   expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
@@ -249,7 +269,7 @@ test('Clawd takes the skin colour and walks only while the turn works', async ($
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
   const source = async (isWorking: boolean) => {
     const ui = await mountBand($, 'desktop', isWorking)
-    const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+    const svg = (await bandOf(ui)) as { props: { source: string } } | undefined
     await ui.unmount()
     return svg?.props.source ?? ''
   }
@@ -392,28 +412,38 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   engine(on)
   const open = panes(on)
   await start($)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await mountBand($, surface)
-    const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
-    expect(buttons.map(b => b.text)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
-    // What the desktop draws: the label alone, framed like the commands, with no keycap.
-    expect(buttons.map(b => b.props.label)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '✻ Agents', '⚙\uFE0E Settings'])
-    expect(buttons.map(b => b.props.variant)).toEqual(['secondary', 'secondary', 'secondary', 'secondary', 'secondary'])
-    expect(buttons.slice(3).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', undefined], ['secondary', undefined]])
-    await ui.unmount()
-  }
+  const term = await mountBand($, 'terminal')
+  const buttons = await term.findAll({ type: 'Button' })
+  expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
+  expect(buttons.map(b => b.text)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
+  expect(buttons.map(b => b.props.label)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '✻ Agents', '⚙︎ Settings'])
+  expect(buttons.map(b => b.props.variant)).toEqual(['secondary', 'secondary', 'secondary', 'secondary', 'secondary'])
+  expect(buttons.slice(3).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', undefined], ['secondary', undefined]])
+  await term.unmount()
+  // The desktop draws compact and the panels' buttons as Lucide icons at the right of the top row.
   const ui = await mountBand($, 'desktop')
-  await ui.press({ key: 'agents' })
-  await ui.press({ key: 'skins' })
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  const tools = await toolsOf(ui)
+  expect(tools.map(t => [t.key, t.href])).toEqual([
+    ['tool-compact', 'https://sabai.invalid/compact'],
+    ['tool-agents', 'https://sabai.invalid/agents'],
+    ['tool-settings', 'https://sabai.invalid/settings'],
+  ])
+  expect(tools.every(t => t.icon.includes('mask="url(#sabai-tool)"') && t.icon.includes('<rect class="m"'))).toBe(true)
+  await pressTool(ui, 'agents')
+  await pressTool(ui, 'settings')
   expect([...open]).toEqual(['sabai-agents', 'sabai-skins'])
-  await ui.press({ key: 'agents' })
+  await pressTool(ui, 'agents')
   expect([...open]).toEqual(['sabai-skins'])
   await spawn($, 'scan')
   await spawn($, 'read')
-  // While agents work the button says how many, and stands out.
-  const agents = await ui.find({ key: 'agents' })
-  expect([agents?.text, agents?.props.label, agents?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
+  // While agents work the icon counts them in Clawd's clay, and the terminal's button stands out.
+  const agents = (await toolsOf(ui)).find(t => t.key === 'tool-agents')
+  expect(agents?.alt).toBe('Agents, 2 working')
+  expect(agents?.icon).toContain('>2</text>')
+  expect(agents?.icon).toContain('<rect class="c-tasks"')
+  const counted = await (await mountBand($, 'terminal')).find({ key: 'agents' })
+  expect([counted?.text, counted?.props.label, counted?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
 })
 
 test('the toolbar lights compact at the amber mark, unless agents are running', async ($, on) => {
@@ -421,20 +451,28 @@ test('the toolbar lights compact at the amber mark, unless agents are running', 
   panes(on)
   await start($)
   const ui = await mountBand($, 'desktop')
-  const compact = await ui.find({ key: 'run-compact' })
+  const term = await mountBand($, 'terminal')
+  const compactIcon = async () => (await toolsOf(ui)).find(t => t.key === 'tool-compact')
+  expect((await compactIcon())?.alt).toBe('Compact, context at 82%')
+  expect((await compactIcon())?.icon).toContain('>82%</text>')
+  expect((await compactIcon())?.icon).toContain('<rect class="c-warn"')
+  const compact = await term.find({ key: 'run-compact' })
   expect([compact?.props.label, compact?.props.variant]).toEqual(['⇲ Compact · 82%', 'primary'])
   await spawn($, 'scan')
-  const after = await ui.find({ key: 'run-compact' })
+  // One to press at a time: running agents take the colour; compact keeps its figure, muted.
+  expect((await compactIcon())?.icon).toContain('>82%</text>')
+  expect((await compactIcon())?.icon).toContain('<rect class="m"')
+  const after = await term.find({ key: 'run-compact' })
   expect([after?.props.label, after?.props.variant]).toEqual(['⇲ Compact · 82%', 'secondary'])
-  expect((await ui.find({ key: 'agents' }))?.props.variant).toBe('primary')
+  expect((await term.find({ key: 'agents' }))?.props.variant).toBe('primary')
 })
 
 test('the toolbar runs common commands, only those this surface offers', async ($, on) => {
   const { clock, commands } = engine(on)
   await start($)
+  expect(await (await mountBand($, 'terminal')).find({ key: 'run-rewind' })).toBeUndefined()
   const ui = await mountBand($, 'desktop')
-  expect(await ui.find({ key: 'run-rewind' })).toBeUndefined()
-  await ui.press({ key: 'run-compact' })
+  await pressTool(ui, 'compact')
   await clock.advance(1)
   expect(commands).toEqual(['compact'])
 })
@@ -450,7 +488,7 @@ test('the skins panel picks a bar style for the band', async ($, on) => {
   expect((await pane.find({ key: 'bar-blocks' }))?.props.label).toBe('✓ Pixel blocks')
   expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('Dither')
   const band = await mountBand($, 'desktop')
-  const svg = (await band.find({ type: 'Svg' })) as { props: { source: string } } | undefined
+  const svg = (await bandOf(band)) as { props: { source: string } } | undefined
   expect(svg?.props.source).not.toMatch(/class="d[0-3]"/)
   expect(svg?.props.source).toContain('rx="1.5"')
 })
@@ -1058,7 +1096,7 @@ test('the density setting switches the band to compact', async ($, on) => {
   await start($)
   const height = async () => {
     const ui = await mountBand($, 'desktop')
-    const svg = (await ui.findAll({ type: 'Svg' }))[0]
+    const svg = (await bandOf(ui))
     await ui.unmount()
     return Number(String(svg?.props.source).match(/height="(\d+)"/)?.[1])
   }
@@ -1113,7 +1151,7 @@ test('with the live strip off, the turn’s time still stands under Clawd', asyn
 test('stored styles named after Object’s own keys fall back to the defaults', async ($, on) => {
   engine(on, { store: { bar: 'constructor', prefs: { usageStyle: 'toString' } } })
   await start($)
-  const source = String((await (await mountBand($, 'desktop')).findAll({ type: 'Svg' }))[0]!.props.source)
+  const source = String((await bandOf(await mountBand($, 'desktop')))!.props.source)
   expect(source).not.toContain('[object')
 })
 
@@ -1135,7 +1173,7 @@ test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
   await start($)
   await clock.advance(30_000)
   const ui = await mountBand($, 'desktop')
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('#f28c28')
+  expect(String((await bandOf(ui))?.props.source)).toContain('#f28c28')
   await ui.unmount()
 })
 
@@ -1150,10 +1188,10 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
   for (let i = 0; i < 60; i++) await bash($, `npm run step-${i}`)
   const ui = await mountBand($, 'desktop', true)
   // The race is in it, and Main's lane keeps only its last 16 tiles.
-  const svg = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+  const svg = String((await bandOf(ui))?.props.source)
   expect(svg).toMatch(/>\d+ running/)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source).length).toBeLessThanOrEqual(131_072)
+  expect(String((await bandOf(ui))?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
 })
 
@@ -1185,7 +1223,7 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   await start($)
   const source = async () => {
     const ui = await mountBand($, 'desktop')
-    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    const s = String((await bandOf(ui))?.props.source)
     await ui.unmount()
     return s
   }
@@ -1254,7 +1292,7 @@ test('the band with every row, a full crew and Clawd in the info row stays under
   for (let i = 0; i < 6; i++) await spawn($, `job ${i}`)
   const ui = await mountBand($, 'desktop', true)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-  const svg = (await ui.findAll({ type: 'Svg' }))[0]
+  const svg = (await bandOf(ui))
   expect(String(svg?.props.source)).toContain('class="run"')
   expect(String(svg?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1506,10 +1544,20 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   expect(seen.at(-1)).toBe(true)
 })
 
-test('the guard label sits in the band’s info row, a shield chip before Node, on both surfaces', async ($, on) => {
+test('the guard stands at the right of the desktop top row as a green shield; the terminal keeps its chip before Node', async ($, on) => {
   engine(on, { store: { prefs: { guard: true } } })
+  const open = panes(on)
   await start($)
-  expect((await shown($, 'desktop')).words).toMatch(/Turned on: guard, Node v24\.1\.0/)
+  const ui = await mountBand($, 'desktop')
+  // The info row leaves it out; the shield leads the toolbar's icons, and opens the settings.
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
+  const [guard, ...rest] = await toolsOf(ui)
+  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Turned on: guard', ['tool-compact', 'tool-agents', 'tool-settings']])
+  expect(guard?.icon).toContain('>guard</text>')
+  expect(guard?.icon).toContain('<rect class="c-ok"')
+  await pressTool(ui, 'guard')
+  expect([...open]).toEqual(['sabai-skins'])
+  await ui.unmount()
   expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
 })
 
@@ -1629,7 +1677,7 @@ for (const bar of ['dither', 'blocks', 'solid'] as const)
         plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 500, rows: 30 },
         props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 496, scroll: { offset: 0, bodyRows: 8 }, view: {} },
       })
-      const source = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+      const source = String((await bandOf(ui))?.props.source)
       expect(source).toContain('class="usage"')
       expect(source).toMatch(/×\d/)
       expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
@@ -1655,7 +1703,7 @@ test('Clawd waves when a turn ends and stops after the wave', async ($, on) => {
   await start($)
   const source = async () => {
     const ui = await mountBand($, 'desktop')
-    const s = String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)
+    const s = String((await bandOf(ui))?.props.source)
     await ui.unmount()
     return s
   }
@@ -1673,7 +1721,7 @@ test('with tricks off Clawd does not wave', async ($, on) => {
   await $.turn.complete({ turnId: 't', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
   await clock.advance(100)
   const ui = await mountBand($, 'desktop')
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('class="wave"')
+  expect(String((await bandOf(ui))?.props.source)).not.toContain('class="wave"')
   await ui.unmount()
 })
 
@@ -1684,7 +1732,7 @@ test('a race computed under 760 px is not drawn, so Clawd does not look right', 
   await start($)
   await $.turn.start({ turnId: 'n' } as never)
   const ui = await $.ui.mount({ plugin: 'sabai', surface: 'desktop', component: 'AbovePrompt', requestId: 'band', viewport: { columns: 80, rows: 30 }, props: { hasSurvey: false, isWorking: true, maxRows: 8, bodyColumns: 80, scroll: { offset: 0, bodyRows: 8 }, view: {} } })
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.source)).not.toContain('look-right')
+  expect(String((await bandOf(ui))?.props.source)).not.toContain('look-right')
   await ui.unmount()
 })
 
@@ -1705,7 +1753,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   await pane.press({ key: 'usage-rings' })
   const svg = async () => {
     const band = await mountBand($, 'desktop')
-    const s = String((await band.findAll({ type: 'Svg' }))[0]?.props.source)
+    const s = String((await bandOf(band))?.props.source)
     await band.unmount()
     return s
   }
@@ -1730,7 +1778,7 @@ test('prefs saved by 2.2 load with extras and the usage style filled in', async 
   panes(on)
   await start($)
   const band = await mountBand($, 'desktop')
-  expect(String((await band.findAll({ type: 'Svg' }))[0]?.props.source)).toContain('class="usage"')
+  expect(String((await bandOf(band))?.props.source)).toContain('class="usage"')
   await band.unmount()
 })
 

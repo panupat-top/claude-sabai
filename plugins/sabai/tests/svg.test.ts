@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg, TRAIL_ICONS } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -68,9 +68,10 @@ test('the info row comes first: marks and values, left group from the left, node
   expect(d?.alt).toContain('Directory claude-skins, Git user Panupat <dev>, Branch main ±2, Node v24.1.0; a: 1/2 tasks, 50%; Context')
   expect(d?.source).toContain('Panupat &lt;dev&gt;')
   expect(d?.source).toContain('<g transform="translate(0,30)">')
-  // The git user, last at the right, ends at the right edge.
-  const user = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)
-  expect(Math.abs(Number(user?.[1]) + monoWidth('Panupat <dev>', 10.5) - 900)).toBeLessThan(1)
+  // Node, last at the right, ends at the right edge; the git user comes before it.
+  const node = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>v24\.1\.0</)
+  expect(Math.abs(Number(node?.[1]) + monoWidth('v24.1.0', 10.5) - 900)).toBeLessThan(1)
+  expect(Number(d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)?.[1])).toBeLessThan(Number(node?.[1]))
   // Too narrow: the user gives way first; the folder and branch stay, cut if they must.
   expect(bandSvg(undefined, info, [], 260)?.alt).not.toContain('Git user')
   expect(bandSvg(undefined, info, [], 260)?.alt).toContain('Directory claude-skins')
@@ -575,11 +576,11 @@ const ROW = {
 const infoRow = (source: string) => source.slice(source.indexOf('<g class="info">'), source.indexOf('</g><!--info-->'))
 const rowTexts = (source: string) => [...infoRow(source).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
 
-test('the info row: the project, a branch tag with its sync, then guard, Node and the user in muted ink', () => {
+test('the info row: the project, a branch tag with its sync, then guard, the user and Node in muted ink', () => {
   const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
   expect(rowTexts(d.source)).toEqual([
     ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
-    ['sm', 'guard 7'], ['sm', 'v24'], ['sm', 'Panupat'],
+    ['sm', 'guard 7'], ['sm', 'Panupat'], ['sm', 'v24.21.0'],
   ])
   // The tag's words sit 8 px from either end.
   expect(infoRow(d.source)).toContain('width="92.4"')
@@ -591,16 +592,16 @@ test('the info row: the project, a branch tag with its sync, then guard, Node an
 test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
   const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [], show: true } as const
   expect(rowTexts(bandSvg(undefined, row, [], 80, { clawd: false })!.source)[1]).toEqual(['s-session', 'abcdef…'])
-  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24']])
+  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24.1.0']])
 })
 
 test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
   const at = (W: number) => rowTexts(bandSvg(undefined, ROW, [], W, { hero: true, clawd: false })!.source).map(t => t[1]!)
-  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24'])
+  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24.21.0'])
   expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7'])
   const tiny = at(240)
   expect(tiny.some(t => t.endsWith('…'))).toBe(true)
-  expect(tiny).not.toContain('v24')
+  expect(tiny).not.toContain('v24.21.0')
   expect(tiny).not.toContain('guard 7')
 })
 
@@ -639,11 +640,51 @@ test('no two info-row texts overlap at any width', () => {
   }
 })
 
+test('the desktop top row packs every chip from the left on a card as wide as its room', () => {
+  const d = infoSvg(ROW, 900)!
+  expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'Panupat', 'v24.21.0'])
+  // The guard follows the counts a gap apart, not from the right edge; Node ends well short of it.
+  const counts = d.source.match(/<text class="c-warn" x="([\d.]+)"/)!
+  // The folder's mark is the first muted path; the guard's shield the second. On the card they take its inks.
+  const guard = [...d.source.matchAll(/<path class="m" transform="translate\(([\d.]+),/g)][1]!
+  expect(Number(guard[1]) - (Number(counts[1]) + monoWidth('±3', 10.5) + 7)).toBe(8)
+  const node = d.source.match(/<text class="m" x="([\d.]+)"[^>]*>v24\.21\.0</)!
+  expect(Number(node[1]) + monoWidth('v24.21.0', 10.5)).toBeLessThan(600)
+  // The card fills the room the buttons leave, the words 8 px inside it.
+  expect(d.width).toBe(900)
+  expect(d.source).toContain('<rect class="p" y="0" width="900" height="22" rx="6"/><g transform="translate(8,0)">')
+  // Short of room it drops from the right as the band's row does, and never draws past W.
+  expect(infoSvg(ROW, 390)!.alt).not.toContain('Git user')
+  expect(infoSvg(ROW, 390)!.width).toBeLessThanOrEqual(390)
+  // Clawd leads it when he stands here; with nothing to show and no Clawd there is no drawing.
+  expect(infoSvg(ROW, 900, { clawd: { mood: 'idle' } })!.source).toContain('crispEdges')
+  expect(infoSvg(ROW, 900)!.source).not.toContain(MOTION)
+  // No surface ink is left on the card, where it may not read (a dark skin's card on a light OS).
+  expect(infoRow(d.source)).not.toMatch(/class="s(t|m|-[a-z]+)"/)
+  expect(infoSvg({ left: [], right: [] }, 900)).toBeUndefined()
+})
+
+test('a toolbar icon sits on a tile of the card, its Lucide shape and count in the skin\u2019s ink', () => {
+  const quiet = toolIconSvg('settings')
+  expect([quiet.width, quiet.height]).toEqual([26, 22])
+  expect(quiet.source).toContain('<rect class="p" width="26" height="22" rx="6"/>')
+  // The shape masks a rect in the muted ink, so light and dark follow the skin's own stylesheet.
+  expect(quiet.source).toContain('<rect class="m" x="5" y="3" width="16" height="16" mask="url(#sabai-tool)"/>')
+  expect(quiet.source).toContain(`.m{fill:${TEXT.m[0]}}`)
+  expect(quiet.source).not.toContain('<text')
+  const busy = toolIconSvg('compact', '82%', 'warn', 'dracula')
+  expect(busy.source).toContain('<text class="c-warn"')
+  expect(busy.source).toContain('>82%</text>')
+  expect(busy.source).toContain('.p{fill:#282a36}')
+  expect(busy.width).toBe(26 + 4 + Math.ceil(monoWidth('82%', 11)))
+  expect(toolIconSvg('agents', '2', 'tasks').source).toContain('<rect width="16" height="12" x="4" y="8" rx="2"/>')
+})
+
 test('a long branch name is cut before it pushes the guard and Node off a wide row', () => {
   const long = { ...ROW, left: [ROW.left[0], ROW.left[1], { icon: 'branch', label: 'Branch', value: 'x', branch: 'dependabot/npm_and_yarn/some-package-1.2.3-beta', ahead: 1 }] }
   const texts = rowTexts(bandSvg(undefined, long as never, [], 900, { hero: true, clawd: false })!.source).map(t => t[1]!)
   expect(texts).toContain('guard 7')
-  expect(texts).toContain('v24')
+  expect(texts).toContain('v24.21.0')
   expect(texts.find(t => t.startsWith('dependabot'))!.endsWith('…')).toBe(true)
 })
 
