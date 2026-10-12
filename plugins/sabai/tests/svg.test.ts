@@ -873,3 +873,30 @@ test('the band’s loops each last a second or less', () => {
   expect(loops.length).toBeGreaterThan(5)
   expect(loops.filter(n => n > 1).filter(n => n !== 3.2)).toEqual([])
 })
+
+test('the skeleton holds the loaded band’s height in every layout and style, and draws no number', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'work' }], right: [], show: true }
+  const pending = { left: [], right: [], show: true, pending: true }
+  const ghosts = LIST.map(({ kind, label }) => ({ kind, label, percent: 0, pending: true as const }))
+  for (const W of [360, 600, 900, 1200])
+    for (const density of ['comfortable', 'compact'] as const)
+      for (const usageStyle of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
+        const opts = { hero: true, density, usageStyle }
+        const loaded = bandSvg(undefined, info, LIST, W, opts)!
+        const skeleton = bandSvg(undefined, pending, ghosts, W, opts)!
+        expect([W, density, usageStyle, skeleton.height]).toEqual([W, density, usageStyle, loaded.height])
+        expect(skeleton.source).not.toMatch(/>\d+%</)
+        expect(skeleton.source).toContain('>—<')
+        expect(skeleton.alt).toContain('Reading the project')
+        expect(skeleton.alt).toContain('Context loading')
+      }
+})
+
+test('a usage with nothing to show leaves a note in its place', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'work' }], right: [], show: true }
+  for (const opts of [{ hero: true }, {}, { density: 'compact' as const }]) {
+    const d = bandSvg(undefined, info, [], 900, { ...opts, usageNote: 'No usage reading yet' })!
+    expect(d.source).toContain('>No usage reading yet<')
+    expect(d.alt).toContain('No usage reading yet')
+  }
+})

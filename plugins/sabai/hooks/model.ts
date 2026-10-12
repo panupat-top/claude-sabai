@@ -7,7 +7,9 @@ export const ALERT_AT = 90
 export type MeterKind = 'context' | 'session' | 'week'
 // `amount` is the context's fill in tokens (`434.5k / 1M`); the limits have none.
 // `left` is what is left of the context window (`256.5k left`).
-export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; left?: string; resetsInMs?: number; level?: 'warn' | 'alert' }
+// `pending` marks a skeleton: the engine has not answered yet, so it has no reading to show.
+export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; left?: string; resetsInMs?: number; level?: 'warn' | 'alert'; pending?: true }
+const METER_LABELS: Record<MeterKind, string> = { context: 'Context', session: '5H Limit', week: '7D All' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -27,10 +29,12 @@ const resetsIn = (resetsAt: string | undefined, now: number) => {
 }
 
 // Context, 5H and 7D, all from the engine, each only once it has a reading and when shown, with
-// its warning level at the person's thresholds.
+// its warning level at the person's thresholds. Before the engine has answered (`null`), a
+// skeleton per meter shown.
 export function meters(usage: Usage | null, now: number, opts: { show?: Partial<Show>; warnAt?: number; alertAt?: number } = {}): Meter[] {
   const out: Meter[] = []
   const shown = (kind: MeterKind) => opts.show?.[kind] !== false
+  if (!usage) return (Object.keys(METER_LABELS) as MeterKind[]).filter(shown).map(kind => ({ kind, label: METER_LABELS[kind], percent: 0, pending: true }))
   const leveled = (m: Meter): Meter => ({ ...m, level: level(m.percent, opts.warnAt, opts.alertAt) })
   const add = (kind: MeterKind, label: string, window: string) => {
     const l = usage?.rateLimits.find(r => r.kind === window)
@@ -49,6 +53,11 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
   return out
 }
 
+// Said in the usage's place once the engine has answered with nothing to show (before the first
+// reply, or a plan without limits), unless every meter is turned off.
+export const usageNote = (usage: Usage | null, list: readonly Meter[], show: Partial<Show> = {}): string | undefined =>
+  usage && !list.length && (Object.keys(METER_LABELS) as MeterKind[]).some(k => show[k] !== false) ? 'No usage reading yet' : undefined
+
 // 434512 → 434.5k, 1000000 → 1M, 200000 → 200k; 999950 rounds up to 1M, not 1000k.
 export function tokens(n: number): string {
   const one = (x: number) => String(Math.round(x * 10) / 10)
@@ -56,7 +65,7 @@ export function tokens(n: number): string {
 }
 
 // What a meter reads as: `434.5k / 1M (43%)` for the context, `43%` for a limit.
-export const value = (m: Meter): string => (m.amount ? `${m.amount} (${m.percent}%)` : `${m.percent}%`)
+export const value = (m: Meter): string => (m.pending ? 'loading' : m.amount ? `${m.amount} (${m.percent}%)` : `${m.percent}%`)
 
 export const level = (percent: number, warnAt = WARN_AT, alertAt = ALERT_AT): 'alert' | 'warn' | undefined =>
   percent >= alertAt ? 'alert' : percent >= warnAt ? 'warn' : undefined
