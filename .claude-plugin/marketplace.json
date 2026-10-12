@@ -12,7 +12,7 @@
       "name": "sabai",
       "source": "./plugins/sabai",
       "description": "Mod: pixel-art band above the prompt (info, tasks, crew, usage, toolbar), an agents panel with reports, settings with raised or flat cards, alerts and a guard, and touches to the conversation (tool summaries, test results, callouts, Thai spinner words).",
-      "version": "2.13.0",
+      "version": "2.14.0",
       "category": "mod"
     }
   ]

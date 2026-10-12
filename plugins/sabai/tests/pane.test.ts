@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import type { AgentRun } from '../types'
 import {
-  CALLS_KEPT, CREWS_KEPT, QUIET_MS, agentMood, dayOf, attentionOf, called, calling, clearEarlier, crewsOf, factsLine, filesOf, openCrews, reported, spawned, stepped,
+  CALLS_KEPT, CREWS_KEPT, QUIET_MS, agentMood, dayOf, needsLook, called, calling, clearEarlier, crewsOf, factsLine, filesOf, openCrews, reported, spawned, stepped,
   summaryOf, summaryPrompt, thaiLine, toolsOf, touched,
 } from '../hooks/agents'
 import { actOf } from '../hooks/chat'
@@ -105,12 +105,13 @@ test('Thai lines carry the real numbers, stay put between redraws, and name a ro
   expect(thaiLine(quiet, at)).toBe(thaiLine(quiet, at + 1000).replace('41', '40'))
 })
 
-test('with none picked the detail shows one needing a look, else the newest finished, else the newest', () => {
+test('an agent needs a look when quiet, then when its context is nearly full; Main is never quiet', () => {
   const at = 200_000
-  const list = [run('quiet', { lastActiveAt: at - 60_000 }), run('ok', { lastActiveAt: at }), run('done', { status: 'done', endedAt: at - 1000 })]
-  expect(attentionOf(list, at)?.id).toBe('quiet')
-  expect(attentionOf(list.slice(1), at)?.id).toBe('done')
-  expect(attentionOf([run('x', { lastActiveAt: at }), run('y', { lastActiveAt: at })], at)?.id).toBe('y')
+  const list = [run('quiet', { lastActiveAt: at - 60_000 }), run('full', { contextTokens: 170_000, lastActiveAt: at }), run('ok', { lastActiveAt: at })]
+  expect(needsLook(list, at, () => 200_000)?.id).toBe('quiet')
+  expect(needsLook(list.slice(1), at, () => 200_000)?.id).toBe('full')
+  expect(needsLook(list.slice(2), at)).toBeUndefined()
+  expect(agentMood(run('m', { type: 'main', lastActiveAt: at - 60_000 }), at)).toBe('thinking')
 })
 
 test('the summary asks Haiku with the report and files, and reads its bullets back', () => {
@@ -140,21 +141,22 @@ test('the overview heads the crew, a Clawd per agent in his mood, and four tiles
   expect(d.source).toContain('>1 running · 1 done · 1 stopped<')
   expect(d.source).toContain('>27<')
   expect(d.source).toContain('>153k<')
-  expect(d.source).toContain('>1 edited<')
+  expect(d.source).not.toContain('>FILES<')
   expect(d.source).toContain('class="run"')
   expect(d.source).toContain('.run g.la{')
   const all = crewSvg(list.slice(1), 530, 90_000)
   expect(all.source).toContain('>Crew finished · 19s<')
   // Nothing moves once the crew has settled.
   expect(all.source).not.toContain('@keyframes')
-  // A narrow pane lays the tiles two by two.
-  expect(crewSvg(list, 300, 30_000).height).toBeGreaterThan(d.height)
+  // A very narrow pane stacks the tiles.
+  expect(crewSvg(list, 260, 30_000).height).toBeGreaterThan(d.height)
 })
 
-test('a lane says its Thai line, is ringed when selected and still once settled', () => {
+test('a lane says its Thai line, is marked by a bar and a bold title when viewed, and is still once settled', () => {
   const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
   expect(lane.source).toContain('กำลังอ่าน svg.ts')
-  expect(lane.source).toContain('stroke-width="1.5"')
+  expect(lane.source).toContain('<rect width="4" height="42" rx="2"')
+  expect(lane.source).toContain('font-weight="800"')
   expect(lane.source).toContain('>2/3<')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
   expect(quiet.source).toMatch(/class="c-warn"[^>]*>เงียบไป 60 วิ/)
@@ -176,7 +178,7 @@ test('the detail draws its head, tools, steps, calls and files', () => {
   const calls = activitySvg(a, 530)!.source
   expect([calls.includes('7 earlier calls'), calls.includes('$ ls /nope'), calls.includes('running…')]).toEqual([true, true, true])
   const files = filesSvg(a, 530)!.source
-  expect([files.includes('CHANGED · 1'), files.includes('>NEW<'), files.includes('READ ONLY · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
+  expect([files.includes('Changed · 1'), files.includes('>NEW<'), files.includes('Read · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
   expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')
 })
 

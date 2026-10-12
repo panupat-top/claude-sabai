@@ -1,5 +1,5 @@
-import type { ActKind, AgentFile, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
-import { FULL_AT, agentMood, clock, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
+import type { ActKind, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
+import { FULL_AT, isMain, agentMood, clock, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
 import type { AgentMood } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
@@ -1253,7 +1253,9 @@ function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: nu
   const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
   const mode = mood === 'done' && fresh ? 'hop' : MOOD_SPRITE[mood]
   const prop = a.status === 'running' ? true : a.status === 'done' ? ('scroll' as const) : false
-  return `<g transform="translate(${x},${y}) scale(${scale})"${mood === 'stopped' ? ' opacity=".55"' : ''}>${asPaths(sprite('tasks', 0, HAT_H, mode, look.clawd, { kind: hat, color: hatColor, prop }))}</g>`
+  // Claude himself wears no type's hat.
+  const worn = isMain(a) ? undefined : { kind: hat, color: hatColor, prop }
+  return `<g transform="translate(${x},${y}) scale(${scale})"${mood === 'stopped' ? ' opacity=".55"' : ''}>${asPaths(sprite('tasks', 0, HAT_H, mode, look.clawd, worn))}</g>`
 }
 // A run's share done: its steps, else its pace by calls while it runs, else whole.
 const shareOf = (a: AgentRun): number => {
@@ -1295,7 +1297,12 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   const failed = count('failed')
   const stopped = count('stopped')
   const done = count('done')
-  const title = running ? plural(runs.length, 'agent') : `Crew finished · ${clock(end - start)}`
+  // Main is a member, not an agent: a turn with none is Claude's alone.
+  const helpers = runs.filter(a => !isMain(a)).length
+  const withMain = runs.length > helpers
+  const title = running
+    ? helpers ? `${withMain ? 'Main + ' : ''}${plural(helpers, 'agent')}` : 'Claude at work'
+    : `${helpers ? 'Crew' : 'Turn'} finished · ${clock(end - start)}`
   const sub = [running && `${running} running`, done && `${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ')
   const subInk = !running && !failed ? 'c-ok' : 'm'
   // The Clawds from the right, as many as leave the headline its room.
@@ -1317,81 +1324,32 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   const gap = 4
   const sw = (W - PAD * 2 - 12 - gap * (segs.length - 1)) / segs.length
   segs.forEach((a, i) => (b += trackBar(PAD + 6 + i * (sw + gap), 62, sw, 8, shareOf(a), moodColor(look, agentMood(a, now, windowOf(a))))))
-  // The tiles, four across, or two by two on a narrow pane.
-  const cols = W >= 420 ? 4 : 2
+  // The tiles, three across, or one under another on a very narrow pane: a name, a figure, and
+  // beside it what the figure needs said (failures). The files are the detail's.
+  const tileCount = 3
+  const cols = W >= 300 ? tileCount : 1
   const tw = (W - PAD * 2 - 12 - 8 * (cols - 1)) / cols
-  const th = 84
+  const th = 54
   const y0 = 84
   const calls = runs.reduce((n, a) => n + (a.callCount ?? 0), 0)
   const fails = runs.reduce((n, a) => n + (a.callFails ?? 0), 0)
   const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
-  const files = new Map<string, AgentFile>()
-  for (const a of runs) for (const [p, f] of Object.entries(a.files ?? {})) {
-    const was = files.get(p)
-    files.set(p, was ? { reads: was.reads + f.reads, edits: was.edits + f.edits, added: was.added + f.added, removed: was.removed + f.removed } : f)
-  }
-  const edited = [...files.values()].filter(f => f.edits > 0)
-  const added = edited.reduce((n, f) => n + f.added, 0)
-  const removed = edited.reduce((n, f) => n + f.removed, 0)
-  const tile = (i: number, name: string, big: string, inner: (x: number, y: number) => string, note = '') => {
+  const tile = (i: number, name: string, big: string, note = '') => {
     const x = PAD + 6 + (i % cols) * (tw + 8)
     const y = y0 + Math.floor(i / cols) * (th + 8)
     return (
       `<rect class="k" fill-opacity=".45" x="${x.toFixed(1)}" y="${y}" width="${tw.toFixed(1)}" height="${th}" rx="9"/>` +
       label(x + 10, y + 16, name) +
-      `<text class="t" x="${x + 10}" y="${y + 40}" font-family="${SANS}" font-size="19" font-weight="700">${xml(fit(big, 19, tw - 20))}</text>` +
-      note +
-      inner(x + 10, y)
+      `<text class="t" x="${x + 10}" y="${y + 41}" font-family="${SANS}" font-size="19" font-weight="700">${xml(fit(big, 19, tw - 20))}</text>` +
+      (note ? `<text x="${(x + tw - 10).toFixed(1)}" y="${y + 40}" text-anchor="end" font-family="${MONO}" font-size="10.5">${note}</text>` : '')
     )
   }
-  const kinds = new Map<ActKind, number>()
-  for (const a of runs) for (const c of a.calls ?? []) kinds.set(c.kind, (kinds.get(c.kind) ?? 0) + 1)
-  const kept = [...kinds.values()].reduce((n, k) => n + k, 0)
-  b += tile(0, 'CALLS', String(calls), (x, y) => {
-    let bx = x
-    let s = ''
-    for (const [k, n] of kinds) {
-      const w = ((tw - 20) * n) / kept
-      s += `<rect x="${bx.toFixed(1)}" y="${y + 52}" width="${Math.max(1, w - 1.5).toFixed(1)}" height="7" rx="2" ${kindPaint(look, k, true).paint}/>`
-      bx += w
-    }
-    return s || `<rect class="k" x="${x}" y="${y + 52}" width="${tw - 20}" height="7" rx="2"/>`
-  }, fails ? `<text class="c-alert" x="${PAD + 6 + tw - 10}" y="${y0 + 40}" text-anchor="end" font-family="${MONO}" font-size="11">✗ ${fails}</text>` : '')
-  const most = Math.max(1, ...runs.map(a => a.spent ?? a.contextTokens))
-  const bars = runs.slice(-12)
-  b += tile(1, 'TOKENS', tokens(spent), (x, y) =>
-    bars
-      .map((a, i) => {
-        const h = Math.max(2, (22 * (a.spent ?? a.contextTokens)) / most)
-        const w = (tw - 20) / bars.length
-        return `<rect x="${(x + i * w).toFixed(1)}" y="${(y + 76 - h).toFixed(1)}" width="${Math.max(2, w - 4).toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="${hatOf(look, a.type).color}" fill-opacity=".8"/>`
-      })
-      .join(''),
-  )
-  const span = Math.max(1, end - start)
-  const lines = runs.slice(-6)
-  b += tile(2, 'TIME', clock(end - start), (x, y) =>
-    lines
-      .map((a, i) => {
-        const x0 = x + ((tw - 20) * (a.startedAt - start)) / span
-        const x1 = x + ((tw - 20) * ((a.endedAt ?? now) - start)) / span
-        return `<rect x="${x0.toFixed(1)}" y="${y + 50 + i * 5.5}" width="${Math.max(3, x1 - x0).toFixed(1)}" height="3.5" rx="1.75" fill="${moodColor(look, agentMood(a, now, windowOf(a)))}"/>`
-      })
-      .join(''),
-  )
-  b += tile(3, 'FILES', String(files.size), (x, y) => {
-    const share = files.size ? edited.length / files.size : 0
-    const w = tw - 20
-    return (
-      (files.size
-        ? `<rect x="${x}" y="${y + 52}" width="${Math.max(0, w * (1 - share) - 1.5).toFixed(1)}" height="7" rx="2" fill="${look.bar('context')}"/><rect x="${(x + w * (1 - share)).toFixed(1)}" y="${y + 52}" width="${(w * share).toFixed(1)}" height="7" rx="2" fill="${look.bar('session')}"/>`
-        : `<rect class="k" x="${x}" y="${y + 52}" width="${w}" height="7" rx="2"/>`) +
-      (edited.length ? `<text x="${x}" y="${y + 74}" font-family="${MONO}" font-size="10"><tspan class="c-ok">+${added}</tspan> <tspan class="c-alert">−${removed}</tspan></text>` : '')
-    )
-  }, edited.length ? `<text class="m" x="${PAD + 6 + (3 % cols) * (tw + 8) + tw - 10}" y="${y0 + Math.floor(3 / cols) * (th + 8) + 40}" text-anchor="end" font-family="${SANS}" font-size="11">${edited.length} edited</text>` : '')
-  const H = y0 + Math.ceil(4 / cols) * (th + 8) + 4
+  b += tile(0, 'CALLS', String(calls), fails ? `<tspan class="c-alert">✗ ${fails}</tspan>` : '')
+  b += tile(1, 'TOKENS', tokens(spent))
+  b += tile(2, 'TIME', clock(end - start))
+  const H = y0 + Math.ceil(tileCount / cols) * (th + 8) + 4
   const body = `<rect class="p" width="${W}" height="${H}" rx="12"/>` + b
-  const alt = `${title}: ${sub}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${files.size} files${edited.length ? `, ${edited.length} edited` : ''}`
+  const alt = `${title}: ${sub}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
   return paneDrawing(look, W, H, body, alt, runs.some(a => moving(a, now)))
 }
 
@@ -1413,9 +1371,10 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const textRoom = (wide ? barX - 10 : right - timeW - 10) - textX
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
   const body =
-    `<rect class="p" width="${W}" height="${AGENT_LANE_H}" rx="8"${selected ? ` stroke="${look.clawd}" stroke-width="1.5"` : ''}/>` +
+    `<rect class="p" width="${W}" height="${AGENT_LANE_H}" rx="8"/>` +
+    (selected ? `<rect width="4" height="${AGENT_LANE_H}" rx="2" fill="${look.clawd}"/>` : '') +
     agentClawd(look, a, mood, now, 8, (AGENT_LANE_H - CLAWD_H) / 2, 1) +
-    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(fit(a.description || a.type, 12.5, textRoom))}</text>` +
+    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="${selected ? 800 : 600}">${xml(fit(a.description || a.type, 12.5, textRoom))}</text>` +
     `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
     (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(look, mood), style) : '') +
     (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
@@ -1439,7 +1398,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const tag = moodLabel(a, now, window)
   const tagW = textWidth(tag, 10) + 16
   const effort = effortLabel(a.effort)
-  const meta = [effort, a.type, modelName(a.model), a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const meta = [effort, isMain(a) ? '' : a.type, modelName(a.model), a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
   const last = a.doing?.at(-1)
   const lastCall = a.calls?.at(-1)
   const latest = last ? `▶ ${last.title}` : lastCall ? `${lastCall.ok ? '✓' : '✗'} ${lastCall.title}` : ''
@@ -1578,7 +1537,7 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
     y += 24
   }
   if (changed.length) {
-    head(`CHANGED · ${changed.length}`)
+    head(`Changed · ${changed.length}`)
     for (const { path, file } of changed) {
       const tint = file.created ? look.bar('context') : look.bar('session')
       const name = fitMono(base(path), 12.5, W - 200)
@@ -1599,7 +1558,7 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
     }
   }
   if (read.length) {
-    head(`READ ONLY · ${read.length}`)
+    head(`Read · ${read.length}`)
     for (const { path, file } of read.slice(0, READ_SHOWN)) {
       const name = fitMono(base(path), 12, W * 0.5)
       b +=
@@ -1618,18 +1577,32 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
   return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt)
 }
 
+// The detail with no agent viewed: a sleeping Clawd and how to pick one.
+export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
+  const look = lookOf(skin)
+  const x = 16 + CLAWD_W * 1.6 + 14
+  const body =
+    `<rect class="p" width="${W}" height="64" rx="10"/>` +
+    `<g transform="translate(16,14) scale(1.6)">${asPaths(sprite('tasks', 0, HAT_H, 'sleep', look.clawd))}</g>` +
+    `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">No agent viewed</text>` +
+    `<text class="m" x="${x}" y="46" font-family="${SANS}" font-size="11.5">${xml(fit('Press View on a lane to see what it did.', 11.5, W - x - 12))}</text>`
+  return paneDrawing(look, W, 64, body, 'No agent viewed. Press View on a lane to see what it did.')
+}
+
 // An earlier crew in one line: when it started and how many it had, what they were about, and
 // how it went (done, failed, stopped), its time and tokens.
-export function earlierSvg(runs: readonly AgentRun[], W: number, skin: string = 'auto'): Drawing {
+export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 'auto'): Drawing {
   const look = lookOf(skin)
-  const start = Math.min(...runs.map(a => a.startedAt))
-  const end = Math.max(...runs.map(a => a.endedAt ?? a.startedAt))
+  // The crew's agents: its main turn is counted in its time and tokens, not among them.
+  const runs = crew.filter(a => !isMain(a))
+  const start = Math.min(...crew.map(a => a.startedAt))
+  const end = Math.max(...crew.map(a => a.endedAt ?? a.startedAt))
   const at = new Date(start)
   const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
   const failed = runs.filter(a => a.status === 'failed' && a.reason !== 'aborted').length
   const stopped = runs.filter(a => a.reason === 'aborted').length
   const done = runs.filter(a => a.status === 'done').length
-  const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
+  const spent = crew.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
   const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
   const title = `${hhmm} · ${plural(runs.length, 'agent')}`
   const what = runs.map(a => a.description || a.type).join(' · ')

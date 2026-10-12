@@ -82,18 +82,18 @@ The info row sits above the band on a card of its own, everything from the left 
 
 ### The agents panel
 
-Press the Agents icon or type `/sabai-agents`. The agents one of Claude's turns started are a **crew**; the panel shows the crew at work, top to bottom:
-- **The overview:** how many agents and how they stand, a Clawd for each in his type's hat and mood, a bar of each one's share done, then four tiles: calls (by kind, with failures), tokens, time and files (read and edited, with lines added and removed).
-- **A lane per agent:** its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
-- **The detail** of the agent you viewed (or, until you pick one, the one most worth a look: one gone quiet, one with its context nearly full, else the one that just finished):
+Press the Agents icon or type `/sabai-agents`. Each of Claude's turns is a **crew**: Claude and the agents that turn started. The panel has three boxes:
+- **Now**, the crew at work:
+  - the overview: who is in it and how they stand, a Clawd for each in his mood (agents in their type's hat), a bar of each one's share done, and three tiles: calls (with failures), tokens and time;
+  - a lane for Claude, then one per agent: its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
+- **Earlier**: the last crews before this one that had agents, folded to one line while a crew is at work. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
+- **Detail**, of the lane you viewed. The viewed lane is marked by a bar on its left and its button reads **Viewing**; press it again, or **✕ Close**, to close the view. With none viewed, Detail invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
   - its head: mood, effort, type and model, its latest call, and steps, context and calls as meters;
-  - **Summary · ภาษาไทย** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then two to four lines Haiku writes in Thai from its report;
-  - **Tools**: built-in tools, skills and MCP tools, with how often each was called;
-  - **Steps** it reported, **Activity** (its latest calls, each with its time and whether it worked; **All calls** for up to 60), **Files** (the ones it changed first, with `+N −M` and NEW for a file it created, then the ones it only read);
-  - **▸ Report** (with earlier rounds, when it was sent more work after finishing) and **▸ Brief**, the task it was given.
-- **Earlier**: the last five crews before this one, in a box of their own, folded to one line while a crew is at work. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
+  - **Summary** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then, for an agent, two to four lines Haiku writes in Thai from its report;
+  - **Plan** (the steps it reported), **Tools used** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
+  - **Report** (Claude's **Answer**, for Claude), with earlier rounds when an agent was sent more work after finishing, and **Task**, what an agent was asked.
 
-An agent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done.
+A turn that called nothing and started no agents (a quick reply) is not kept as a crew. An agent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done. Claude is never quiet: writing a long answer is quiet work.
 
 ### In the conversation
 
