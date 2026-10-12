@@ -93,6 +93,9 @@ const LONG_TURN_MS = 60_000
 // does not warn again.
 const warned = atom({ plugin: 'sabai', key: 'warned' } as const, [] as string[])
 const finishedOpen = atom({ plugin: 'sabai', key: 'finishedOpen' } as const, false)
+const resetArmed = atom({ plugin: 'sabai', key: 'resetArmed' } as const, false)
+// How long a first press of Reset waits for the second.
+const RESET_ARM_MS = 5000
 const openResults = atom({ plugin: 'sabai', key: 'openResults' } as const, [] as string[])
 // The pane draws the newest finished runs; the rest are counted.
 const FINISHED_SHOWN = 8
@@ -501,7 +504,7 @@ export const register: Register = on => {
       ) : (
         <Box flexDirection="column">
           <Text bold>No subagents yet</Text>
-          <Text dimColor>They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.</Text>
+          <Text dimColor>They show here when Claude hands work off — try “explore the codebase in parallel”.</Text>
         </Box>
       )
     }
@@ -531,7 +534,7 @@ export const register: Register = on => {
             <Text bold wrap="truncate-end">{`${typeEmoji(a.type)} ${title}`}</Text>
           </Box>
           {a.status !== 'running' && (
-            <Button key={`result-${a.id}`} label={reportOpen ? '▾ Report' : 'Report'} onPress={() => toggleResult(a.id)} />
+            <Button key={`result-${a.id}`} label={reportOpen ? '▾ Report' : '▸ Report'} onPress={() => toggleResult(a.id)} />
           )}
         </Box>
       )
@@ -599,15 +602,16 @@ export const register: Register = on => {
               <Box flexGrow={1}>
                 <Text dimColor bold>{`FINISHED · ${done.length}`}</Text>
               </Box>
+              <Button key="toggle-finished" label={isOpen ? '▾ Hide' : '▸ Show'} onPress={() => update($, finishedOpen, v => !v)} />
+              {/* Last, away from Show: it drops the finished cards for good. */}
               <Button
                 key="clear-finished"
-                label="Clear"
+                label="Clear finished"
                 onPress={async () => {
                   await update($, agents, clearFinished)
                   await update($, openResults, () => [])
                 }}
               />
-              <Button key="toggle-finished" label={isOpen ? '▾ Hide' : '▸ Show'} onPress={() => update($, finishedOpen, v => !v)} />
             </Box>
             {isOpen && shown.map(card)}
             {isOpen && done.length > shown.length && <Text dimColor>{`+ ${done.length - shown.length} more`}</Text>}
@@ -774,6 +778,7 @@ export const register: Register = on => {
     const current = await read($, skin)
     const style = await read($, bar)
     const p = await read($, prefs)
+    const armed = await read($, resetArmed)
     const look = lookOf(current)
     const ui = $.ui.resolve(e)
     const { Box, Button, Text } = ui
@@ -863,21 +868,21 @@ export const register: Register = on => {
           'Layout',
           'What the band shows',
           <>
-            {named('Density', 'Comfortable: Clawd, info and usage, and the race while work runs. Compact: one-line rows')}
+            {named('Density', 'Desktop only. Comfortable: Clawd, usage and the race while work runs. Compact: one-line rows')}
             {choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d })))}
             {subheading('Rows', 'Tap to show or hide')}
             {pills([rowPill('info', 'Info'), rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('crew', 'Agents'), rowPill('usage', 'Usage'), rowPill('toolbar', 'Toolbar')])}
-            <Text dimColor>Activity is the race in comfortable, the live strip in compact. Agents are lanes in the race, or the crew row.</Text>
+            <Text dimColor>Activity is the race when the band is 760 px or wider, else the live strip. Agents are lanes in the race, or the crew row. With the toolbar hidden, /sabai-settings brings you back here.</Text>
           </>,
         )}
-        {group('info', '▣', 'Info', 'The first row', pills([showPill('folder', 'Folder'), showPill('gitUser', 'Git user'), showPill('branch', 'Branch'), showPill('node', 'Node')]))}
+        {group('info', '▣', 'Info', 'The info row', pills([showPill('folder', 'Folder'), showPill('gitUser', 'Git user'), showPill('branch', 'Branch'), showPill('node', 'Node')]))}
         {group(
           'usage',
           '◔',
           'Usage',
           'Limits and when they turn amber and red',
           <>
-            {subheading('Style', 'How the comfortable band draws them')}
+            {subheading('Style', 'Desktop only: how the comfortable band draws them, from 480 px')}
             {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
             {subheading('Limits', 'Which ones show')}
             {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
@@ -887,7 +892,7 @@ export const register: Register = on => {
         )}
         {group(
           'clawd',
-          '✻',
+          '☻',
           'Clawd',
           'The pixel crab',
           <>
@@ -896,7 +901,7 @@ export const register: Register = on => {
             {pills([extraPill('accessories', 'Accessories'), extraPill('tricks', 'Tricks')])}
           </>,
         )}
-        {group('agents', '⚙', 'Agents', 'Subagents', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
+        {group('agents', '✻', 'Agents', 'Subagents', flag('steps', 'Step reports', 'Agents may report their steps (a small tool); from the next session'))}
         {group(
           'chat',
           '❯',
@@ -940,7 +945,7 @@ export const register: Register = on => {
         )}
         {group(
           'alerts',
-          '◔',
+          '◉',
           'Notifications',
           'Outside the band',
           <>
@@ -948,11 +953,11 @@ export const register: Register = on => {
             {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes your red mark')}
           </>,
         )}
-        {group(
+        {e.surface !== 'terminal' && group(
           'look',
           '◐',
           'Look',
-          'Cards and bars',
+          'Desktop only: cards and bars',
           <>
             {subheading('Cards', 'Raised off the band, or flat on it; both follow the app’s light or dark look')}
             {choice('skin', SKINS, k => SKIN_NAMES[k]!, (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised', k => void setSkin($, k))}
@@ -963,8 +968,24 @@ export const register: Register = on => {
           </>,
         )}
         <Box flexDirection="row" alignItems="center" columnGap={2}>
-          {named('Reset', 'Back to how sabai started: these settings, the skin and the bar style')}
-          <Button key="reset-defaults" label="Reset to defaults" variant="secondary" onPress={() => void $.clock.after(0, () => void resetAll($))} />
+          {named('Reset', 'Back to how sabai started: these settings (the guard off), the look and the bar style')}
+          {/* It undoes every choice and turns the guard off, so the first press only asks for a second. */}
+          <Button
+            key="reset-defaults"
+            label={armed ? 'Press again to reset' : 'Reset to defaults'}
+            variant={armed ? 'primary' : 'secondary'}
+            onPress={() =>
+              void $.clock.after(0, async () => {
+                if (!(await read($, resetArmed))) {
+                  await update($, resetArmed, () => true)
+                  await $.clock.after(RESET_ARM_MS, () => void update($, resetArmed, () => false))
+                  return
+                }
+                await update($, resetArmed, () => false)
+                await resetAll($)
+              })
+            }
+          />
         </Box>
       </Box>
     )

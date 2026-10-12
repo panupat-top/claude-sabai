@@ -1174,7 +1174,7 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin: strin
   const s = summary(list, now)
   const cells = [
     ['AGENTS', [s.running > 0 && `${s.running} running`, `${s.done} done`, s.failed > 0 && `${s.failed} failed`].filter(Boolean).join(' · ')],
-    ['CONTEXT', tokens(s.context)],
+    ['TOKENS', tokens(s.context)],
     ['TIME', clock(s.ms)],
   ] as const
   // The agents count is the longest value, so its cell takes half the width.
@@ -1192,7 +1192,7 @@ export function summarySvg(list: AgentRun[], W: number, now: number, skin: strin
     })
     .join('')
   // Nothing in it moves: no motion stylesheet, though the pane redraws it every second.
-  return drawing(look, W, 44, body, `Agents ${cells[0][1]}; context ${cells[1][1]}; time ${cells[2][1]}`, true)
+  return drawing(look, W, 44, body, `Agents ${cells[0][1]}; tokens ${cells[1][1]}; time ${cells[2][1]}`, true)
 }
 
 export function emptyAgentsSvg(W: number, skin: string = 'auto'): Drawing {
@@ -1202,7 +1202,7 @@ export function emptyAgentsSvg(W: number, skin: string = 'auto'): Drawing {
     `<rect class="p" width="${W}" height="56" rx="8"/>` +
     sprite('tasks', PAD, 20, 'idle', look.clawd) +
     `<text class="t" x="${PAD + clawd.width + 12}" y="24" font-family="${SANS}" font-size="12.5" font-weight="600">No subagents yet</text>` +
-    `<text class="m" x="${PAD + clawd.width + 12}" y="41" font-family="${SANS}" font-size="11.5">${xml(fit('They show here when Claude hands work off — try “explore hooks/ and tests/ in parallel”.', 11.5, W - PAD * 2 - clawd.width - 12))}</text>`
+    `<text class="m" x="${PAD + clawd.width + 12}" y="41" font-family="${SANS}" font-size="11.5">${xml(fit('They show here when Claude hands work off — try “explore the codebase in parallel”.', 11.5, W - PAD * 2 - clawd.width - 12))}</text>`
   return drawing(look, W, 56, body, 'No subagents yet. They show here when Claude hands work off.')
 }
 

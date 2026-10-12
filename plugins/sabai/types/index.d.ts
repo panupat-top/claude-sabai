@@ -106,6 +106,8 @@ declare module 'claude-code' {
       bar: BarStyle
       prefs: Prefs
       finishedOpen: boolean
+      // Reset was pressed once and waits a few seconds for the second press.
+      resetArmed: boolean
       openResults: string[]
       agents: AgentRun[]
       durations: StateFamily<number>

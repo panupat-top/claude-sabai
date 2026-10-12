@@ -127,7 +127,7 @@ test('the info row leads with directory, git user and branch, node at the right'
   engine(on)
   await start($)
   // On the desktop it is the top row's own drawing, above the band.
-  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^Folder work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -136,7 +136,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^Directory work \| (Clawd: [^;]+; )?Context/)
+  expect(words).toMatch(/^Folder work \| (Clawd: [^;]+; )?Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -389,14 +389,14 @@ test('the look picker offers raised and flat cards, each with its swatch, and a 
   const { store } = engine(on)
   panes(on)
   await start($)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await mountPane($, surface, 'sabai-skins')
-    expect([(await ui.find({ key: 'skin-raised' }))?.props.variant, (await ui.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
-    // Two swatches and one preview of the chosen bar style.
-    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 2 + 1 : 0)
-    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-    await ui.unmount()
-  }
+  // The look is the desktop's drawings' alone, so the terminal shows no picker.
+  expect(await (await mountPane($, 'terminal', 'sabai-skins')).find({ key: 'skin-raised' })).toBeUndefined()
+  const desk = await mountPane($, 'desktop', 'sabai-skins')
+  expect([(await desk.find({ key: 'skin-raised' }))?.props.variant, (await desk.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
+  // Two swatches and one preview of the chosen bar style.
+  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(2 + 1)
+  expect(JSON.stringify(await desk.drawn()).length).toBeLessThan(100_000)
+  await desk.unmount()
   const ui = await mountPane($, 'desktop', 'sabai-skins')
   await ui.press({ key: 'skin-auto' })
   expect(store.skin).toBe('auto')
@@ -674,7 +674,7 @@ test('a finished agent’s Report button opens its report as Markdown; the card 
   await $.turn.complete({ turnId: 't', agentId: 'agent-ok', answer: '## Found\n- three launches', durationMs: 10, isAborted: false, reason: 'answer' })
   const ui = await mountPane($, 'desktop')
   await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('Report')
+  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('▸ Report')
   expect(await ui.find({ type: 'Text', text: '🔍 ok' })).toBeDefined()
   // Native titles and Markdown take the OS theme's ink, so no Box behind them may force a colour.
   expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
@@ -707,7 +707,7 @@ test('a running agent has its title and no Report button; once it ends, Report a
   expect(await ui.find({ type: 'Text', text: '🔍 scan' })).toBeDefined()
   await $.turn.complete({ turnId: 't', agentId: 'agent-scan', answer: 'done.', durationMs: 10, isAborted: false, reason: 'answer' })
   await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('Report')
+  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('▸ Report')
 })
 
 test('a wide fan-out of running agents shows the newest few and counts the rest, under the tree limit', async ($, on) => {
@@ -848,7 +848,7 @@ test('git runs with a timeout, and the band follows the session to a new folder'
   place = '/elsewhere/other-project'
   await clock.advance(30_000)
   await settle()
-  expect((await shown($, 'desktop')).words).toContain('Directory other-project')
+  expect((await shown($, 'desktop')).words).toContain('Folder other-project')
 })
 
 test('the crew row leaves the band a minute after the last agent ends', async ($, on) => {
@@ -1565,7 +1565,7 @@ test('the guard stands at the right of the desktop top row as a green shield; th
   await start($)
   const ui = await mountBand($, 'desktop')
   // The info row leaves it out; the shield leads the toolbar's icons, and opens the settings.
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Folder work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
   const [guard, ...rest] = await toolsOf(ui)
   expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Guard on. Opens settings', ['tool-compact', 'tool-agents', 'tool-settings']])
   // Nothing caught yet: the shield alone.
@@ -1668,11 +1668,13 @@ test('settings are nine bordered groups in order: layout, info, usage, Clawd, ag
   for (const surface of SURFACES) {
     const pane = await mountPane($, surface, 'sabai-skins')
     const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-    expect([surface, cards.length]).toEqual([surface, 9])
+    // Look (cards and bars) is the desktop's alone.
+    const titles = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', ...(surface === 'desktop' ? ['Look'] : [])]
+    expect([surface, cards.length]).toEqual([surface, titles.length])
     const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
-    const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(t => words.indexOf(`  ${t}`))
+    const order = titles.map(t => words.indexOf(`  ${t}`))
     expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
-    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', ...(surface === 'desktop' ? ['bar-dither', 'skin-auto'] : [])]) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
     await pane.unmount()
   }
 })
@@ -1778,6 +1780,11 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(await labels()).toContain('○ Tricks')
   await pane.press({ key: 'skin-auto' })
   expect(await svg()).toContain('.p{fill:#f4f4f2}')
+  // The first press only asks; the second, within five seconds, resets.
+  await pane.press({ key: 'reset-defaults' })
+  await clock.advance(1)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Press again to reset')
+  expect(await labels()).toContain('○ Folder')
   await pane.press({ key: 'reset-defaults' })
   await clock.advance(1)
   const after = await labels()
@@ -1928,4 +1935,17 @@ test('a narrow desktop top row drops the icons’ counts and fits its width', as
   const width = (s: string) => Number(s.match(/width="(\d+(?:\.\d+)?)"/)?.[1])
   const row = width(String(top?.props.source)) + tools.reduce((n, t) => n + width(t.icon) + 8, 0)
   expect(row).toBeLessThanOrEqual(Math.round(30 * 8.25))
+})
+
+test('a first press of Reset that is not followed within five seconds lapses, and nothing is reset', async ($, on) => {
+  const { clock, store } = engine(on, { store: { prefs: { guard: true } } })
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'reset-defaults' })
+  await clock.advance(1)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Press again to reset')
+  await clock.advance(6000)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Reset to defaults')
+  expect((store.prefs as { guard: boolean }).guard).toBe(true)
 })
