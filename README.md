@@ -58,11 +58,12 @@ In the comfortable density (the default) the band is three panels:
   - the header counts who is running and done, the turn's calls that worked (`✓`) and failed (`✗`), and the time;
   - each lane is `Main` or a subagent, named by its task, with its step and its own time on a line above its ground;
   - more agents of one type than the lanes hold share a lane (`Explore ×3`); `+N` counts any left over;
-  - a runner's place is its progress, from Claude's task list or the agent's step reports;
-  - the ground is a tile per call (read, edit, command, test, failure);
+  - a runner's place is its progress, from Claude's task list or the agent's step reports, or else how far its calls have carried it (quick at first, never to the flag before it is done);
+  - behind the runner, a pixel icon per call, the newest closest: a magnifier for a read, a pencil for an edit, `>_` for a command, a flask for a passing test, a red cross for a failure;
+  - a running lane's ground scrolls in dashes of Clawd's colour;
   - a runner holds the tool of its call in flight (pencil, book, terminal, flask) over a glow in its colour;
   - a failed call trips it (`OUCH`), a passing test throws a coin;
-  - a finished agent reaches a green flag, and a failed one is `OUT`.
+  - Main waiting on its agents, and a finished agent, fold to one line (a finished one with a green check); a failed one stays full and is `OUT`.
 
   Turning **Activity** off in Settings hides the race.
 

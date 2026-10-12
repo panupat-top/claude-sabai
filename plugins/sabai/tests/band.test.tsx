@@ -1191,7 +1191,7 @@ test('each member’s calls land in its own lane; the header counts the turn’s
   await bash($, 'false')
   const words = (await shown($, 'desktop', true)).words
   expect(words).toMatch(/Race: 2 running, 2 ok, 1 failed/)
-  expect(words).toMatch(/Main (tripped|running|waiting)/)
+  expect(words).toMatch(/Main (tripped|running|thinking)/)
   expect(words).toContain('x running')
 })
 
@@ -1623,7 +1623,7 @@ test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) =
   await $.turn.start({ turnId: 'cut' } as never)
   await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
   const words = (await shown($, 'desktop', true)).words
-  expect(words).toContain('Main waiting')
+  expect(words).toContain('Main thinking')
 })
 
 test('Clawd waves when a turn ends and stops after the wave', async ($, on) => {
