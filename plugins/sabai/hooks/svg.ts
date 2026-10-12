@@ -203,26 +203,6 @@ const ROW_H = 20
 const GAP = 8
 const PAD = 10
 const CARD_H = 44
-const CARD_H_COMPACT = 22
-
-// A usage card on one line, for the compact band: its mark (context only), label, bar, percent,
-// and the reset countdown when there is room.
-function compactCard(look: Look, m: Meter, x: number, y: number, w: number, style: BarStyle): string {
-  const labelX = m.kind === 'context' ? x + PAD + 26 : x + PAD
-  const label = m.kind === 'context' ? 'CTX' : m.label.split(' ')[0]!.toUpperCase()
-  const countdownText = m.resetsInMs === undefined ? '' : ` ↻${countdown(m.resetsInMs).replace(' ', '')}`
-  const room = (tail: string) => x + w - PAD - monoWidth(tail, 11) - 8 - (labelX + monoWidth(label, 10) + 8)
-  const tail = room(`${pctText(m)}${countdownText}`) >= 40 ? `${pctText(m)}${countdownText}` : pctText(m)
-  const barX = labelX + monoWidth(label, 10) + 8
-  const barW = Math.max(30, room(tail))
-  return (
-    `<rect class="p" x="${x}" y="${y}" width="${w}" height="${CARD_H_COMPACT}" rx="6"/>` +
-    (m.kind === 'context' ? sprite('context', x + PAD + 1, y + CARD_H_COMPACT / 2 - spriteSize('context').height / 2) : '') +
-    `<text class="m" x="${labelX}" y="${y + 15}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
-    pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style) +
-    `<text class="${pctClass(m)}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
-  )
-}
 
 type Part = { body: string; height: number; alt: string }
 
@@ -279,16 +259,13 @@ function progressPart(look: Look, p: Progress, W: number, mood: Mood, top: numbe
 
 // Usage as cards of two lines: icon, label and detail (tokens or reset countdown) on the
 // first, the pixel bar and its percent on the second. Four across, two or one when narrow.
-function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle, compact = false): Part {
+function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, style: BarStyle): Part {
   const cols = Math.min(list.length, W >= 720 ? 4 : W >= 400 ? 2 : 1)
   const rows = Math.ceil(list.length / cols)
-  const gap = compact ? 4 : GAP
-  const cardH = compact ? CARD_H_COMPACT : CARD_H
-  const cardW = Math.floor((W - gap * (cols - 1)) / cols)
+  const cardW = Math.floor((W - GAP * (cols - 1)) / cols)
   const cards = list.map((m, i) => {
-    const x = (i % cols) * (cardW + gap)
-    const y = y0 + Math.floor(i / cols) * (cardH + gap)
-    if (compact) return compactCard(look, m, x, y, cardW, style)
+    const x = (i % cols) * (cardW + GAP)
+    const y = y0 + Math.floor(i / cols) * (CARD_H + GAP)
     const right = x + cardW - PAD
     const top = y + 14
     const bottom = y + 31
@@ -311,7 +288,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
   const alt = list
     .map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`)
     .join('; ')
-  return { body: cards.join(''), height: rows * cardH + (rows - 1) * gap, alt }
+  return { body: cards.join(''), height: rows * CARD_H + (rows - 1) * GAP, alt }
 }
 
 // Measured by what a reader sees: a joined emoji is one character, and it or a CJK one is wide.
@@ -930,8 +907,9 @@ export function bandSvg(p: Progress | undefined, list: readonly Meter[], W: numb
   if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
-  if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
-  else if (opts.usageNote) add(notePart(opts.usageNote, 0, y, W, compact ? CARD_H_COMPACT : CARD_H))
+  // Compact draws the chosen usage style at its shortest; the comfortable band, stacked, keeps its cards.
+  if (list.length > 0) add(compact ? usagePart(look, list, 0, y, W, USAGE_MIN_H, opts.usageStyle ?? 'tiles', style, opts.now) : cardsPart(look, list, W, y, style))
+  else if (opts.usageNote) add(notePart(opts.usageNote, 0, y, W, compact ? USAGE_MIN_H : CARD_H))
   if (parts.length === 0) return undefined
   return drawing(look, W, y - gap, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
 }

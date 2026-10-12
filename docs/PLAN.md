@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-12): sabai 2.10.1 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-12): sabai 2.11.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -52,13 +52,12 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ### P1 — ทำต่อเลย (เล็ก, ต่อยอดของเดิม)
 
-ว่าง (R1b เสร็จใน 2.10.0, B1 ใน 2.10.1) · งานถัดไปคือ U1 ใน P2
+ว่าง (R1b เสร็จใน 2.10.0, B1 ใน 2.10.1, U1 ใน 2.11.0) · งานถัดไปคือ R2 ใน P2
 
 ### P2 — ถัดไป (กลาง)
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
 |---|---|---|---|---|
-| U1 | Band · usage | สไตล์ usage 4 แบบ (Tiles/Rings/Columns/Rows) สำหรับ compact | M | comfortable เสร็จใน 2.3 · compact ยังเป็นการ์ดบรรทัดเดียวและไม่สน `usageStyle` |
 | R2 | Agents pane | ให้สอดคล้องกับกล่อง race และแสดงข้อมูลมากขึ้น: tile ของทุก call, เวลาและ token ต่อ agent, ไฟล์ที่แตะ, ผลลัพธ์ | M–L | ระวัง `PANE_BUDGET` และ limit 100k |
 | R3 | Band · live strip | ต่อยอดการทำงานและการแสดงผล | M | ต้องกำหนด scope ก่อนเริ่ม (ยังไม่ชัดว่าจะเพิ่มอะไร) |
 
@@ -86,6 +85,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.11.0** ปิด U1: compact วาด usage ตาม `usageStyle` ทั้ง 4 แบบ ที่ความสูง 50 px (`USAGE_MIN_H` ความสูงต่ำสุดเดียวกับ comfortable) แทนการ์ดบรรทัดเดียว 22 px ซึ่งถูกลบออก · ที่ 40 px ตัวอักษรทับ bar จึงไม่เตี้ยกว่านี้ · band compact ที่กว้าง ≥ 720 px สูงขึ้น 28 px แต่ที่แคบกว่า 400 px เตี้ยลง (เดิมการ์ดเรียงลงเป็น 3 แถว) · comfortable ที่แคบกว่า 480 px ยังใช้การ์ดสองบรรทัด
 - **2.10.1** ปิด B1: แถว info ที่แคบไม่ตัดชื่อเหลือ `…` ล้วนอีก ลำดับการหลีกเมื่อที่ไม่พอเป็น Node → git user → ตัวนับ sync → ตัด folder (เหลืออย่างน้อย 3 ตัว) → เอา folder ออก → ตัด branch (เหลืออย่างน้อย 6 ตัว) ให้ branch อยู่นานที่สุด · ชื่อที่สั้นกว่าจำนวนตัวขั้นต่ำไม่ได้ `…` ต่อท้ายอีก (เดิม `main` กลายเป็น `main…`) · alt text บอกเฉพาะสิ่งที่วาด
 - **2.10.0** ปิด R1b: บรรทัด step ของ lane บอก call ล่าสุดเมื่อไม่มี progress (agent และ Main ระหว่าง call เช่น `· Edited svg.ts` แทน `· Working`), แต่ละ lane นับ `✓`/`✗` ของตัวเองข้างเวลา (lane ที่ merge รวมกัน, lane แบบ slim ก็มี), alt text บอกจำนวนต่อ lane · ความหมายของ icon และสีของ tile อยู่ใน README แทนการวาดใน band
 - **2.9.1** mod เริ่มทำงานได้ทุกครั้งใน session ใหม่: `session.attach` เช็ก surface ใน hook เอง (ไม่ใช้ matcher) และการวาด band ครั้งแรกที่มาก่อน attach เรียก setUp ครั้งเดียว · มี test กันไว้

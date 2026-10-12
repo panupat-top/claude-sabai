@@ -329,13 +329,16 @@ test('a receipt is one minimal line: its icon, a headline and muted parts, fixed
   for (const words of ['3 files ', '+40', ' −12', '2 of 98 failed', '4 commands', ' · 1 failed']) expect([words, failing.source.includes(`>${words}<`)]).toEqual([words, true])
 })
 
-test('compact density draws the usage cards on one line and the band at least 35% shorter', () => {
-  const roomy = bandSvg(undefined, LIST, 900, {})!
-  const tight = bandSvg(undefined, LIST, 900, { density: 'compact' })!
-  expect(tight.height).toBeLessThanOrEqual(Math.floor(roomy.height * 0.65))
-  // The reset countdown still shows on a wide band.
-  expect(tight.source).toContain('↻')
-  expect(tight.alt).toBe(roomy.alt)
+test('compact density draws the chosen usage style at its shortest, the band at least 35% shorter', () => {
+  const roomy = bandSvg(undefined, LIST, 900, { hero: true })!
+  const marks = { tiles: 'sabai-u-', rings: 'k-stroke', columns: 'sabai-c-', rows: 'sabai-r-' }
+  for (const usageStyle of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[])
+    for (const W of [300, 600, 900]) {
+      const tight = bandSvg(undefined, LIST, W, { hero: true, density: 'compact', usageStyle })!
+      expect([usageStyle, W, tight.height, tight.source.includes(marks[usageStyle])]).toEqual([usageStyle, W, 50, true])
+      expect(tight.alt).toBe(roomy.alt.split('; ').slice(1).join('; '))
+    }
+  expect(bandSvg(undefined, LIST, 900, { density: 'compact' })!.height).toBeLessThanOrEqual(Math.floor(roomy.height * 0.65))
 })
 
 test('the live strip shows the turn’s time, step and tallies, and takes Clawd when there are no tasks', () => {

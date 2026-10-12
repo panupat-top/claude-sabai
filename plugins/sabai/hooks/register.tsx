@@ -840,7 +840,7 @@ export const register: Register = on => {
           'Usage',
           'Limits and when they turn amber and red',
           <>
-            {subheading('Style', 'How the comfortable band draws them, from 480 px')}
+            {subheading('Style', 'In the compact band, and the comfortable one from 480 px')}
             {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
             {subheading('Limits', 'Which ones show')}
             {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
