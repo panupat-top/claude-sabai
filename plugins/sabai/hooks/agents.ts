@@ -1,6 +1,6 @@
 import type { AgentRun, CallKind, RaceLog, Task } from '../types'
 import type { Progress } from './model'
-import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, doingOf, tokens } from './model'
+import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, countOf, doingOf, tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -141,8 +141,8 @@ export function groups(list: AgentRun[]): { running: AgentRun[]; finished: Agent
   return { running: newest.filter(a => a.status === 'running'), finished: newest.filter(a => a.status !== 'running') }
 }
 
-export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'waiting'
-export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
+export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
+export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; count: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
 export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
@@ -168,8 +168,10 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { progress: tasks.done / tasks.total } : {}),
     calls: log.calls.main ?? [],
+    count: countOf(log, 'main'),
     ...doingFor(['main']),
-    state: timed('main') ?? (mainWorking && doingOf(log, 'main').length ? 'running' : 'waiting'),
+    // Working between calls is thinking; waiting is Main not working while agents run.
+    state: timed('main') ?? (!mainWorking ? 'waiting' : doingOf(log, 'main').length ? 'running' : 'thinking'),
   }
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   // More running than lanes: agents of one type share a lane, the most numerous type first.
@@ -199,6 +201,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         timeMs: Math.max(...u.map(time)),
         // Every member's tiles, agent by agent: no call carries its time to interleave them by.
         calls: ids.flatMap(i => log.calls[i] ?? []).slice(-RACE_TILES),
+        count: ids.reduce((n, i) => n + countOf(log, i), 0),
         ...doingFor(ids),
         state: ids.some(i => timed(i) === 'tripped') ? 'tripped' : 'running',
       }
@@ -213,6 +216,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       timeMs: time(a),
       ...(state === 'finished' ? { progress: 1 } : p ? { progress: p.done / p.total } : {}),
       calls: log.calls[id] ?? [],
+      count: countOf(log, id),
       ...doingFor([id]),
       state,
     }

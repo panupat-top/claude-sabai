@@ -520,7 +520,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
-    const one = (dx: number) => `<g transform="translate(${rx + dx},${ground - 16}) scale(.8)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'waiting' ? l.doing : undefined)}</g>`
+    const one = (dx: number) => `<g transform="translate(${rx + dx},${ground - 16}) scale(.8)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'thinking' ? l.doing : undefined)}</g>`
     const runners = l.many ? `<g opacity=".45">${one(-14)}</g><g opacity=".7">${one(-7)}</g>${one(0)}` : one(0)
     const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
     const flagX = laneX + laneW + 6

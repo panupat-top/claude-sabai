@@ -182,7 +182,7 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   expect(r.more).toBe(2)
   expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', step: 'Editing svg.ts' })
   expect(r.lanes[3]!.progress).toBe(0.6)
-  // No step reports and no task list: no progress, so the runner holds the middle.
+  // No step reports and no task list: no progress, so the drawing paces the runner by its calls.
   expect(r.lanes[2]!.progress).toBeUndefined()
   expect(r.elapsedMs).toBe(102_000)
   // A trip ends after 4 s.
@@ -297,5 +297,19 @@ test('a lane holds the latest of its calls in flight, and a merged lane any memb
   expect(r.lanes[1]).toMatchObject({ many: 4, doing: 'edit' })
   // A log from before calls in flight were lists holds none.
   const old = raceOf({ ...EMPTY_RACE, doing: { main: 'read' as never } }, [], undefined, 1000, true, 1)!
-  expect([old.lanes[0]!.doing, old.lanes[0]!.state]).toEqual([undefined, 'waiting'])
+  expect([old.lanes[0]!.doing, old.lanes[0]!.state]).toEqual([undefined, 'thinking'])
+})
+
+test('a lane counts its calls, a merged lane its members’; Main thinks between calls and waits when idle', () => {
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const c = { kind: 'read', ok: true } as const
+  let log = EMPTY_RACE
+  for (const id of ['main', 'main', 'a', 'b', 'b', 'c', 'd', 'd', 'd']) log = raced(log, id, c, 1)
+  const solo = raceOf(log, [run('a')], undefined, 1000, true, 1)!
+  expect(solo.lanes.map(l => [l.who, l.count, l.state])).toEqual([['Main', 2, 'thinking'], ['a', 1, 'running']])
+  // Four Explore agents share one lane: its count is theirs together.
+  expect(raceOf(log, ['a', 'b', 'c', 'd'].map(run), undefined, 1000, true, 1)!.lanes[1]).toMatchObject({ many: 4, count: 7 })
+  // A call in flight runs; not working at all waits.
+  expect(raceOf({ ...log, doing: { main: ['edit'] } }, [], undefined, 1000, true, 1)!.lanes[0]!.state).toBe('running')
+  expect(raceOf(log, [run('a')], undefined, 1000, false, 0)!.lanes[0]!.state).toBe('waiting')
 })
