@@ -360,10 +360,10 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   const race = {
     running: 3, done: 1, ok: 12, fails: 1, elapsedMs: 102_000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
-      { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, calls: [{ kind: 'test', ok: true }], state: 'scored' },
-      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
-      { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, count: 2, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
+      { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, count: 1, calls: [{ kind: 'test', ok: true }], state: 'scored' },
+      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, count: 0, calls: [], state: 'finished' },
     ],
   } as const
   const part = racePart(lookOf('auto'), race as never, 300, 0)
@@ -378,7 +378,7 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
 test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 0, commands: 0 }
-  const race = { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', calls: [], state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], state: 'running' }] }
   const hero = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live, race: race as never, clawdLine: 'on it' })!
   expect(hero.source).toContain('>on it<')
   expect(hero.source).not.toMatch(/undefined|NaN|\d+:\d\d</)
@@ -391,7 +391,7 @@ test('a turn with no known start draws no time: Clawd says his line, the strip a
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', calls: [], doing: 'edit', state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], doing: 'edit', state: 'running' }] }
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
   const wide = bandSvg(undefined, info, LIST, 900, opts)!
@@ -411,7 +411,7 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
 
 test('no race element carries two class attributes, whatever its runner is doing', () => {
   for (const doing of ['read', 'edit', 'command', 'test'] as const) {
-    const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', count: 2, calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
     const body = racePart(lookOf('auto'), race as never, 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
@@ -423,8 +423,8 @@ test('in the comfortable band the race box’s words take the card’s ink', () 
   const race = {
     running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
     lanes: [
-      { id: 'main', who: 'Main', step: 'n', calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
-      { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, calls: [], state: 'finished' },
+      { id: 'main', who: 'Main', step: 'n', count: 1, calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
+      { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, count: 0, calls: [], state: 'finished' },
     ],
   }
   const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
@@ -450,7 +450,7 @@ const USAGE_LIST = [
   { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
 ] as const
 const INFO = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
-const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', calls: [], state: 'running' })) }
+const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', count: 0, calls: [], state: 'running' })) }
 // Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
 function usageTexts(source: string, x0: number) {
   const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
@@ -503,7 +503,7 @@ function usageBoxes(source: string) {
 for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
   test(`usage style ${style} lays out in the short heights a working band gives it, words inside and apart`, () => {
     const now = new Date('2026-10-11T13:00:00').getTime()
-    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
     const tasks = { title: 'Ship it', done: 1, total: 3 }
     // Clawd shown: about 56 px of usage in 107 px cells; Clawd hidden: about 50 px.
     for (const clawd of [true, false]) {
@@ -617,7 +617,7 @@ test('a long branch name is cut before it pushes the guard and Node off a wide r
 
 test('at 760 px with the race, the hero keeps the project, the branch and the guard (as its shield and count); the user and Node give way', () => {
   // Pins what the real layout keeps: the middle is 760 − 116 − 308 = 336 px.
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
   const src = bandSvg(undefined, ROW, [], 760, { hero: true, race: race as never })!.source
   const texts = rowTexts(src).map(t => t[1]!)
   // The guard holds on as its shield and count when its words do not fit.
@@ -626,7 +626,7 @@ test('at 760 px with the race, the hero keeps the project, the branch and the gu
 })
 
 test('no two info-row texts overlap with Clawd leading the stacked band or the race beside the hero', () => {
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', calls: [], state: 'running' }] }
+  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
   const cases: [number, object][] = [[300, { mood: 'idle' }], [400, { mood: 'idle' }], [470, { mood: 'idle' }], [760, { hero: true, race }], [820, { hero: true, race }], [900, { hero: true, race }]]
   for (const [W, o] of cases) {
     const src = bandSvg(undefined, ROW, [], W, o as never)!.source
@@ -693,7 +693,7 @@ const endSpans = (body: string, y: number) =>
     .sort((a, b) => a[0] - b[0])
 
 test('the race header’s figures never overlap, however long the time or the counts run', () => {
-  const race = { running: 2, done: 0, ok: 1234, fails: 567, elapsedMs: 6_000_000, more: 12, lanes: [{ id: 'main', who: 'Main', step: 'n', calls: [], state: 'running' }] }
+  const race = { running: 2, done: 0, ok: 1234, fails: 567, elapsedMs: 6_000_000, more: 12, lanes: [{ id: 'main', who: 'Main', step: 'n', count: 0, calls: [], state: 'running' }] }
   const spans = endSpans(racePart(lookOf('auto'), race as never, 300, 0).body, 16)
   expect(spans.length).toBe(4)
   for (let i = 1; i < spans.length; i++) expect(spans[i - 1]![1] + 4 <= spans[i]![0]).toBe(true)
@@ -702,14 +702,51 @@ test('the race header’s figures never overlap, however long the time or the co
   expect(usual.map(s => s[1])).toEqual([172, 210, 250, 288])
 })
 
-test('a lane’s tiles stop before its flag, however many calls it made', () => {
-  const calls = Array.from({ length: 16 }, () => ({ kind: 'read', ok: true }))
-  const race = { running: 1, done: 0, ok: 16, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', calls, state: 'running' }] }
-  const body = racePart(lookOf('auto'), race as never, 300, 0).body
-  const ends = [...body.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="8" height="3"/g)].map(m => Number(m[1]) + 8)
-  const flag = Number(body.match(/<rect class="m" x="([\d.]+)"[^>]*width="1.2"/)![1])
-  expect(ends.length).toBeGreaterThan(16)
-  expect(Math.max(...ends) <= flag).toBe(true)
+// A one-lane race's footprints (tile x positions) and runners (x of each runner group).
+const trail = (lane: object) => {
+  const body = racePart(lookOf('auto'), { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [lane] } as never, 300, 0).body
+  return {
+    body,
+    tiles: [...body.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="8" height="3"/g)].map(m => Number(m[1])),
+    runners: [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1])),
+  }
+}
+const reads = (n: number) => Array.from({ length: Math.min(n, 16) }, () => ({ kind: 'read', ok: true }))
+
+test('a lane’s footprints trail its runner: one per call while they fit, the newest right behind it, none past the lane', () => {
+  for (const n of [1, 5, 8, 16, 40]) {
+    const { tiles, runners } = trail({ id: 'main', who: 'Main', step: 'n', count: n, calls: reads(n), state: 'running' })
+    // No repeats: one tile per kept call, each at its own place.
+    expect([n, tiles.length, new Set(tiles).size]).toEqual([n, Math.min(n, 16), Math.min(n, 16)])
+    expect([n, Math.max(...tiles) + 8 <= runners[0]!, Math.min(...tiles) >= 12]).toEqual([n, true, true])
+  }
+  // Paced by calls when no progress is known: 10% at the start, half way at 8 calls.
+  expect(trail({ id: 'main', who: 'Main', step: 'n', count: 0, calls: [], state: 'running' }).runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.1).toFixed(3))
+  expect(trail({ id: 'main', who: 'Main', step: 'n', count: 8, calls: reads(8), state: 'running' }).runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.5).toFixed(3))
+  // Real progress wins: a runner held at 10% with 16 calls behind it shows only the two that fit.
+  const held = trail({ id: 'main', who: 'Main', step: 'n', progress: 0.1, count: 16, calls: reads(16), state: 'running' })
+  expect([held.tiles.length, Math.min(...held.tiles) >= 12]).toEqual([2, true])
+})
+
+test('a merged lane’s footprints start behind its back runner', () => {
+  const { tiles, runners } = trail({ id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', count: 19, calls: reads(16), state: 'running' })
+  expect(runners.length).toBe(3)
+  expect(Math.max(...tiles) + 8 <= Math.min(...runners)).toBe(true)
+})
+
+test('only a moving lane scrolls its dashed ground, each lane clipped by its own id', () => {
+  const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
+  expect([moving.includes('class="scroll"'), moving.includes('stroke-dasharray="6 4"'), moving.includes('id="sabai-race-0"')]).toEqual([true, true, true])
+  // The tiles are history: they sit outside the scrolling group.
+  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('height="3" rx="1"')
+  const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
+  expect([still.includes('class="scroll"'), still.includes('stroke-dasharray')]).toEqual([false, false])
+  const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
+    { id: 'main', who: 'Main', step: 'n', count: 1, calls: reads(1), state: 'running' },
+    { id: 'a', who: 'A', step: 'n', count: 1, calls: reads(1), state: 'scored' },
+  ] } as never, 300, 0).body
+  const ids = [...two.matchAll(/<clipPath id="([^"]+)"/g)].map(m => m[1])
+  expect([ids.length, new Set(ids).size]).toEqual([2, 2])
 })
 
 test('a stacked ring with nothing beside its label leaves no dangling separator', () => {

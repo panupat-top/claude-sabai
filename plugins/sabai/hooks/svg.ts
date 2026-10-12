@@ -2,7 +2,7 @@ import type { AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
 import { clock, effortLabel, elapsed, modelName, progressOf, summary, typeStyle } from './agents'
 import type { Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
-import { countdown, resetClock, tokens, value } from './model'
+import { countdown, paceOf, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
 import { stepText } from './chat'
 import { icon } from './icons'
@@ -479,9 +479,10 @@ const RACE_BODY = '#b9b9b4'
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 
 // The race: a header (how many run and are done, the turn's calls that worked and failed, the
-// time), then a lane per member: its name, step and time on a line above its ground, its call
-// tiles, its runner at its progress (the middle when unknown) holding the tool of its call in
-// flight over a glow, and its flag. A lane shared by agents of one type draws three runners.
+// time), then a lane per member: its name, step and time on a line above its ground, its runner at
+// its progress (or paced by its calls when unknown) holding the tool of its call in flight over a
+// glow, its footprints (a tile per call) trailing it, and its flag. While a lane moves its ground
+// scrolls. A lane shared by agents of one type draws three runners.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // A kind's colour as attributes, merged with the element's own classes: two class attributes on
   // one element make the drawing invalid, and the desktop then draws nothing.
@@ -515,8 +516,11 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const ground = y + LANE_H - 8
     const moving = l.state === 'running' || l.state === 'scored'
     // As many tiles as the lane holds before its flag.
-    const tiles = (l.calls.length ? [...l.calls, ...(moving ? l.calls : [])] : []).slice(0, Math.floor((laneW + 2) / 10)).map((c, j) => `<rect x="${laneX + j * 10}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
-    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? 0.5))
+    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? paceOf(l.count)))
+    // Footprints: the newest right behind the (back) runner, older ones leftward, as many as fit.
+    const back = rx - (l.many ? 14 : 0)
+    const room = Math.max(0, Math.floor((back - laneX) / 10))
+    const tiles = (room ? l.calls.slice(-room) : []).reverse().map((c, j) => `<rect x="${+(back - (j + 1) * 10).toFixed(1)}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
     const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
@@ -542,7 +546,11 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       badge +
       `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - stepX - 46)))}</text>` +
       (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
-    return line + `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>` + `<g${moving ? ' class="scroll"' : ''}>${tiles}</g>` + flag + glow + runners + marks
+    // While the lane moves its ground is dashes scrolling left; a 10 px period loops without a seam.
+    const groundLine = moving
+      ? `<clipPath id="sabai-race-${i}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#sabai-race-${i})"><g class="scroll"><path class="k-stroke" d="M${laneX} ${ground + 5}h${laneW + 10}" stroke-width="1" stroke-dasharray="6 4"/></g></g>`
+      : `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>`
+    return line + groundLine + tiles + flag + glow + runners + marks
   })
   const alt = [
     `Race: ${race.running} running${race.done ? `, ${race.done} done` : ''}, ${race.ok} ok${race.fails ? `, ${race.fails} failed` : ''}${time ? `, ${time}` : ''}`,
