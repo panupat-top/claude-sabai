@@ -223,8 +223,8 @@ export const doingOf = (log: RaceLog, member: string): CallKind[] => {
   const d = log.doing[member]
   return Array.isArray(d) ? d : []
 }
-// A member's finished calls; a log kept from before they were counted reads as none.
-export const countOf = (log: RaceLog, member: string): number => log.count?.[member] ?? 0
+// A member's finished calls; a log kept from before they were counted has at least its tiles.
+export const countOf = (log: RaceLog, member: string): number => log.count?.[member] ?? log.calls[member]?.length ?? 0
 export const TRIP_MS = 4000
 export const SCORE_MS = 3000
 export const RACE_TILES = 16

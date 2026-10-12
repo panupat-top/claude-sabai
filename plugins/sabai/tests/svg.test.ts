@@ -768,17 +768,26 @@ test('a merged lane’s footprints start behind its back runner', () => {
 
 test('only a moving lane scrolls its dashed ground, each lane clipped by its own id', () => {
   const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
-  expect([moving.includes('class="scroll"'), moving.includes('stroke-dasharray="6 4"'), moving.includes('id="sabai-race-0"')]).toEqual([true, true, true])
+  expect([moving.includes('class="scroll"'), moving.includes('stroke-dasharray="6 4"'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
   // The tiles are history: they sit outside the scrolling group.
   expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('height="3" rx="1"')
   const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
   expect([still.includes('class="scroll"'), still.includes('stroke-dasharray')]).toEqual([false, false])
   const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
     { id: 'main', who: 'Main', step: 'n', count: 1, calls: reads(1), state: 'running' },
-    { id: 'a', who: 'A', step: 'n', count: 1, calls: reads(1), state: 'scored' },
+    { id: 'agent:x-1', who: 'A', step: 'n', count: 1, calls: reads(1), state: 'scored' },
   ] } as never, 300, 0).body
+  // Ids come from the lanes, as an agent card's do, not from their order, so two races in one
+  // drawing name their own members' clips; characters an id cannot hold become underscores.
   const ids = [...two.matchAll(/<clipPath id="([^"]+)"/g)].map(m => m[1])
-  expect([ids.length, new Set(ids).size]).toEqual([2, 2])
+  expect(ids).toEqual(['sabai-race-main', 'sabai-race-agent_x_1'])
+  expect(two).toContain('clip-path="url(#sabai-race-agent_x_1)"')
+})
+
+test('a lane built without its count is paced by the tiles it holds, never drawn at NaN', () => {
+  const { body, runners } = trail({ id: 'main', who: 'Main', step: 'n', calls: reads(8), state: 'running' })
+  expect(body).not.toContain('NaN')
+  expect(runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.5).toFixed(3))
 })
 
 test('a stacked ring with nothing beside its label leaves no dangling separator', () => {

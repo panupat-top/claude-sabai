@@ -515,7 +515,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const laneW = W - laneX - 26
   // Each lane starts where the one above it ends: slim lanes are shorter.
   let next = top + RACE_HEAD
-  const lanes = race.lanes.map((l, i) => {
+  const lanes = race.lanes.map(l => {
     const y = next
     const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
     if (l.state === 'waiting' || l.state === 'finished') {
@@ -535,7 +535,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     next += LANE_H
     const ground = y + LANE_H - 8
     const moving = l.state === 'running' || l.state === 'scored'
-    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? paceOf(l.count)))
+    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? paceOf(l.count ?? l.calls.length)))
     // Footprints: the newest right behind the (back) runner, older ones leftward, as many as fit.
     const back = rx - (l.many ? 14 : 0)
     const room = Math.max(0, Math.floor((back - laneX) / 10))
@@ -564,8 +564,9 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - stepX - 46)))}</text>` +
       (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
     // While the lane moves its ground is dashes scrolling left; a 10 px period loops without a seam.
+    const clip = `sabai-race-${l.id.replace(/\W/g, '_')}`
     const groundLine = moving
-      ? `<clipPath id="sabai-race-${i}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#sabai-race-${i})"><g class="scroll"><path class="k-stroke" d="M${laneX} ${ground + 5}h${laneW + 10}" stroke-width="1" stroke-dasharray="6 4"/></g></g>`
+      ? `<clipPath id="${clip}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#${clip})"><g class="scroll"><path class="k-stroke" d="M${laneX} ${ground + 5}h${laneW + 10}" stroke-width="1" stroke-dasharray="6 4"/></g></g>`
       : `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>`
     return line + groundLine + tiles + flag + glow + runners + marks
   })

@@ -150,14 +150,15 @@ test('a new turn’s race keeps only the lanes of agents it can still show', () 
   expect(nextTurnRace({ ...log, count: undefined } as never, new Set(['live'])).count).toEqual({})
 })
 
-test('raced counts each member’s calls past the tiles it keeps; an old log counts from none', () => {
+test('raced counts each member’s calls past the tiles it keeps; an old log counts from its tiles', () => {
   let log = EMPTY_RACE
   for (let i = 0; i < 20; i++) log = raced(log, 'main', { kind: 'read', ok: true }, i)
   expect([log.calls.main!.length, countOf(log, 'main'), countOf(log, 'other')]).toEqual([16, 20, 0])
-  // A log stored before calls were counted (the atom outlives a reload) reads as none and counts on.
-  const old = { ...EMPTY_RACE, count: undefined } as never
-  expect(countOf(old, 'main')).toBe(0)
-  expect(countOf(raced(old, 'main', { kind: 'edit', ok: true }, 1), 'main')).toBe(1)
+  // A log stored before calls were counted (the atom outlives a reload) counts at least the tiles
+  // it kept, so a reload mid-turn does not send the runner back to the start, and counts on.
+  const old = { ...log, count: undefined } as never
+  expect([countOf(old, 'main'), countOf(old, 'other')]).toEqual([16, 0])
+  expect(countOf(raced(old, 'main', { kind: 'edit', ok: true }, 1), 'main')).toBe(17)
 })
 
 test('paceOf moves a runner quickly at first, then slower, never under 10% or past 85%', () => {
