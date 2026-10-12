@@ -475,6 +475,8 @@ const RACE_MOTION =
 const RACE_W = 300
 const RACE_HEAD = 24
 const LANE_H = 42
+// A lane not at work (Main waiting on agents, a finished agent) folds to one line.
+const SLIM_H = 18
 const RACE_BODY = '#b9b9b4'
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 
@@ -511,36 +513,51 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     right.reverse().join('')
   const laneX = 12
   const laneW = W - laneX - 26
+  // Each lane starts where the one above it ends: slim lanes are shorter.
+  let next = top + RACE_HEAD
   const lanes = race.lanes.map((l, i) => {
-    const y = top + RACE_HEAD + i * LANE_H
+    const y = next
+    const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
+    if (l.state === 'waiting' || l.state === 'finished') {
+      next += SLIM_H
+      const done = l.state === 'finished'
+      const cy = y + 8
+      const mark = done ? statusMark(look, 'done', laneX + 4, cy, look.clawd, false) : `<circle class="k-stroke" cx="${laneX + 4}" cy="${cy}" r="3" fill="none" stroke-width="1.4"/>`
+      const slimName = fit(l.who, 10.5, 150)
+      const slimStepX = laneX + 16 + textWidth(slimName, 10.5) + 8
+      return (
+        mark +
+        `<text class="${done ? 'c-ok' : 'm'}" x="${laneX + 16}" y="${cy + 3.5}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(slimName)}</text>` +
+        `<text class="m" x="${slimStepX}" y="${cy + 3.5}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - slimStepX - 46)))}</text>` +
+        (laneTime ? `<text class="m" x="${W - 12}" y="${cy + 3.5}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
+      )
+    }
+    next += LANE_H
     const ground = y + LANE_H - 8
     const moving = l.state === 'running' || l.state === 'scored'
-    // As many tiles as the lane holds before its flag.
     const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? paceOf(l.count)))
     // Footprints: the newest right behind the (back) runner, older ones leftward, as many as fit.
     const back = rx - (l.many ? 14 : 0)
     const room = Math.max(0, Math.floor((back - laneX) / 10))
     const tiles = (room ? l.calls.slice(-room) : []).reverse().map((c, j) => `<rect x="${+(back - (j + 1) * 10).toFixed(1)}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
-    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.state === 'finished' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
+    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
     const one = (dx: number) => `<g transform="translate(${rx + dx},${ground - 16}) scale(.8)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'thinking' ? l.doing : undefined)}</g>`
     const runners = l.many ? `<g opacity=".45">${one(-14)}</g><g opacity=".7">${one(-7)}</g>${one(0)}` : one(0)
-    const glow = l.doing && l.state !== 'out' && l.state !== 'finished' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
+    const glow = l.doing && l.state !== 'out' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
     const flagX = laneX + laneW + 6
-    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag${l.state === 'finished' ? ' c-ok' : ' k'}" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag k" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
     // Marks sit beside the runner, clear of the line above.
     const marks =
       l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 30}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
       l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 26}" cy="${ground - 10}" r="3" fill="#e0a030"/>` :
-      l.state === 'finished' ? `<text class="c-ok" x="${rx - 10}" y="${ground - 4}" text-anchor="middle" font-family="${SANS}" font-size="10" font-weight="800">✓</text>` :
       l.state === 'out' ? `<text class="c-alert" x="${rx + 26}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
-    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : l.state === 'finished' ? 'c-ok' : 't'
+    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : 't'
     const name = fit(l.who, 10.5, 150)
     const nameW = textWidth(name, 10.5)
     const badge = l.many ? `<rect class="k" x="${laneX + nameW + 4}" y="${y + 1.5}" width="20" height="11" rx="5.5"/><text class="t" x="${laneX + nameW + 14}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>` : ''
     const stepX = laneX + nameW + (l.many ? 30 : 8)
-    const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
     const line =
       `<text class="${nameClass}" x="${laneX}" y="${y + 10}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` +
       badge +
@@ -557,7 +574,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${l.step}`),
     ...(race.more ? [`${race.more} more`] : []),
   ].join('; ')
-  return { body: `<style>${RACE_MOTION}</style>` + head + lanes.join(''), height: RACE_HEAD + race.lanes.length * LANE_H + 6, alt }
+  return { body: `<style>${RACE_MOTION}</style>` + head + lanes.join(''), height: next - top + 6, alt }
 }
 
 const HERO_MIN_W = 480

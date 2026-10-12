@@ -367,7 +367,9 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
     ],
   } as const
   const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(24 + 4 * 42 + 6)
+  expect(part.height).toBe(24 + 3 * 42 + 18 + 6)
+  // The finished lane folds to a line: no green flag.
+  expect(part.body).not.toContain('class="flag c-ok"')
   for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
@@ -411,11 +413,41 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
 
 test('no race element carries two class attributes, whatever its runner is doing', () => {
   for (const doing of ['read', 'edit', 'command', 'test'] as const) {
-    const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'n', count: 2, calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' }] }
+    const race = { running: 1, done: 1, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [
+      { id: 'main', who: 'Main', step: 'n', count: 2, calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' },
+      { id: 'w', who: 'W', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
+      { id: 'f', who: 'F', step: 'Done', count: 1, progress: 1, calls: [{ kind: doing, ok: true }], state: 'finished' },
+    ] }
     const body = racePart(lookOf('auto'), race as never, 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
   }
+})
+
+test('Main waiting and a finished agent fold to one line: a mark, the name, the step and the time, no runner or flag', () => {
+  const race = { running: 1, done: 2, ok: 3, fails: 0, elapsedMs: 5000, more: 0, lanes: [
+    { id: 'main', who: 'Main', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
+    { id: 'p', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, count: 3, calls: [{ kind: 'read', ok: true }], state: 'finished' },
+    { id: 'l', who: 'A very long agent description that goes on well past what a lane can hold', type: 'Explore', step: 'Done and a very long step that will not fit either', timeMs: 3_600_000, progress: 1, count: 1, calls: [], state: 'finished' },
+  ] }
+  const part = racePart(lookOf('auto'), race as never, 300, 0)
+  expect(part.height).toBe(24 + 3 * 18 + 6)
+  for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', '<circle class="k-stroke"']) expect([s, part.body.includes(s)]).toEqual([s, true])
+  for (const s of ['scale(.8)', 'class="flag', 'width="8" height="3"', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
+  for (const m of part.body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
+    const x = Number(m[1])
+    const w = monoWidth(m[3]!, Number(m[2]))
+    const [a, b] = m[0].includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
+    expect([m[3], a >= 0 && b <= 300]).toEqual([m[3], true])
+  }
+})
+
+test('Main thinking between calls keeps its full lane, so the box does not shrink call by call', () => {
+  const race = { running: 1, done: 0, ok: 1, fails: 0, elapsedMs: 5000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Working', count: 1, calls: [{ kind: 'read', ok: true }], state: 'thinking' }] }
+  const part = racePart(lookOf('auto'), race as never, 300, 0)
+  expect(part.height).toBe(24 + 42 + 6)
+  expect(part.body).toContain('scale(.8)')
 })
 
 test('in the comfortable band the race box’s words take the card’s ink', () => {
