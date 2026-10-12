@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { THEMES, contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, lookOf, racePart, receiptSvg, stepSvg, TRAIL_ICONS } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -432,8 +432,8 @@ test('Main waiting and a finished agent fold to one line: a mark, the name, the 
   ] }
   const part = racePart(lookOf('auto'), race as never, 300, 0)
   expect(part.height).toBe(24 + 3 * 18 + 6)
-  for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', '<circle class="k-stroke"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  for (const s of ['scale(.8)', 'class="flag', 'width="8" height="3"', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', 'fill-rule="evenodd"']) expect([s, part.body.includes(s)]).toEqual([s, true])
+  for (const s of ['scale(.8)', 'class="flag', '<path transform="translate(', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
   // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
   for (const m of part.body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
     const x = Number(m[1])
@@ -739,7 +739,7 @@ const trail = (lane: object) => {
   const body = racePart(lookOf('auto'), { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [lane] } as never, 300, 0).body
   return {
     body,
-    tiles: [...body.matchAll(/<rect x="([\d.]+)" y="[\d.]+" width="8" height="3"/g)].map(m => Number(m[1])),
+    tiles: [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)"/g)].map(m => Number(m[1])),
     runners: [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1])),
   }
 }
@@ -760,19 +760,51 @@ test('a lane’s footprints trail its runner: one per call while they fit, the n
   expect([held.tiles.length, Math.min(...held.tiles) >= 12]).toEqual([2, true])
 })
 
+test('each call leaves its kind’s icon in its colour, and a failed one a red cross', () => {
+  const look = lookOf('auto')
+  const calls = [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }, { kind: 'command', ok: true }, { kind: 'test', ok: true }, { kind: 'edit', ok: false }]
+  const { body } = trail({ id: 'main', who: 'Main', step: 'n', count: 5, calls, state: 'running' })
+  // Oldest first, left to right: the icon and the paint of each.
+  const icons = [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)" d="([^"]+)" ([^/]+)\/>/g)].sort((a, b) => Number(a[1]) - Number(b[1])).map(m => [m[2], m[3]!.trim()])
+  expect(icons).toEqual([
+    [TRAIL_ICONS.read, `fill="${look.bar('context')}"`],
+    [TRAIL_ICONS.edit, `fill="${look.bar('session')}"`],
+    [TRAIL_ICONS.command, 'class="m"'],
+    [TRAIL_ICONS.test, 'class="c-ok"'],
+    [TRAIL_ICONS.fail, `fill="${look.bar('tasks', 'alert')}"`],
+  ])
+  // Five different 7×7 shapes.
+  expect(new Set(Object.values(TRAIL_ICONS)).size).toBe(5)
+})
+
+test('a running lane’s dashes take Clawd’s colour; the ground, flags and the waiting ring take the muted ink', () => {
+  const look = lookOf('auto')
+  const body = racePart(look, { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
+    { id: 'main', who: 'Main', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
+    { id: 'a', who: 'A', step: 'n', count: 2, calls: reads(2), state: 'running' },
+    { id: 'b', who: 'B', step: 'n', count: 2, calls: reads(2), state: 'thinking' },
+  ] } as never, 300, 0).body
+  expect(body).toContain(`<path fill="${look.clawd}" opacity=".7" d="M12 `)
+  expect(body).toContain('<rect class="m" opacity=".4" x="12"')
+  expect(body.match(/<path class="flag m" opacity=".7"/g)!.length).toBe(2)
+  expect(body).toContain('<path class="m" opacity=".7" fill-rule="evenodd"')
+  // The track ink is all but the card's own colour in the auto skin: none of it is left.
+  for (const s of ['class="k"', 'class="k-stroke"', 'flag k']) expect([s, body.includes(s)]).toEqual([s, false])
+})
+
 test('a merged lane’s footprints start behind its back runner', () => {
   const { tiles, runners } = trail({ id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', count: 19, calls: reads(16), state: 'running' })
-  expect(runners.length).toBe(3)
+  expect([runners.length, tiles.length]).toEqual([3, 16])
   expect(Math.max(...tiles) + 8 <= Math.min(...runners)).toBe(true)
 })
 
 test('only a moving lane scrolls its dashed ground, each lane clipped by its own id', () => {
   const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
-  expect([moving.includes('class="scroll"'), moving.includes('stroke-dasharray="6 4"'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
+  expect([moving.includes('class="scroll"'), moving.includes('h6v1h-6zm10 0'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
   // The tiles are history: they sit outside the scrolling group.
-  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('height="3" rx="1"')
+  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<path transform=')
   const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
-  expect([still.includes('class="scroll"'), still.includes('stroke-dasharray')]).toEqual([false, false])
+  expect([still.includes('class="scroll"'), still.includes('h6v1h-6z')]).toEqual([false, false])
   const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
     { id: 'main', who: 'Main', step: 'n', count: 1, calls: reads(1), state: 'running' },
     { id: 'agent:x-1', who: 'A', step: 'n', count: 1, calls: reads(1), state: 'scored' },

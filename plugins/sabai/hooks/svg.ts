@@ -478,12 +478,25 @@ const LANE_H = 42
 // A lane not at work (Main waiting on agents, a finished agent) folds to one line.
 const SLIM_H = 18
 const RACE_BODY = '#b9b9b4'
+// The footprints' pixel icons, 7×7: a magnifier for a read, a pencil for an edit, a prompt for a
+// command, a flask for a passing test, and a cross for any call that failed. Each is one path at
+// its origin, a rect per run of pixels in a row.
+const TRAIL_ROWS: Record<CallKind | 'fail', string[]> = {
+  read: ['.###...', '#...#..', '#...#..', '#...#..', '.###...', '....##.', '.....##'],
+  edit: ['.....##', '....###', '...###.', '..###..', '.###...', '#.#....', '##.....'],
+  command: ['.......', '#......', '.#.....', '..#....', '.#.....', '#..####', '.......'],
+  test: ['..###..', '...#...', '...#...', '..#.#..', '.#.#.#.', '#######', '#######'],
+  fail: ['#.....#', '.#...#.', '..#.#..', '...#...', '..#.#..', '.#...#.', '#.....#'],
+}
+export const TRAIL_ICONS = Object.fromEntries(
+  Object.entries(TRAIL_ROWS).map(([k, rows]) => [k, rows.flatMap((row, y) => [...row.matchAll(/#+/g)].map(m => `M${m.index} ${y}h${m[0].length}v1h-${m[0].length}z`)).join('')]),
+) as Record<CallKind | 'fail', string>
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 
 // The race: a header (how many run and are done, the turn's calls that worked and failed, the
 // time), then a lane per member: its name, step and time on a line above its ground, its runner at
 // its progress (or paced by its calls when unknown) holding the tool of its call in flight over a
-// glow, its footprints (a tile per call) trailing it, and its flag. While a lane moves its ground
+// glow, its footprints (a pixel icon per call) trailing it, and its flag. While a lane moves its ground
 // scrolls. A lane shared by agents of one type draws three runners.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // A kind's colour as attributes, merged with the element's own classes: two class attributes on
@@ -522,7 +535,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       next += SLIM_H
       const done = l.state === 'finished'
       const cy = y + 8
-      const mark = done ? statusMark(look, 'done', laneX + 4, cy, look.clawd, false) : `<circle class="k-stroke" cx="${laneX + 4}" cy="${cy}" r="3" fill="none" stroke-width="1.4"/>`
+      const mark = done ? statusMark(look, 'done', laneX + 4, cy, look.clawd, false) : `<path class="m" opacity=".7" fill-rule="evenodd" d="M${laneX + 1} ${cy}a3 3 0 1 0 6 0a3 3 0 1 0-6 0zM${laneX + 2.4} ${cy}a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0z"/>`
       const slimName = fit(l.who, 10.5, 150)
       const slimStepX = laneX + 16 + textWidth(slimName, 10.5) + 8
       return (
@@ -539,7 +552,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     // Footprints: the newest right behind the (back) runner, older ones leftward, as many as fit.
     const back = rx - (l.many ? 14 : 0)
     const room = Math.max(0, Math.floor((back - laneX) / 10))
-    const tiles = (room ? l.calls.slice(-room) : []).reverse().map((c, j) => `<rect x="${+(back - (j + 1) * 10).toFixed(1)}" y="${ground + 1}" width="8" height="3" rx="1" ${kindFill(c.kind, c.ok)}/>`).join('')
+    const tiles = (room ? l.calls.slice(-room) : []).reverse().map((c, j) => `<path transform="translate(${+(back - (j + 1) * 10 + 1.5).toFixed(1)},${ground - 3})" d="${TRAIL_ICONS[c.ok ? c.kind : 'fail']}" ${kindFill(c.kind, c.ok)}/>`).join('')
     const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const hat = l.type ? hatOf(look, l.type) : undefined
     const body = l.state === 'out' ? RACE_BODY : look.clawd
@@ -547,7 +560,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const runners = l.many ? `<g opacity=".45">${one(-14)}</g><g opacity=".7">${one(-7)}</g>${one(0)}` : one(0)
     const glow = l.doing && l.state !== 'out' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
     const flagX = laneX + laneW + 6
-    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag k" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
+    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag m" opacity=".7" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
     // Marks sit beside the runner, clear of the line above.
     const marks =
       l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 30}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
@@ -563,11 +576,12 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       badge +
       `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - stepX - 46)))}</text>` +
       (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
-    // While the lane moves its ground is dashes scrolling left; a 10 px period loops without a seam.
+    // While the lane moves its ground is dashes in Clawd's colour scrolling left; a 10 px period loops
+    // without a seam. At rest it is a faint line. Both in inks that show on every card.
     const clip = `sabai-race-${l.id.replace(/\W/g, '_')}`
     const groundLine = moving
-      ? `<clipPath id="${clip}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#${clip})"><g class="scroll"><path class="k-stroke" d="M${laneX} ${ground + 5}h${laneW + 10}" stroke-width="1" stroke-dasharray="6 4"/></g></g>`
-      : `<rect class="k" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>`
+      ? `<clipPath id="${clip}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#${clip})"><g class="scroll"><path fill="${look.clawd}" opacity=".7" d="M${laneX} ${ground + 4.5}${'h6v1h-6zm10 0'.repeat(Math.ceil(laneW / 10) + 1)}"/></g></g>`
+      : `<rect class="m" opacity=".4" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>`
     return line + groundLine + tiles + flag + glow + runners + marks
   })
   const alt = [
