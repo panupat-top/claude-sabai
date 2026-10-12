@@ -2,14 +2,14 @@ import type { On, RenderElement } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted as TestMounted } from 'claude-code/testing'
 
-const SURFACES = ['terminal', 'desktop'] as const
-type Surface = (typeof SURFACES)[number]
+const SURFACES = ['desktop'] as const
+type Surface = 'terminal' | 'desktop'
 const STOCK: RenderElement = { type: 'Text', props: {}, children: ['stock row'] }
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
 // missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3], contextTokens = 24_500 } = {}) {
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3], contextTokens = 24_500, surfaces = ['desktop'] as ('terminal' | 'desktop')[] } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -19,6 +19,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     return { value: undefined }
   })
   on('session.start', () => ({ cwd: '/work' }))
+  on('session.surfaces', () => ({ value: surfaces }))
   const out = (): Record<string, string> => ({
     'git branch --show-current': `${branch.name}\n`,
     'git status --porcelain': ' M a.ts\n?? b.ts\n',
@@ -47,7 +48,11 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
         : [],
     },
   }))
-  on('command.register', () => ({ value: { command: 'sabai-settings' } }))
+  const registered: string[] = []
+  on('command.register', ($, e) => {
+    registered.push(e.name)
+    return { value: { command: e.name } }
+  })
   const commands: string[] = []
   on('command.list', () => ({
     value: ['clear', 'review', 'compact', 'resume', 'help'].map(name => ({ name, description: '', source: 'builtin' as const })),
@@ -63,7 +68,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { runs, clock, branch, store, commands, inits }
+  return { runs, clock, branch, store, commands, inits, registered }
 }
 
 // git and node are read in the background; tests let that settle before looking.
@@ -128,8 +133,51 @@ test('the info row leads with directory, git user and branch, node at the right'
   await start($)
   // On the desktop it is the top row's own drawing, above the band.
   expect((await shown($, 'desktop')).words).toMatch(/^Folder work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
-  const terminal = (await shown($, 'terminal')).words
-  expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
+})
+
+test('a terminal session is left alone: no reads, commands, tool, prompt section, guard or drawing', async ($, on) => {
+  const { runs, registered } = engine(on, { surfaces: ['terminal'], store: { prefs: { guard: true } } })
+  on('tool.register', ($, e) => {
+    registered.push(e.name)
+    return { value: undefined } as never
+  })
+  on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
+  allowBeneath(on)
+  const started = await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+  await settle()
+  expect(started).toEqual({ cwd: '/work' })
+  expect([runs, registered]).toEqual([[], []])
+  expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core'])
+  // The guard is on in the saved settings, but this session is not the mod's to guard.
+  expect(await bash($, 'rm -rf /')).not.toHaveProperty('deny')
+  for (const component of ['AbovePrompt', 'ToolUse', 'AssistantMessage', 'Pane'] as const) {
+    const ui = await $.ui.mount({ plugin: 'sabai', surface: 'terminal', component, requestId: 'sabai-skins', viewport: { columns: 120, rows: 30 }, props: { hasSurvey: false, isWorking: false, maxRows: 8, bodyColumns: 115, scroll: { offset: 0, bodyRows: 8 }, view: {}, tool: 'Edit', tool_use_id: 'x', input: { file_path: 'a.ts' }, isRunning: false, isErrored: false, isInterrupted: false, text: '> [!TIP]\n> x', title: 'Settings', isFocused: false, placement: 'dock' } as never })
+    expect([component, (await ui.drawn())]).toEqual([component, STOCK])
+  }
+})
+
+test('the desktop attaching later sets the mod up, once', async ($, on) => {
+  const { runs } = engine(on, { surfaces: [] })
+  on('session.attach', ($, e) => ({ clientId: e.clientId }))
+  await $.session.start({ surface: null, isInteractive: false, cwd: '/work' })
+  await settle()
+  expect(runs).toEqual([])
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:default' })
+  await $.session.attach({ surface: 'desktop', clientId: 'desktop:2' })
+  await settle()
+  expect(runs.filter(r => r === 'node --version')).toHaveLength(1)
+  expect((await shown($, 'desktop')).words).toMatch(/^Folder work, Git user Panupat/)
+})
+
+test('a desktop that draws before it is seen to attach sets the mod up from its first draw', async ($, on) => {
+  const { runs, clock } = engine(on, { surfaces: [] })
+  await $.session.start({ surface: null, isInteractive: false, cwd: '/work' })
+  await (await mountBand($, 'desktop')).unmount()
+  await clock.advance(1)
+  await settle()
+  expect(runs.filter(r => r === 'node --version')).toHaveLength(1)
+  expect((await shown($, 'desktop')).words).toMatch(/^Folder work, Git user Panupat/)
+  expect(runs.filter(r => r === 'node --version')).toHaveLength(1)
 })
 
 test('what a machine cannot tell is hidden: no node, no upstream, no repository', async ($, on) => {
@@ -169,10 +217,6 @@ test('before the session has read anything, the band stands as a still skeleton 
   expect(desktop).toContain('Reading the project')
   expect(desktop).toContain('Context loading; 5H Limit loading; 7D All loading')
   expect(desktop).not.toMatch(/\d%/)
-  const terminal = (await shown($, 'terminal')).words
-  expect(terminal).toContain('…')
-  expect(terminal).toContain('loading')
-  expect(terminal).not.toMatch(/\d%/)
 })
 
 test('with every row hidden the band is left to the engine', async ($, on) => {
@@ -203,12 +247,6 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
   // The desktop's toolbar is icons, not Buttons: compact (the one command it keeps), agents, settings.
   expect(desktop.buttons).toBe(0)
   expect(desktop.tools).toEqual(['Compact', 'Agents', 'Settings'])
-  const terminal = await shown($, 'terminal')
-  expect(terminal.svgs).toBe(0)
-  expect(terminal.words).toMatch(/5H LIMIT .*7%.*↻ 2h 49m/)
-  expect(terminal.words).toContain('7D ALL')
-  expect(terminal.words).toContain('24.5k / 200k (12%)')
-  expect(terminal.buttons).toBe(5)
 })
 
 test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
@@ -236,11 +274,11 @@ test('measurements update the context as tokens over the window', async ($, on) 
 
 test('tasks fill the progress row and leave once all are done', async ($, on) => {
   engine(on)
+  await start($)
   await $.tool.call({ tool: 'TaskCreate', subject: 'a', description: '', activeForm: 'Doing a' })
   await $.tool.call({ tool: 'TaskCreate', subject: 'bb', description: '' })
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
   expect((await shown($, 'desktop')).words).toContain('Doing a: 0/2 tasks, 0%')
-  expect((await shown($, 'terminal')).words).toMatch(/Doing a.*0\/2.*0%/)
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'completed' })
   expect((await shown($, 'desktop')).words).toContain('bb: 1/2 tasks, 50%')
   await $.tool.call({ tool: 'TaskUpdate', taskId: '2', status: 'completed' })
@@ -249,6 +287,7 @@ test('tasks fill the progress row and leave once all are done', async ($, on) =>
 
 test('TodoWrite drives the progress row too', async ($, on) => {
   engine(on)
+  await start($)
   await $.tool.call({
     tool: 'TodoWrite',
     todos: [
@@ -389,8 +428,6 @@ test('the look picker offers raised and flat cards, each with its swatch, and a 
   const { store } = engine(on)
   panes(on)
   await start($)
-  // The look is the desktop's drawings' alone, so the terminal shows no picker.
-  expect(await (await mountPane($, 'terminal', 'sabai-skins')).find({ key: 'skin-raised' })).toBeUndefined()
   const desk = await mountPane($, 'desktop', 'sabai-skins')
   expect([(await desk.find({ key: 'skin-raised' }))?.props.variant, (await desk.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
   // Two swatches and one preview of the chosen bar style.
@@ -422,14 +459,6 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   engine(on)
   const open = panes(on)
   await start($)
-  const term = await mountBand($, 'terminal')
-  const buttons = await term.findAll({ type: 'Button' })
-  expect(buttons.every(b => b.props.plain === undefined)).toBe(true)
-  expect(buttons.map(b => b.text)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '▐✻▌ Agents', '▐⚙▌ Settings'])
-  expect(buttons.map(b => b.props.label)).toEqual(['◎ Review · 2 files', '⇲ Compact', '↻ Resume', '✻ Agents', '⚙︎ Settings'])
-  expect(buttons.map(b => b.props.variant)).toEqual(['secondary', 'secondary', 'secondary', 'secondary', 'secondary'])
-  expect(buttons.slice(3).map(b => [b.props.variant, b.props.hotkey])).toEqual([['secondary', undefined], ['secondary', undefined]])
-  await term.unmount()
   // The desktop draws compact and the panels' buttons as Lucide icons at the right of the top row.
   const ui = await mountBand($, 'desktop')
   expect(await ui.findAll({ type: 'Button' })).toEqual([])
@@ -447,13 +476,11 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   expect([...open]).toEqual(['sabai-skins'])
   await spawn($, 'scan')
   await spawn($, 'read')
-  // While agents work the icon counts them in Clawd's clay, and the terminal's button stands out.
+  // While agents work the icon counts them in Clawd's clay.
   const agents = (await toolsOf(ui)).find(t => t.key === 'tool-agents')
   expect(agents?.alt).toBe('Agents, 2 working')
   expect(agents?.icon).toContain('>2</text>')
   expect(agents?.icon).toContain('<rect class="c-tasks"')
-  const counted = await (await mountBand($, 'terminal')).find({ key: 'agents' })
-  expect([counted?.text, counted?.props.label, counted?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
 })
 
 test('the toolbar lights compact at the amber mark, unless agents are running', async ($, on) => {
@@ -461,26 +488,20 @@ test('the toolbar lights compact at the amber mark, unless agents are running', 
   panes(on)
   await start($)
   const ui = await mountBand($, 'desktop')
-  const term = await mountBand($, 'terminal')
   const compactIcon = async () => (await toolsOf(ui)).find(t => t.key === 'tool-compact')
   expect((await compactIcon())?.alt).toBe('Compact, context at 82%')
   expect((await compactIcon())?.icon).toContain('>82%</text>')
   expect((await compactIcon())?.icon).toContain('<rect class="c-warn"')
-  const compact = await term.find({ key: 'run-compact' })
-  expect([compact?.props.label, compact?.props.variant]).toEqual(['⇲ Compact · 82%', 'primary'])
   await spawn($, 'scan')
   // One to press at a time: running agents take the colour; compact keeps its figure, muted.
   expect((await compactIcon())?.icon).toContain('>82%</text>')
   expect((await compactIcon())?.icon).toContain('<rect class="m"')
-  const after = await term.find({ key: 'run-compact' })
-  expect([after?.props.label, after?.props.variant]).toEqual(['⇲ Compact · 82%', 'secondary'])
-  expect((await term.find({ key: 'agents' }))?.props.variant).toBe('primary')
+  expect((await toolsOf(ui)).find(t => t.key === 'tool-agents')?.icon).toContain('<rect class="c-tasks"')
 })
 
-test('the toolbar runs common commands, only those this surface offers', async ($, on) => {
+test('the compact icon runs /compact', async ($, on) => {
   const { clock, commands } = engine(on)
   await start($)
-  expect(await (await mountBand($, 'terminal')).find({ key: 'run-rewind' })).toBeUndefined()
   const ui = await mountBand($, 'desktop')
   await pressTool(ui, 'compact')
   await clock.advance(1)
@@ -546,7 +567,7 @@ test('a subagent’s own task list goes to its card, never the band; the band ke
   expect(cards.some(c => c.props.source.includes('>Summing up<') && c.props.source.includes('>1/2<'))).toBe(true)
 })
 
-test('an empty panel invites a first agent on both surfaces', async ($, on) => {
+test('an empty panel invites a first agent', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
@@ -576,23 +597,6 @@ test('finished agents start folded; Show, Hide and Clear work and running ones s
   expect((await alts()).some(a => a.startsWith('old:'))).toBe(false)
   expect((await alts()).some(a => a.startsWith('live:'))).toBe(true)
   expect(await ui.find({ key: 'clear-finished' })).toBeUndefined()
-})
-
-test('the terminal lists the same groups as text with buttons', async ($, on) => {
-  engine(on)
-  panes(on)
-  await start($)
-  await spawn($, 'live')
-  await spawn($, 'old')
-  await $.turn.complete({ turnId: 't', agentId: 'agent-old', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  const ui = await mountPane($, 'terminal')
-  await ui.press({ key: 'toggle-finished' })
-  const text = (await ui.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
-  expect(text).toMatch(/RUNNING · 1/)
-  expect(text).toMatch(/FINISHED · 1/)
-  expect(text).toMatch(/live/)
-  expect(text).toMatch(/Explore · sonnet 5\.5/)
-  expect(await ui.findAll({ type: 'Svg' })).toHaveLength(0)
 })
 
 test('forty agents with results open stay under the engine’s tree limit', async ($, on) => {
@@ -648,7 +652,7 @@ test('a wide pane in pixel blocks with eight finished agents open stays under th
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
-test('the band shows the crew while agents work, on both surfaces, and drops it once cleared', async ($, on) => {
+test('the band shows the crew while agents work, and drops it once cleared', async ($, on) => {
   // Compact keeps the crew row; the comfortable band carries agents in its race instead.
   engine(on, { store: { prefs: { density: 'compact' } } })
   panes(on)
@@ -656,9 +660,6 @@ test('the band shows the crew while agents work, on both surfaces, and drops it 
   await spawn($, 'scan the hooks')
   const desktop = await shown($, 'desktop')
   expect(desktop.words).toContain('Agents: 1 running; scan the hooks')
-  const terminal = await shown($, 'terminal')
-  expect(terminal.words).toMatch(/1 running/)
-  expect(terminal.words).toMatch(/scan the hooks/)
   await $.turn.complete({ turnId: 't', agentId: 'agent-scan the hooks', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
   expect((await shown($, 'desktop')).words).toContain('Agents: 1 done; All 1 done')
   const pane = await mountPane($, 'desktop')
@@ -725,15 +726,15 @@ test('a wide fan-out of running agents shows the newest few and counts the rest,
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
-test('the terminal crew says 1 step, and counts failed agents apart from done ones', async ($, on) => {
-  engine(on)
+test('the crew counts failed agents apart from done ones', async ($, on) => {
+  engine(on, { store: { prefs: { density: 'compact' } } })
   panes(on)
   await start($)
   await spawn($, 'a')
   await spawn($, 'b')
   await $.turn.complete({ turnId: 'a', agentId: 'agent-a', answer: '', durationMs: 10, isAborted: true, reason: 'aborted' })
   await $.turn.complete({ turnId: 'b', agentId: 'agent-b', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'terminal')).words).toMatch(/1 done · 1 failed/)
+  expect((await shown($, 'desktop')).words).toMatch(/1 done, 1 failed/)
 })
 
 // One model request of a subagent, answered by a stub beneath the plugin as the model would.
@@ -984,20 +985,17 @@ test('a deny decided beneath stands over the guard’s ask; a compound command t
   expect((await bash($, 'git reset --hard && cat .env')).deny).toMatch(/reads a .env file/)
 })
 
-test('the band’s guard chip counts what the guard caught this session', async ($, on) => {
+test('the guard’s shield counts what the guard caught this session', async ($, on) => {
   engine(on)
   panes(on)
   allowBeneath(on)
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await guardOn($)
-  // The desktop's shield says it in its alt; the terminal's chip in words.
   expect((await shown($, 'desktop')).words).toContain('Guard on. Opens settings')
-  expect((await shown($, 'terminal')).words).toMatch(/guard(?! ·)/)
   await bash($, 'rm -rf /')
   await check($, 'git reset --hard')
   expect((await shown($, 'desktop')).words).toContain('Guard on, 2 caught')
-  expect((await shown($, 'terminal')).words).toContain('guard · 2')
 })
 
 test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
@@ -1020,10 +1018,10 @@ async function turn($: Engine, calls: () => Promise<unknown>, answer = 'ok') {
   await calls()
   return (await $.turn.complete({ turnId, answer, durationMs: 1000, isAborted: false, reason: 'answer' })) as { text: string }
 }
-// The receipt under a reply: the desktop's drawing by its alt, the terminal's line.
+// The receipt under a reply, by its drawing's alt.
 async function receiptUnder($: Engine, surface: Surface, text: string) {
   const ui = await mountReply($, surface, text)
-  const words = surface === 'desktop' ? (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('') : (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
+  const words = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
   await ui.unmount()
   return words
 }
@@ -1050,7 +1048,6 @@ test('a working turn’s last reply carries its receipt card; other replies, pla
   // The answer itself is left alone: the card is drawn under the reply instead.
   expect(done.text).toBe('')
   expect(await receiptUnder($, 'desktop', 'All done.')).toBe('Turn receipt: All green; 1 file +2 −1; 9 passed; 2 commands')
-  expect(await receiptUnder($, 'terminal', 'All done.')).toContain('All green · ✎ 1 file +2 −1 · ✓ 9 passed · › 2 commands')
   expect(await receiptUnder($, 'desktop', 'An earlier reply.')).not.toContain('Turn receipt')
   await turn($, async () => undefined, 'Just talk.')
   expect(await receiptUnder($, 'desktop', 'Just talk.')).not.toContain('Turn receipt')
@@ -1142,9 +1139,6 @@ test('while the main turn works the band shows the live strip with the step in f
   const running = $.tool.call({ tool: 'Bash', command: 'npm run build', description: 'Build it' } as Parameters<typeof $.tool.call>[0])
   await settle()
   expect((await shown($, 'desktop', true)).words).toContain('Build it')
-  expect((await shown($, 'terminal', true)).words).toContain('Build it')
-  // Clawd's mark leads the live strip, not the info row as well.
-  expect((await shown($, 'terminal', true)).words.split(' | ')).not.toContain('●')
   release()
   await running
   await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
@@ -1294,7 +1288,6 @@ test('Clawd’s mood shows in the band: sad after failing tests, startled by the
   await start($)
   await turn($, () => bash($, 'bun test'))
   expect((await shown($, 'desktop')).words).toContain('Clawd: tests failing')
-  expect((await shown($, 'terminal')).words).toContain('✗')
   await guardOn($)
   await bash($, 'rm -rf /')
   expect((await shown($, 'desktop')).words).toContain('Clawd: blocked, guard stopped 1')
@@ -1342,11 +1335,8 @@ const mountTool = ($: Engine, surface: Surface, props: Record<string, unknown>) 
     props: { isRunning: false, isErrored: false, isInterrupted: false, ...props } as never,
   })
 
-// The words of a chat line: the desktop's drawings by their alt, the terminal's Text.
-async function lineWords(ui: Awaited<ReturnType<typeof mountTool>>, surface: Surface) {
-  if (surface === 'desktop') return (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
-  return (await ui.findAll({ type: 'Text' })).map(t => t.text).join('')
-}
+// The words of a chat line: its drawings by their alt.
+const lineWords = async (ui: Awaited<ReturnType<typeof mountTool>>) => (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt)).join('')
 
 test('a Bash row is drawn as a step in place of the engine’s row, with its measured time', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, async () => {
@@ -1359,7 +1349,7 @@ test('a Bash row is drawn as a step in place of the engine’s row, with its mea
   for (const surface of SURFACES) {
     const ui = await mountTool($, surface, { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'npm run build' }, output: { stdout: '', stderr: '', interrupted: false } })
     expect([surface, (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')]).toEqual([surface, false])
-    expect([surface, await lineWords(ui, surface)]).toEqual([surface, expect.stringMatching(/npm run build.*done.*4\.2s/)])
+    expect([surface, await lineWords(ui)]).toEqual([surface, expect.stringMatching(/npm run build.*done.*4\.2s/)])
   }
 })
 
@@ -1379,7 +1369,7 @@ test('settings saved before the Chat group load with every chat toggle on', asyn
   expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['false, failed'])
 })
 
-test('Edit, Write and Read rows gain their summary on both surfaces', async ($, on) => {
+test('Edit, Write and Read rows gain their summary', async ($, on) => {
   engine(on)
   await start($)
   const rows = [
@@ -1391,8 +1381,6 @@ test('Edit, Write and Read rows gain their summary on both surfaces', async ($, 
     const desk = await mountTool($, 'desktop', props)
     const svg = (await desk.findAll({ type: 'Svg' }))[0]
     expect([svg?.props.alt, svg?.props.width, svg?.props.height]).toEqual([want.join(', '), 560, 24])
-    const term = await mountTool($, 'terminal', props)
-    for (const w of want) expect(await lineWords(term, 'terminal')).toContain(w)
   }
 })
 
@@ -1448,7 +1436,7 @@ test('with Callouts off, replies and the prompt are left alone', async ($, on) =
   expect(await isStock(await mountReply($, 'desktop', '> [!TIP]\n> x'))).toBe(true)
 })
 
-test('the spinner speaks Thai on the terminal, and on the desktop only in place of Working', async ($, on) => {
+test('the spinner speaks Thai only in place of the desktop’s Working; the terminal keeps its own word', async ($, on) => {
   const seen: string[] = []
   on('ui.render', { component: 'Spinner' }, ($, e) => {
     seen.push((e.props as { word: string }).word)
@@ -1463,8 +1451,8 @@ test('the spinner speaks Thai on the terminal, and on the desktop only in place 
   await spin('terminal', 'Sauteing', 1)
   await spin('desktop', 'Creating notes.md', 2)
   await spin('desktop', 'Working', 3)
-  expect(seen[0]).toMatch(/[฀-๿]/)
-  expect(seen.slice(1)).toEqual(['Creating notes.md', seen[0]])
+  expect(seen.slice(0, 2)).toEqual(['Sauteing', 'Creating notes.md'])
+  expect(seen[2]).toMatch(/[฀-๿]/)
 })
 
 test('settings: each chat feature has its own toggle, kept for new sessions', async ($, on) => {
@@ -1559,7 +1547,7 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
   expect(seen.at(-1)).toBe(true)
 })
 
-test('the guard stands at the right of the desktop top row as a green shield; the terminal keeps its chip before Node', async ($, on) => {
+test('the guard stands at the right of the top row as a green shield', async ($, on) => {
   engine(on, { store: { prefs: { guard: true } } })
   const open = panes(on)
   await start($)
@@ -1573,8 +1561,6 @@ test('the guard stands at the right of the desktop top row as a green shield; th
   expect(guard?.icon).toContain('<rect class="c-ok"')
   await pressTool(ui, 'guard')
   expect([...open]).toEqual(['sabai-skins'])
-  await ui.unmount()
-  expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
 })
 
 test('the guard chip follows the guard alone: off, no chip; an old Guard label setting is ignored', async ($, on) => {
@@ -1587,21 +1573,6 @@ test('a guard turned on shows its chip even where an older version saved Guard l
   engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
   await start($)
   expect((await shown($, 'desktop')).words).toContain('Guard on')
-})
-
-test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
-  const seen: string[][] = []
-  on('ui.render', { component: 'SessionMode' }, ($, e) => {
-    seen.push([...(e.props as { modes: string[] }).modes])
-    return STOCK
-  })
-  engine(on, { store: { prefs: { guard: true } } })
-  await start($)
-  const mount = (surface: Surface, n: number) => $.ui.mount({ plugin: 'sabai', surface, component: 'SessionMode', requestId: `sm${n}`, viewport: { columns: 120, rows: 30 }, props: { modes: ['focus'] } })
-  await mount('desktop', 1)
-  expect(seen.at(-1)).toEqual(['focus'])
-  await mount('terminal', 2)
-  expect(seen.at(-1)).toEqual(['focus', '◈ guard'])
 })
 
 test('each Bash duration is kept under its own id, so one call does not redraw every row', async ($, on) => {
@@ -1653,30 +1624,18 @@ test('a reply too long to redraw within the tree limit is left to the engine, ca
   expect(await isStock(await mountReply($, 'desktop', `> [!NOTE]\n> x\n\n${'word '.repeat(19_000)}`))).toBe(true)
 })
 
-test('on the terminal a step is one line: its glyph, title, what it did, result and time', async ($, on) => {
-  engine(on)
-  await start($)
-  const ui = await mountTool($, 'terminal', { tool_use_id: 't1', tool: 'Edit', input: { file_path: 'src/a.ts', new_string: 'x' } })
-  expect(await ui.findAll({ type: 'Box' })).toEqual([])
-  expect(await lineWords(ui, 'terminal')).toMatch(/^✎ Edited a\.ts.*src\/.*\+1 −0/)
-})
-
 test('settings are nine bordered groups in order: layout, info, usage, Clawd, agents, conversation, safety, notifications, look', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
-  for (const surface of SURFACES) {
-    const pane = await mountPane($, surface, 'sabai-skins')
-    const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-    // Look (cards and bars) is the desktop's alone.
-    const titles = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', ...(surface === 'desktop' ? ['Look'] : [])]
-    expect([surface, cards.length]).toEqual([surface, titles.length])
-    const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
-    const order = titles.map(t => words.indexOf(`  ${t}`))
-    expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
-    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', ...(surface === 'desktop' ? ['bar-dither', 'skin-auto'] : [])]) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
-    await pane.unmount()
-  }
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
+  const titles = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look']
+  expect(cards.length).toBe(titles.length)
+  const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
+  const order = titles.map(t => words.indexOf(`  ${t}`))
+  expect(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))).toBe(true)
+  for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
 })
 
 for (const bar of ['dither', 'blocks', 'solid'] as const)
@@ -1834,19 +1793,17 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
   }, 'Built.')
   expect(await receiptUnder($, 'desktop', 'Built.')).toContain('Turn receipt')
   expect((await shown($, 'desktop')).words).toContain('Guard on, 1 caught')
-  expect((await shown($, 'terminal')).words).toContain('guard · 1')
   await $.classic.SessionStart({ source: 'clear' } as never)
   expect(await receiptUnder($, 'desktop', 'Built.')).not.toContain('Turn receipt')
-  for (const surface of SURFACES) expect([surface, /guard · |caught/.test((await shown($, surface)).words)]).toEqual([surface, false])
+  expect((await shown($, 'desktop')).words).not.toContain('caught')
 })
 
 test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {
   engine(on)
-  await $.tool.call({ tool: 'TaskCreate', subject: 'Plan the work', description: '' } as Parameters<typeof $.tool.call>[0])
   const ui = await mountBand($, 'desktop')
   const source = (await ui.findAll({ type: 'Svg' })).map(s => String(s.props.source)).join('')
   await ui.unmount()
-  expect(source).toContain('Plan the work')
+  expect(source).toContain('crispEdges')
   // The New Year hat's gold; nothing else Clawd wears on an idle band in October has it.
   expect(source).not.toContain('#f5c542')
 })
@@ -1889,11 +1846,10 @@ test('a Write over an existing file counts its diff in the receipt, a new file e
   expect(await receiptUnder($, 'desktop', 'Wrote both.')).toBe('Turn receipt: Done; 2 files +3 −1')
 })
 
-test('with every row but the toolbar hidden, the toolbar stays on both surfaces', async ($, on) => {
+test('with every row but the toolbar hidden, the toolbar stays', async ($, on) => {
   engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: true } } } })
   await start($)
   expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Agents', 'Settings'])
-  expect((await shown($, 'terminal')).buttons).toBe(5)
 })
 
 test('the desktop shows the guard while it is on, with the info row hidden too', async ($, on) => {

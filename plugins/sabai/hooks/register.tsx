@@ -2,19 +2,15 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
-import type { Mood } from './model'
-import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, usageNote, value } from './model'
+import { clearFinished, clock, finished, groups, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
+import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, summarySvg, toolIconSvg } from './svg'
 import type { ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
-import type { Logged, Step, StepIcon, Tone } from './chat'
-import { SKINS, SKIN_NAMES, contrast } from './themes'
+import type { Logged, StepIcon } from './chat'
+import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
-
-// Black or white, whichever reads better on a tile of `bg`.
-const inkOn = (bg: string) => (contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111')
 
 const usage = atom({ plugin: 'sabai', key: 'usage' } as const, null as Usage | null)
 const tasks = atom({ plugin: 'sabai', key: 'tasks' } as const, [] as Task[])
@@ -83,10 +79,6 @@ const inFlight = new Map<string, string>()
 const asked = new Set<string>()
 // A reply longer than this is left to the engine: redrawn, it could outgrow the tree limit.
 const REPLY_REDRAW_MAX = 90_000
-// The desktop draws a chat line as one SVG; false falls back to the terminal's Text line.
-const SVG_IN_CHAT = true
-// Theme keys for each tone: the conversation follows the person's light or dark theme.
-const TONE_KEY: Record<Tone, string | undefined> = { text: undefined, muted: 'subtle', ok: 'success', bad: 'error', warn: 'warning', edit: 'suggestion', read: 'suggestion' }
 // A main turn this long earns a notification when it ends.
 const LONG_TURN_MS = 60_000
 // Each plan-limit window warned about already, by kind and reset time; in state, so a reload
@@ -106,18 +98,10 @@ const RUNNING_SHOWN = 6
 const PANE_BUDGET = 70_000
 
 const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && Object.hasOwn(BAR_STYLES, v)
-// The terminal's stand-ins for each style's filled and empty cells.
-const BAR_GLYPHS: Record<BarStyle, [string, string]> = { dither: ['▓', '░'], blocks: ['▰', '▱'], solid: ['█', '░'] }
 
 const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
 
-// The toolbar's shortcuts, those of them this surface offers (the Code tab has no /rewind, say).
-// The band's own cards already show context and usage, and /clear is one click from losing the
-// conversation, so the toolbar keeps the commands that act: review and compact, then rewind
-// and resume to move through the conversation. Each label leads with a mark, as Agents and
-// Settings do.
-const QUICK: Record<string, string> = { review: '◎ Review', compact: '⇲ Compact', rewind: '↶ Rewind', resume: '↻ Resume' }
 // The desktop's toolbar icons are links a press answers (onLinkPress); this address is never opened.
 const TOOL_HREF = 'https://sabai.invalid/'
 // What the desktop adds round each icon's image (its chip), as it looks on screen.
@@ -127,20 +111,16 @@ const TICK_MS = 30_000
 const CREW_LINGER_MS = 60_000
 // A hung git (a network drive, a stale lock) gives up rather than hold the band.
 const GIT_TIMEOUT_MS = 5000
-// The terminal's stand-ins for the desktop's marks.
-const GLYPHS = { folder: '▤', git: '◆', branch: '⎇', node: '⬢', shield: '◈' } as const
-// Clawd's mood on the terminal, as one glyph; idle shows none.
-const MOOD_GLYPH: Partial<Record<Mood, string>> = { startled: '!', sad: '✗', celebrating: '✓', sweating: '≈', working: '●', sleeping: 'z' }
-// The terminal's stand-ins for a step's icon.
-// The receipt's mark on the terminal, by how the turn went.
-const RECEIPT_GLYPH: Record<Tone, string> = { ok: '✓', bad: '✗', warn: '▲', edit: '●', text: '●', muted: '●', read: '●' }
-const STEP_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '◆', pen: '✎', file: '+', read: '≡', stop: '■' }
 
 // Module state is fine here: session.start sets it again after a reload.
 let cwd = ''
 let lastBranch: string | undefined
 let reading: Promise<void> | undefined
-let quick: string[] = []
+// Whether this surface offers /compact (the toolbar's one command).
+let canCompact = false
+// The mod works only in a session the desktop draws on; a terminal or -p session is left alone:
+// no band, panes, chat rows, commands, tool, prompt section, guard or notifications.
+let desktop = false
 
 // One line of a command's output, or nothing when it fails or is missing: a chip without a
 // value is simply not drawn.
@@ -307,94 +287,84 @@ async function setSkin($: EngineInterface, name: string) {
   await $.store.set('skin', name)
 }
 
-// A tool call as a step: one fixed-size SVG on the desktop, two Text rows in theme keys elsewhere.
-function stepView($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0], step: Step) {
-  const ui = $.ui.resolve(e)
-  const { Box, Text } = ui
-  if (SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui) {
-    const d = stepSvg(step)
-    return <ui.Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
-  }
-  return (
-    <Text wrap="truncate-end">
-      <Text color={TONE_KEY[step.tone]}>{`${STEP_GLYPH[step.icon]} `}</Text>
-      <Text bold>{step.title}</Text>
-      {step.detail ? <Text dimColor>{`  ${step.detail}`}</Text> : null}
-      {'  '}
-      {step.result.map((p, i) => (
-        <Text key={`r${i}`} color={TONE_KEY[p.tone]} dimColor={p.tone === 'muted'}>
-          {p.text}
-        </Text>
-      ))}
-      {step.time ? <Text dimColor>{` · ${step.time}`}</Text> : null}
-    </Text>
-  )
+// Everything the mod needs once the desktop draws on the session: saved choices, commands, the
+// step tool, the clocks and the info row's reads.
+async function setUp($: EngineInterface) {
+  desktop = true
+  // What the person sees first: their saved choices and the commands, before any slow read.
+  const saved = await $.store.get('skin').catch(() => undefined)
+  if (typeof saved === 'string' && (SKINS as readonly string[]).includes(saved)) await update($, skin, () => saved)
+  const savedBar = await $.store.get('bar').catch(() => undefined)
+  if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
+  const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
+  await update($, prefs, () => savedPrefs)
+  await $.command.register({ name: 'sabai-settings', description: 'Open the sabai settings' })
+  // Agents can report their own steps: a subagent rarely has a task list of its own.
+  if (savedPrefs.steps)
+    await $.tool
+      .register({
+        name: 'step',
+        description:
+          'For subagents: report progress on your own task to the agents panel. Right after reading your brief, call it with `total` ' +
+          '(your plan in 3-8 steps) and `done: 0`; call it again as each step finishes, with `note` naming the step in progress. Silent and cheap.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            done: { type: 'integer', minimum: 0, description: 'Steps finished so far.' },
+            total: { type: 'integer', minimum: 1, description: 'Steps planned; may change.' },
+            note: { type: 'string', description: 'The step in progress, a few words.' },
+          },
+          required: ['done'],
+        },
+        isDeferred: false,
+      })
+      .catch(() => undefined)
+  await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
+  canCompact = (await $.command.list().catch(() => [])).some(c => c.name === 'compact')
+  // The clock first, so no countdown is ever measured from zero.
+  await tick($)
+  // session.measure fires only on the next response, so a fresh load reads what is known now.
+  const known = await $.session.usage().catch(() => undefined)
+  // No answer is an answer too: the band leaves its skeleton for the note, and keeps a reading
+  // that outlived a reload.
+  await update($, usage, u => (known ? toUsage(known) : (u ?? { rateLimits: [] })))
+  // Keeps the reset countdowns and the branch fresh between responses.
+  $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
+  // Running subagents' clocks count by the second; quiet when none runs.
+  $.clock.every(1000, () => {
+    void (async () => {
+      // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
+      const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
+      if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
+    })()
+  })
+  // git and node last, and not waited on: a slow repository must not hold the session.
+  void (async () => {
+    const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
+    await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node, read: true }))
+    await readRepo($)
+  })()
 }
 
 export const register: Register = on => {
+  // The SDK's sessions (the desktop's) start drawing nowhere; the desktop attaches when it first
+  // asks to draw. A reload starts the module over, with the desktop attached already.
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     cwd = started.cwd
-    // What the person sees first: their saved choices and the commands, before any slow read.
-    const saved = await $.store.get('skin').catch(() => undefined)
-    if (typeof saved === 'string' && (SKINS as readonly string[]).includes(saved)) await update($, skin, () => saved)
-    const savedBar = await $.store.get('bar').catch(() => undefined)
-    if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
-    const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
-    await update($, prefs, () => savedPrefs)
-    await $.command.register({ name: 'sabai-settings', description: 'Open the sabai settings' })
-    // Agents can report their own steps: a subagent rarely has a task list of its own.
-    if (savedPrefs.steps)
-      await $.tool
-        .register({
-          name: 'step',
-          description:
-            'For subagents: report progress on your own task to the agents panel. Right after reading your brief, call it with `total` ' +
-            '(your plan in 3-8 steps) and `done: 0`; call it again as each step finishes, with `note` naming the step in progress. Silent and cheap.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              done: { type: 'integer', minimum: 0, description: 'Steps finished so far.' },
-              total: { type: 'integer', minimum: 1, description: 'Steps planned; may change.' },
-              note: { type: 'string', description: 'The step in progress, a few words.' },
-            },
-            required: ['done'],
-          },
-          isDeferred: false,
-        })
-        .catch(() => undefined)
-    await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
-    const offered = new Set((await $.command.list().catch(() => [])).map(c => c.name))
-    quick = Object.keys(QUICK).filter(c => offered.has(c))
-    // The clock first, so no countdown is ever measured from zero.
-    await tick($)
-    // session.measure fires only on the next response, so a fresh load reads what is known now.
-    const known = await $.session.usage().catch(() => undefined)
-    // No answer is an answer too: the band leaves its skeleton for the note, and keeps a reading
-    // that outlived a reload.
-    await update($, usage, u => (known ? toUsage(known) : (u ?? { rateLimits: [] })))
-    // Keeps the reset countdowns and the branch fresh between responses.
-    $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
-    // Running subagents' clocks count by the second; quiet when none runs.
-    $.clock.every(1000, () => {
-      void (async () => {
-        // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
-        const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
-        if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
-      })()
-    })
-    // git and node last, and not waited on: a slow repository must not hold the session.
-    void (async () => {
-      const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
-      await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node, read: true }))
-      await readRepo($)
-    })()
+    if ((await $.session.surfaces()).includes('desktop')) await setUp($)
     return started
+  })
+  on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
+    const attached = await next(e)
+    if (!desktop) await setUp($)
+    return attached
   })
 
   // A cleared, resumed or forked conversation does not carry this one's task list, turn, race,
   // receipts or the guard's count.
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    if (!desktop) return next(e)
     await update($, tasks, () => [])
     await update($, agents, () => [])
     await update($, openResults, () => [])
@@ -407,6 +377,7 @@ export const register: Register = on => {
   })
 
   on('agent.spawn', async ($, e, next) => {
+    if (!desktop) return next(e)
     const started = await next(e)
     // A remote workflow agent has no local loop: nothing would ever step or end its run.
     if (started.deny !== undefined || started.agentId === undefined) return started
@@ -431,6 +402,7 @@ export const register: Register = on => {
 
   // Each model request of a subagent: its model, its step count and its context.
   on('turn.step', async function* ($, e, next) {
+    if (!desktop) return yield* next(e)
     const result = yield* next(e)
     const { agentId } = e
     const { usage: used } = result
@@ -440,6 +412,7 @@ export const register: Register = on => {
 
   // A subagent's turn ends its run; the main conversation's may have switched branch or edited files.
   on('turn.complete', async ($, e, next) => {
+    if (!desktop) return next(e)
     const completed = await next(e)
     const { agentId } = e
     const { notify } = await read($, prefs)
@@ -481,9 +454,9 @@ export const register: Register = on => {
   }))
 
   // The agents pane: a summary, running agents, then finished ones (folded at first) with Clear
-  // and a Result under each. The desktop draws each card as an image with its Button beneath;
-  // the terminal draws the same as text rows.
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  // and a Report under each, each card an image under its title row.
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
     const list = await read($, agents)
     const at = await read($, now)
     const skinName = await read($, skin)
@@ -491,27 +464,17 @@ export const register: Register = on => {
     const isOpen = await read($, finishedOpen)
     const opened = await read($, openResults)
     const { running, finished: done } = groups(list)
-    const ui = $.ui.resolve(e)
-    const { Box, Button, Markdown, Text } = ui
-    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    const { Box, Button, Markdown, Svg, Text } = $.ui.resolve(e)
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     const look = lookOf(skinName)
 
     if (list.length === 0) {
       const empty = emptyAgentsSvg(W, skinName)
-      return Svg ? (
-        <Svg source={empty.source} alt={empty.alt} />
-      ) : (
-        <Box flexDirection="column">
-          <Text bold>No subagents yet</Text>
-          <Text dimColor>They show here when Claude hands work off — try “explore the codebase in parallel”.</Text>
-        </Box>
-      )
+      return <Svg source={empty.source} alt={empty.alt} />
     }
 
     // A card is one Box: the title row (the task, marked by its type, and for a finished agent a
-    // Report button at the right), the drawing (text rows on the terminal) and, once opened, the
-    // report. The Box takes no colour: the title and the report are the surface's own text, whose
+    // Report button at the right), the drawing and, once opened, the report. The Box takes no colour: the title and the report are the surface's own text, whose
     // ink follows the OS theme, which a fixed skin colour behind them could not.
     const reportColor = (a: AgentRun) => {
       const { accent } = typeStyle(a.type)
@@ -526,8 +489,6 @@ export const register: Register = on => {
     const card = (a: AgentRun) => {
       const title = a.description || a.type
       const reportOpen = opened.includes(a.id)
-      const line = progressOf(a)
-      const effort = effortLabel(a.effort)
       const head = (
         <Box flexDirection="row" alignItems="center" columnGap={1}>
           <Box flexGrow={1}>
@@ -538,23 +499,11 @@ export const register: Register = on => {
           )}
         </Box>
       )
-      const drawn = Svg && drawnOf(a)
-      const body = Svg && drawn ? (
-        <Svg source={drawn.source} alt={drawn.alt} />
-      ) : (
-        <Box flexDirection="column" paddingLeft={2}>
-          <Text wrap="truncate-end" dimColor={a.status !== 'running'}>
-            <Text color={look.clawd}>{a.status === 'running' ? '● ' : a.status === 'done' ? '✓ ' : '✗ '}</Text>
-            {`${effort ? `${effort} · ` : ''}${a.type} · ${modelName(a.model)}${a.workflow ? ' · workflow' : ''}`}
-            <Text dimColor>{`  ${clock(elapsed(a, at))}`}</Text>
-          </Text>
-          <Text dimColor wrap="truncate-end">{`${line ? `${line.done}/${line.total} · ${line.title}` : `${a.steps} ${a.steps === 1 ? 'step' : 'steps'}`} · ${tokens(a.contextTokens)} ctx`}</Text>
-        </Box>
-      )
+      const drawn = drawnOf(a)
       return (
         <Box key={`card-${a.id}`} flexDirection="column">
           {head}
-          {body}
+          <Svg source={drawn.source} alt={drawn.alt} />
           {reportOpen && a.status !== 'running' && (
             // Agents write their reports in markdown, so they are drawn as such, framed in the
             // agent's colour (red when it failed).
@@ -568,13 +517,13 @@ export const register: Register = on => {
       )
     }
 
-    const sum = Svg && summarySvg(list, W, at, skinName)
+    const sum = summarySvg(list, W, at, skinName)
     // Newest cards first while their drawings fit the budget; the rest are counted.
-    let spent = sum ? sum.source.length : 0
+    let spent = sum.source.length
     const fitting = (runs: AgentRun[], cap: number) => {
       const out: AgentRun[] = []
       for (const a of runs.slice(0, cap)) {
-        const size = Svg ? drawnOf(a).source.length : 0
+        const size = drawnOf(a).source.length
         if (spent + size > PANE_BUDGET) break
         spent += size
         out.push(a)
@@ -588,7 +537,7 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column" rowGap={1}>
-        {Svg && sum && <Svg source={sum.source} alt={sum.alt} />}
+        <Svg source={sum.source} alt={sum.alt} />
         {running.length > 0 && (
           <Box flexDirection="column" rowGap={1}>
             <Text dimColor bold>{`RUNNING · ${running.length}`}</Text>
@@ -622,6 +571,7 @@ export const register: Register = on => {
   })
 
   on('session.measure', async ($, e, next) => {
+    if (!desktop) return next(e)
     const measured = await next(e)
     await update($, usage, () => toUsage(e))
     const p = await read($, prefs)
@@ -641,10 +591,12 @@ export const register: Register = on => {
 
   // The guard, when turned on: refuse the few commands that are almost never meant.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const risk = await guarded($, 'Bash', e)
     return risk ? { deny: risk } : next(e)
   }).catch(($, e, next) => failClosed(next, () => next(e)))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const risk = await guarded($, 'Read', e)
     return risk ? { deny: risk } : next(e)
   }).catch(($, e, next) => failClosed(next, () => next(e)))
@@ -652,6 +604,7 @@ export const register: Register = on => {
   // the dialog in default mode and goes to the classifier in auto mode. A query asks no one.
   // A deny decided beneath (a settings rule, a classic hook) stands: the guard only tightens.
   on('tool.check', { tool: ['Bash', 'Read'] }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const decided = await next(e)
     const risk = e.tool_use_id === undefined || decided.decision === 'deny' ? undefined : await riskFor($, e.tool, (e.input ?? {}) as { command?: unknown; file_path?: unknown }, 'ask')
     if (!risk) return decided
@@ -661,6 +614,7 @@ export const register: Register = on => {
   // beneath, denies.
   }).catch(() => ({ decision: 'deny' as const, reason: GUARD_FAILED }))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     await stepping($, e.agentId, 'Read', e)
     await racing($, e.agentId, 'read')
     let called: { deny?: string; isError?: boolean } | undefined
@@ -673,6 +627,7 @@ export const register: Register = on => {
     }
   })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     await stepping($, e.agentId, 'Edit', e)
     await racing($, e.agentId, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
@@ -686,6 +641,7 @@ export const register: Register = on => {
     return called
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     await stepping($, e.agentId, 'Write', e)
     await racing($, e.agentId, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
@@ -702,6 +658,7 @@ export const register: Register = on => {
   // Timed here, as the result carries no duration of its own; no .catch, so a failure here never
   // refuses a command.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
@@ -749,6 +706,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const called = await next(e)
     const id = (called.result as BuiltinToolResults['TaskCreate'] | undefined)?.task.id
     if (id !== undefined) await updateTasks($, e.agentId, list => created(list, id, e.subject, e.activeForm))
@@ -756,12 +714,14 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const called = await next(e)
     if ((called.result as BuiltinToolResults['TaskUpdate'] | undefined)?.success) await updateTasks($, e.agentId, list => updated(list, e))
     return called
   })
 
   on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
+    if (!desktop) return next(e)
     const called = await next(e)
     if (!called.isError && !called.deny) await updateTasks($, e.agentId, () => fromTodos(e.todos))
     return called
@@ -771,18 +731,16 @@ export const register: Register = on => {
     text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.',
   }))
 
-  // The settings: the band's rows, the bar style, alerts, agents and safety, then the colour
-  // themes (the longest list last). Each choice is a name and a note on the left with its
-  // control on the right; themes and the bar style carry a sample (coloured text on the terminal).
-  on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e) => {
+  // The settings: the band's rows, the bar style, alerts, agents and safety, then the look. Each
+  // choice is a name and a note on the left with its control on the right; the looks and the bar
+  // style carry a sample.
+  on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
     const current = await read($, skin)
     const style = await read($, bar)
     const p = await read($, prefs)
     const armed = await read($, resetArmed)
-    const look = lookOf(current)
-    const ui = $.ui.resolve(e)
-    const { Box, Button, Text } = ui
-    const Svg = e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    const { Box, Button, Svg, Text } = $.ui.resolve(e)
     const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
     // One group: a bordered card with its mark, title and what it is about, then its rows.
     const group = (key: string, mark: string, title: string, note: string, rows: RenderNode) => (
@@ -851,14 +809,12 @@ export const register: Register = on => {
     )
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
-    const preview = Svg && barPreview(style, current, W)
+    const preview = barPreview(style, current, W)
     // The two looks side by side, each a swatch of its cards in the app's light or dark.
-    const looks = Svg
-      ? SKINS.map(k => {
-          const swatch = skinPreview(k, Math.floor(W / 2) - 8, k === current)
-          return <Svg key={`swatch-${k}`} source={swatch.source} alt={swatch.alt} />
-        })
-      : []
+    const looks = SKINS.map(k => {
+      const swatch = skinPreview(k, Math.floor(W / 2) - 8, k === current)
+      return <Svg key={`swatch-${k}`} source={swatch.source} alt={swatch.alt} />
+    })
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
@@ -868,7 +824,7 @@ export const register: Register = on => {
           'Layout',
           'What the band shows',
           <>
-            {named('Density', 'Desktop only. Comfortable: Clawd, usage and the race while work runs. Compact: one-line rows')}
+            {named('Density', 'Comfortable: Clawd, usage and the race while work runs. Compact: one-line rows')}
             {choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d })))}
             {subheading('Rows', 'Tap to show or hide')}
             {pills([rowPill('info', 'Info'), rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('crew', 'Agents'), rowPill('usage', 'Usage'), rowPill('toolbar', 'Toolbar')])}
@@ -882,7 +838,7 @@ export const register: Register = on => {
           'Usage',
           'Limits and when they turn amber and red',
           <>
-            {subheading('Style', 'Desktop only: how the comfortable band draws them, from 480 px')}
+            {subheading('Style', 'How the comfortable band draws them, from 480 px')}
             {choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u })))}
             {subheading('Limits', 'Which ones show')}
             {pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')])}
@@ -953,18 +909,18 @@ export const register: Register = on => {
             {flag('limits', 'Limit warnings', 'Once per window when 5H or 7D passes your red mark')}
           </>,
         )}
-        {e.surface !== 'terminal' && group(
+        {group(
           'look',
           '◐',
           'Look',
-          'Desktop only: cards and bars',
+          'Cards and bars',
           <>
             {subheading('Cards', 'Raised off the band, or flat on it; both follow the app’s light or dark look')}
             {choice('skin', SKINS, k => SKIN_NAMES[k]!, (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised', k => void setSkin($, k))}
             <Box flexDirection="row" columnGap={1}>{looks}</Box>
             {subheading('Progress bar', 'Tasks and usage bars (Rings draw their own)')}
             {choice('bar', Object.keys(BAR_STYLES) as BarStyle[], b => BAR_STYLES[b], style, b => void setBar($, b))}
-            {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks')}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
+            <Svg source={preview.source} alt={preview.alt} />
           </>,
         )}
         <Box flexDirection="row" alignItems="center" columnGap={2}>
@@ -992,17 +948,23 @@ export const register: Register = on => {
   })
 
   // A tool call drawn as a step in place of its row: what it was about, what it did, how it ended.
+  // One fixed-size drawing per step.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
     const { chat } = await read($, prefs)
     const p = e.props
     if (!chat.tools) return next(e)
     const measured = p.tool === 'Bash' ? await read($, memberOf(durations, e)) : -1
     const step = stepOf({ ...p, ...(measured >= 0 ? { durationMs: measured } : {}), tests: chat.tests })
-    return step ? stepView($, e, step) : next(e)
+    if (!step) return next(e)
+    const { Svg } = $.ui.resolve(e)
+    const d = stepSvg(step)
+    return <Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />
   })
 
   // The permission dialog opened for a Bash call: mark the calls in flight that it is for.
   on('classic.PermissionRequest', async ($, e, next) => {
+    if (!desktop) return next(e)
     const input = e.tool_input as { command?: unknown } | undefined
     if (e.tool_name === 'Bash') for (const [id, command] of inFlight) if (command === input?.command) asked.add(id)
     return next(e)
@@ -1011,16 +973,15 @@ export const register: Register = on => {
   // With Tool summaries on, a folded run of calls drawn as one-line steps unfolds into them; a run
   // with searches or listings stays folded, as those would unfold into their full results.
   on('ui.render', { component: 'ToolGroup' }, async ($, e, next) =>
-    (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => STEP_TOOLS.has(c.tool))
+    e.surface === 'desktop' && (await read($, prefs)).chat.tools && e.props.calls.length > 0 && e.props.calls.every(c => STEP_TOOLS.has(c.tool))
       ? next({ ...e, props: { ...e.props, isExpanded: true } })
       : next(e),
   )
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    if (e.surface !== 'desktop') return next(e)
     const p = await read($, prefs)
-    const ui = $.ui.resolve(e)
-    const { Box, Markdown, Text } = ui
-    const Svg = SVG_IN_CHAT && e.surface !== 'terminal' && 'Svg' in ui ? ui.Svg : undefined
+    const { Box, Markdown, Svg } = $.ui.resolve(e)
     // The turn's receipt, when this reply holds a working turn's final answer.
     const log = p.chat.receipt && !e.props.isSummary ? (await read($, receipts))[receiptKey(e.props.text.trim())] : undefined
     const receipt = log && receiptOf(log)
@@ -1031,38 +992,28 @@ export const register: Register = on => {
       <Box flexDirection="column" rowGap={1}>
         {parts.map((s, i) => {
           if (s.kind === 'md') return s.text.trim() ? <Markdown key={`md${i}`} text={s.text} /> : null
-          const k = CALLOUT_KINDS[s.type]
-          const title = Svg ? calloutTitleSvg(s.type) : undefined
+          const title = calloutTitleSvg(s.type)
           return (
-            <Box key={`co${i}`} borderStyle="round" borderColor={k.key} paddingX={1} flexDirection="column">
-              {Svg && title ? (
-                <Svg source={title.source} alt={title.alt} width={title.width} height={title.height} />
-              ) : (
-                <Text color={k.key} bold>
-                  {`${k.glyph} ${k.title}`}
-                </Text>
-              )}
+            <Box key={`co${i}`} borderStyle="round" borderColor={CALLOUT_KINDS[s.type].key} paddingX={1} flexDirection="column">
+              <Svg source={title.source} alt={title.alt} width={title.width} height={title.height} />
               <Markdown text={s.body} />
             </Box>
           )
         })}
       </Box>
     )
-    if (!receipt || !log) return body
-    const card = Svg ? receiptSvg(receipt) : undefined
+    if (!receipt) return body
+    const card = receiptSvg(receipt)
     return (
       <Box flexDirection="column" rowGap={1}>
         {body}
-        {Svg && card ? (
-          <Svg source={card.source} alt={card.alt} width={card.width} height={card.height} />
-        ) : (
-          <Text color={TONE_KEY[receipt.tone]}>{`${RECEIPT_GLYPH[receipt.tone]} ${receipt.headline} · ${receiptText(log)}`}</Text>
-        )}
+        <Svg source={card.source} alt={card.alt} width={card.width} height={card.height} />
       </Box>
     )
   })
 
   on('turn.start', async ($, e, next) => {
+    if (!desktop) return next(e)
     // Only the main conversation's turns start here: a subagent's run has no turn.start.
     await update($, turnLog, () => EMPTY_LOG)
     const began = await $.clock.now()
@@ -1072,29 +1023,28 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Thai words in the spinner; the desktop keeps a word that names the step.
+  // Thai words in the spinner, in place of the desktop's generic word; one that names the step stays.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (!(await read($, prefs)).chat.spinner) return next(e)
-    if (e.surface !== 'terminal' && !isGenericWord(e.props.word)) return next(e)
+    if (e.surface !== 'desktop' || !isGenericWord(e.props.word) || !(await read($, prefs)).chat.spinner) return next(e)
     // The spinner's word is picked once per turn, from its start, so redraws and reloads keep it.
     return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, seedOf(String(await read($, turnStartedAt)))) } })
   })
 
-  on('ui.render', { component: 'SessionMode' }, async ($, e, next) => {
-    const p = await read($, prefs)
-    // The desktop draws no footer for these; the band's info row carries the guard there.
-    if (!p.guard || e.surface !== 'terminal') return next(e)
-    return next({ ...e, props: { ...e.props, modes: [...e.props.modes, '◈ guard'] } })
-  })
-
   on('prompt.compose', async ($, e, next) => {
+    if (!desktop) return next(e)
     const composed = await next(e)
     if (!(await read($, prefs)).chat.callouts) return composed
     return { sections: [...composed.sections, { id: 'sabai:callouts', text: CALLOUT_HINT, scope: 'session' as const }] }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    if (e.surface !== 'desktop' || e.props.hasSurvey) return next(e)
+    // Should the desktop draw before it is seen to attach, its first draw sets the mod up; the work
+    // runs from a timer, not inside the draw.
+    if (!desktop) {
+      desktop = true
+      $.clock.after(0, () => void setUp($))
+    }
 
     const shownPrefs = await read($, prefs)
     const { rows } = shownPrefs
@@ -1106,9 +1056,7 @@ export const register: Register = on => {
     const known = await read($, env)
     const info = rows.info ? { ...chips(known, shownPrefs.show), pending: !known.read } : { left: [], right: [], pending: false }
     const note = rows.usage ? usageNote(measured, list, shownPrefs.show) : undefined
-    // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
-    if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
     const everyone = await read($, agents)
     const all = rows.crew ? everyone : []
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
@@ -1124,8 +1072,8 @@ export const register: Register = on => {
       : undefined
     // The race: Main and the agents at work, while any work runs.
     const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
-    // The toolbar, and on the desktop the guard's shield, keep the band even with nothing else to show.
-    if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !(shownPrefs.guard && e.surface !== 'terminal')) return next(e)
+    // The toolbar and the guard's shield keep the band even with nothing else to show.
+    if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !shownPrefs.guard) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
     const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
@@ -1143,179 +1091,59 @@ export const register: Register = on => {
 
     const skinName = await read($, skin)
     const style = await read($, bar)
-    const look = lookOf(skinName)
-    const { running: active, finished: ended } = groups(runs)
-    const running = active.length
     // The toolbar's count holds whether or not the crew row shows.
     const working = everyone.filter(a => a.status === 'running').length
-    // The commands say when they are worth a press: review counts the uncommitted files, and
-    // compact shows the context once it reaches the amber mark.
-    const changes = known.changes ?? 0
     const ctx = measured?.contextPercent
-    const ctxHigh = ctx !== undefined && level(ctx, shownPrefs.warnAt, shownPrefs.alertAt) !== undefined
-    const quickLabel = (c: string) =>
-      c === 'review' && changes > 0 ? `${QUICK[c]} · ${changes} ${changes === 1 ? 'file' : 'files'}` : c === 'compact' && ctxHigh ? `${QUICK[c]} · ${Math.round(ctx)}%` : QUICK[c]!
-    const lead = active[0]
-    const leadLine = lead && progressOf(lead)
-    const leadDetail = lead ? (leadLine ? `${leadLine.done}/${leadLine.total} · ${leadLine.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
-    const failedCount = ended.filter(a => a.status === 'failed').length
-    const endedText = failedCount ? `${ended.length - failedCount} done · ${failedCount} failed` : `${ended.length} done`
-    const ui = $.ui.resolve(e)
-    const { Box, Button, Text } = ui
+    const lvl = ctx === undefined ? undefined : level(ctx, shownPrefs.warnAt, shownPrefs.alertAt)
+    const { Box, Markdown, Svg } = $.ui.resolve(e)
     // Another mod's drawing in the band keeps its place under ours.
     const theirs = await next(e)
-
-    // The terminal's toolbar: common commands on the left, the mod's panels on the right, all
-    // framed buttons drawn from their children: a pixel tile of half blocks round the glyph on
-    // the skin's colour, then the word. The label names the control.
-    const tile = (glyph: string, color: string) => (
-      <Text>
-        <Text color={color}>▐</Text>
-        <Text backgroundColor={color} color={inkOn(color)} bold>
-          {glyph}
-        </Text>
-        <Text color={color}>▌</Text>
-      </Text>
-    )
-    const toolbar = (
-      <Box flexDirection="row" columnGap={2}>
-        <Box flexDirection="row" columnGap={2}>
-          {quick.map(c => (
-            // A press's own work ends with the press, so the command is queued from a timer.
-            // One primary at a time: running agents outrank a full context.
-            <Button key={`run-${c}`} label={quickLabel(c)} variant={c === 'compact' && ctxHigh && working === 0 ? 'primary' : 'secondary'} onPress={() => void $.clock.after(0, () => void $.command.run({ command: c }))} />
-          ))}
-        </Box>
-        <Box flexGrow={1} />
-        {/* While agents work, the button counts them and stands out. */}
-        <Button key="agents" label={working > 0 ? `✻ Agents · ${working}` : '✻ Agents'} variant={working > 0 ? 'primary' : 'secondary'} onPress={() => toggleAgents($)}>
-          {tile('✻', look.clawd)}
-          <Text bold>{working > 0 ? ` Agents · ${working}` : ' Agents'}</Text>
-        </Button>
-        {/* U+FE0E keeps the gear a text glyph, not a colour emoji, beside the word. */}
-        <Button key="skins" label={'⚙\uFE0E Settings'} variant="secondary" onPress={() => togglePane($, SKIN_PANE, 'Settings', true)}>
-          {tile('⚙', look.bar('session'))}
-          <Text bold> Settings</Text>
-        </Button>
-      </Box>
-    )
-
-    // The terminal's table names Svg too but cannot draw one, so the surface decides.
-    if (e.surface !== 'terminal' && 'Svg' in ui) {
-      const { Svg, Markdown } = ui
-      const accessory = shownPrefs.extras.accessories ? accessoryOf(new Date(at)) : undefined
-      // The toolbar as icons at the right of the top row. A Button draws its text label alone and
-      // holds no Svg, so each icon is an image link in a Markdown whose press runs it. Each says
-      // when it is worth a press: compact the context once it reaches the amber mark (in colour
-      // while no agents run, one call to press at a time), agents how many are working. The guard,
-      // while on, leads them: a green shield with what it caught, that opens the settings. On a
-      // narrow band the counts go, so the row still fits.
-      const lvl = ctx === undefined ? undefined : level(ctx, shownPrefs.warnAt, shownPrefs.alertAt)
-      const roomy = W >= HERO_MIN_W
-      const openSettings = () => void togglePane($, SKIN_PANE, 'Settings', true)
-      const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok'; press: () => void }[] = []
-      if (shownPrefs.guard)
-        tools.push({ kind: 'guard', label: caughtCount ? `Guard on, ${caughtCount} caught. Opens settings` : 'Guard on. Opens settings', count: caughtCount && roomy ? String(caughtCount) : undefined, tone: 'ok', press: openSettings })
-      if (rows.toolbar) {
-        if (quick.includes('compact'))
-          tools.push({ kind: 'compact', label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh && roomy ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
-        tools.push(
-          { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
-          { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
-        )
-      }
-      const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone, skinName) }))
-      // Room the icons take with the chip the desktop draws round each image, so the info row's
-      // card runs up to the first: the row reads as one strip of the band's card.
-      const iconsW = icons.reduce((n, t) => n + t.drawn.width + TOOL_CHIP, 0)
-      // The info row leads the top row; in the stacked band Clawd stands in it when no tasks
-      // row or live strip holds him, as he did in the band's own info row.
-      const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
-      const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
-      const top = infoSvg({ ...info, right: info.right.filter(c => c.icon !== 'shield') }, Math.max(96, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
-      // bodyColumns counts the code font's advance across the band, the collapse mark already
-      // left out. Drawn a little wider than that estimate and given no width, the drawing
-      // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { left: [], right: [] }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
-      return (
-        <Box flexDirection="column">
-          {(top || icons.length > 0) && (
-            <Box flexDirection="row" alignItems="center" columnGap={0} marginBottom={1}>
-              {top && <Svg source={top.source} alt={top.alt} />}
-              <Box flexGrow={1} />
-              {icons.map(t => (
-                <Markdown key={`tool-${t.kind}`} text={`[![${t.label}](data:image/svg+xml;base64,${btoa(t.drawn.source)})](${TOOL_HREF}${t.kind})`} onLinkPress={t.press} />
-              ))}
-            </Box>
-          )}
-          {band && <Svg source={band.source} alt={band.alt} />}
-          {theirs}
-        </Box>
+    const accessory = shownPrefs.extras.accessories ? accessoryOf(new Date(at)) : undefined
+    // The toolbar as icons at the right of the top row. A Button draws its text label alone and
+    // holds no Svg, so each icon is an image link in a Markdown whose press runs it. Each says
+    // when it is worth a press: compact the context once it reaches the amber mark (in colour
+    // while no agents run, one call to press at a time), agents how many are working. The guard,
+    // while on, leads them: a green shield with what it caught, that opens the settings. On a
+    // narrow band the counts go, so the row still fits.
+    const roomy = W >= HERO_MIN_W
+    const openSettings = () => void togglePane($, SKIN_PANE, 'Settings', true)
+    const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok'; press: () => void }[] = []
+    if (shownPrefs.guard)
+      tools.push({ kind: 'guard', label: caughtCount ? `Guard on, ${caughtCount} caught. Opens settings` : 'Guard on. Opens settings', count: caughtCount && roomy ? String(caughtCount) : undefined, tone: 'ok', press: openSettings })
+    if (rows.toolbar) {
+      // A press's own work ends with the press, so the command is queued from a timer.
+      if (canCompact)
+        tools.push({ kind: 'compact', label: lvl ? `Compact, context at ${Math.round(ctx!)}%` : 'Compact', count: lvl && roomy ? `${Math.round(ctx!)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
+      tools.push(
+        { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+        { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
       )
     }
-
-    const cols = e.props.bodyColumns
+    const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone, skinName) }))
+    // Room the icons take with the chip the desktop draws round each image, so the info row's
+    // card runs up to the first: the row reads as one strip of the band's card.
+    const iconsW = icons.reduce((n, t) => n + t.drawn.width + TOOL_CHIP, 0)
+    // The info row leads the top row; in the stacked band Clawd stands in it when no tasks
+    // row or live strip holds him, as he did in the band's own info row.
+    const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
+    const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
+    const top = infoSvg(info, Math.max(96, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
+    // bodyColumns counts the code font's advance across the band, the collapse mark already
+    // left out. Drawn a little wider than that estimate and given no width, the drawing
+    // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
+    const band = bandSvg(p, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
     return (
-      <Box flexDirection="column" rowGap={1}>
-        {(info.left.length + info.right.length > 0 || info.pending || (rows.info && shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood])) && (
-          <Box flexDirection="row" columnGap={3} paddingRight={5}>
-            {shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
-            {info.pending ? <Text dimColor>▤ …</Text> : null}
-            {[...info.left, null, ...info.right].map(c =>
-              c ? (
-                <Text key={c.icon}>
-                  <Text dimColor>{`${GLYPHS[c.icon]} `}</Text>
-                  {c.value}
-                </Text>
-              ) : (
-                <Box key="gap" flexGrow={1} />
-              ),
-            )}
-          </Box>
-        )}
-        {live && (
-          <Text wrap="truncate-end">
-            <Text color={look.clawd}>{`${(shownPrefs.show.clawd && !p && MOOD_GLYPH[mood]) || '●'} `}</Text>
-            {live.elapsedMs !== undefined ? <Text bold>{clock(live.elapsedMs)}</Text> : null}
-            {live.step ? <Text>{`  ${live.step.title}`}</Text> : null}
-            <Text dimColor>
-              {`   ${[live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join(' · ')}`}
-            </Text>
-          </Text>
-        )}
-        {p && (
-          <Box flexDirection="row" columnGap={2}>
-            <Text wrap="truncate-end">
-              <Text color={look.bar('tasks')}>{`${(shownPrefs.show.clawd && MOOD_GLYPH[mood]) || '●'} `}</Text>
-              {p.title}
-            </Text>
-            <Text color={look.bar('tasks')}>{blocks(p.done / p.total, Math.max(6, Math.min(30, cols - 40)), '█', '░')}</Text>
-            <Text bold>{`${p.done}/${p.total}`}</Text>
-            <Text dimColor>{`${Math.round((p.done / p.total) * 100)}%`}</Text>
-          </Box>
-        )}
-        {runs.length > 0 && (
-          <Text wrap="truncate-end">
-            <Text color={look.clawd}>{'✻ '}</Text>
-            {running > 0 ? <Text bold>{`${running} running`}</Text> : <Text bold>{failedCount ? endedText : `All ${endedText}`}</Text>}
-            {running > 0 && ended.length > 0 ? <Text dimColor>{` · ${endedText}`}</Text> : null}
-            {lead ? <Text>{`  ${lead.description || lead.type}`}</Text> : null}
-            {lead ? <Text dimColor>{`  ${leadDetail}`}</Text> : null}
-          </Text>
-        )}
-        {list.length > 0 && (
-          <Box flexDirection="row" flexWrap="wrap" columnGap={4} paddingRight={5}>
-            {list.map(m => (
-              <Text key={m.kind}>
-                <Text dimColor bold>{`${m.label.toUpperCase()} `}</Text>
-                <Text color={look.bar(m.kind, m.level)}>{`${blocks(m.percent / 100, 10, '▰', '▱')} ${value(m)}`}</Text>
-                {m.resetsInMs === undefined ? null : <Text dimColor>{` ↻ ${countdown(m.resetsInMs)}`}</Text>}
-              </Text>
+      <Box flexDirection="column">
+        {(top || icons.length > 0) && (
+          <Box flexDirection="row" alignItems="center" columnGap={0} marginBottom={1}>
+            {top && <Svg source={top.source} alt={top.alt} />}
+            <Box flexGrow={1} />
+            {icons.map(t => (
+              <Markdown key={`tool-${t.kind}`} text={`[![${t.label}](data:image/svg+xml;base64,${btoa(t.drawn.source)})](${TOOL_HREF}${t.kind})`} onLinkPress={t.press} />
             ))}
           </Box>
         )}
-        {note && <Text dimColor>{note}</Text>}
-        {rows.toolbar && toolbar}
+        {band && <Svg source={band.source} alt={band.alt} />}
         {theirs}
       </Box>
     )
