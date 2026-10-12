@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import type { Mood } from './model'
 import { clearFinished, clock, effortLabel, elapsed, finished, groups, modelName, progressOf, reported, resultText, spawned, stepped, typeEmoji, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, value } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, blocks, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, tokens, toUsage, updated, usageNote, value } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, USAGE_STYLES, agentCardSvg, receiptSvg, calloutTitleSvg, stepSvg, bandSvg, barPreview, emptyAgentsSvg, lookOf, skinPreview, summarySvg } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
@@ -359,9 +359,9 @@ export const register: Register = on => {
     await tick($)
     // session.measure fires only on the next response, so a fresh load reads what is known now.
     const known = await $.session.usage().catch(() => undefined)
-    if (known) {
-      await update($, usage, () => toUsage(known))
-    }
+    // No answer is an answer too: the band leaves its skeleton for the note, and keeps a reading
+    // that outlived a reload.
+    await update($, usage, u => (known ? toUsage(known) : (u ?? { rateLimits: [] })))
     // Keeps the reset countdowns and the branch fresh between responses.
     $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
     // Running subagents' clocks count by the second; quiet when none runs.
@@ -375,7 +375,7 @@ export const register: Register = on => {
     // git and node last, and not waited on: a slow repository must not hold the session.
     void (async () => {
       const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
-      await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node }))
+      await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node, read: true }))
       await readRepo($)
     })()
     return started
@@ -1099,7 +1099,9 @@ export const register: Register = on => {
     // Drawn before session.start's first tick, the clock still reads 0 (1 January 1970).
     const at = (await read($, now)) || (await $.clock.now())
     const list = rows.usage ? meters(measured, at, { show: shownPrefs.show, warnAt: shownPrefs.warnAt, alertAt: shownPrefs.alertAt }) : []
-    const info = rows.info ? chips(await read($, env), shownPrefs.show) : { left: [], right: [] }
+    const known = await read($, env)
+    const info = rows.info ? { ...chips(known, shownPrefs.show), pending: !known.read } : { left: [], right: [], pending: false }
+    const note = rows.usage ? usageNote(measured, list, shownPrefs.show) : undefined
     // The guard, while on, as a shield chip before Node: the desktop has no footer for mode labels.
     const caughtCount = await read($, guardCaught)
     if (rows.info && shownPrefs.guard) info.right = [{ icon: 'shield', label: 'Turned on:', value: caughtCount ? `guard · ${caughtCount}` : 'guard' }, ...info.right]
@@ -1118,7 +1120,7 @@ export const register: Register = on => {
       : undefined
     // The race: Main and the agents at work, while any work runs.
     const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
-    if (!p && !live && !raceNow && info.left.length + info.right.length === 0 && list.length === 0 && runs.length === 0) return next(e)
+    if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
     // With the live strip off, the turn's time stands under Clawd's word instead.
@@ -1143,7 +1145,7 @@ export const register: Register = on => {
     const working = everyone.filter(a => a.status === 'running').length
     // The commands say when they are worth a press: review counts the uncommitted files, and
     // compact shows the context once it reaches the amber mark.
-    const changes = (await read($, env)).changes ?? 0
+    const changes = known.changes ?? 0
     const ctx = measured?.contextPercent
     const ctxHigh = ctx !== undefined && level(ctx, shownPrefs.warnAt, shownPrefs.alertAt) !== undefined
     const quickLabel = (c: string) =>
@@ -1202,7 +1204,7 @@ export const register: Register = on => {
       // bodyColumns counts the code font's advance across the band, the collapse mark already
       // left out. Drawn a little wider than that estimate and given no width, the drawing
       // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, now: at, ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
+      const band = bandSvg(p, { ...info, show: rows.info && shownPrefs.show.clawd }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(shownPrefs.extras.accessories ? { accessory: accessoryOf(new Date(at)) } : {}) })
       return (
         <Box flexDirection="column">
           {band && <Svg source={band.source} alt={band.alt} />}
@@ -1215,9 +1217,10 @@ export const register: Register = on => {
     const cols = e.props.bodyColumns
     return (
       <Box flexDirection="column" rowGap={1}>
-        {(info.left.length + info.right.length > 0 || (rows.info && shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood])) && (
+        {(info.left.length + info.right.length > 0 || info.pending || (rows.info && shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood])) && (
           <Box flexDirection="row" columnGap={3} paddingRight={5}>
             {shownPrefs.show.clawd && !p && !live && MOOD_GLYPH[mood] ? <Text color={look.clawd}>{MOOD_GLYPH[mood]}</Text> : null}
+            {info.pending ? <Text dimColor>▤ …</Text> : null}
             {[...info.left, null, ...info.right].map(c =>
               c ? (
                 <Text key={c.icon}>
@@ -1271,6 +1274,7 @@ export const register: Register = on => {
             ))}
           </Box>
         )}
+        {note && <Text dimColor>{note}</Text>}
         {rows.toolbar && toolbar}
         {theirs}
       </Box>

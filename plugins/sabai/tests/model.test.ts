@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -49,7 +49,18 @@ test('meters run context, 5H and 7D from the engine, with reset countdowns', () 
     ['5H Limit', '100%', '2h 49m'],
     ['7D All', '4%', '6d 2h'],
   ])
-  expect(meters(null, NOW)).toEqual([])
+  // Before the engine has answered at all, a still placeholder per meter shown, with no number.
+  expect(meters(null, NOW).map(m => [m.label, value(m), m.pending])).toEqual([
+    ['Context', 'loading', true],
+    ['5H Limit', 'loading', true],
+    ['7D All', 'loading', true],
+  ])
+  expect(meters(null, NOW, { show: { week: false } }).map(m => m.kind)).toEqual(['context', 'session'])
+  expect(usageNote(null, meters(null, NOW))).toBeUndefined()
+  // Answered with nothing to show: a note in the usage's place, unless every meter is turned off.
+  expect(usageNote({ rateLimits: [] }, [])).toBe('No usage reading yet')
+  expect(usageNote({ rateLimits: [] }, [], { context: false, session: false, week: false })).toBeUndefined()
+  expect(usageNote(usage, meters(usage, NOW))).toBeUndefined()
   // No plan reading yet (a fresh or resumed session, or an API key): the limits are hidden.
   expect(meters({ contextPercent: 5, rateLimits: [] }, NOW).map(m => m.label)).toEqual(['Context'])
   expect(meters({ rateLimits: [{ kind: 'five_hour', percentUsed: 1, resetsAt: '2026-10-09T00:00:00Z' }] }, NOW)[0]?.resetsInMs).toBe(0)

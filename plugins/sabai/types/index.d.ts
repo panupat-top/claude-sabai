@@ -2,8 +2,9 @@ export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 
 export type Usage = { contextPercent?: number; contextTokens?: number; contextWindow?: number; rateLimits: Limit[] }
 
-// The session's surroundings: what the band's first row shows.
-export type Env = { dir?: string; gitUser?: string; branch?: string; ahead?: number; behind?: number; changes?: number; node?: string }
+// The session's surroundings: what the band's first row shows. `read` once git and node have
+// answered (or given up); until then the row is a skeleton.
+export type Env = { dir?: string; gitUser?: string; branch?: string; ahead?: number; behind?: number; changes?: number; node?: string; read?: boolean }
 
 export type Task = {
   id: string

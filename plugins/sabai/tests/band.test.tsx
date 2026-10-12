@@ -145,9 +145,32 @@ test('the tick re-reads git status only when the branch has changed', async ($, 
   expect((await shown($, 'desktop')).words).toContain('Branch other')
 })
 
-test('with nothing to show the band is left to the engine', async ($, on) => {
+test('before the session has read anything, the band stands as a still skeleton with no numbers', async ($, on) => {
   engine(on)
+  const desktop = (await shown($, 'desktop')).words
+  expect(desktop).toContain('Reading the project')
+  expect(desktop).toContain('Context loading; 5H Limit loading; 7D All loading')
+  expect(desktop).not.toMatch(/\d%/)
+  const terminal = (await shown($, 'terminal')).words
+  expect(terminal).toContain('…')
+  expect(terminal).toContain('loading')
+  expect(terminal).not.toMatch(/\d%/)
+})
+
+test('with every row hidden the band is left to the engine', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: false } } } })
+  await start($)
   for (const surface of SURFACES) expect((await shown($, surface)).words).toBe('stock row')
+})
+
+test('an engine with no usage to give leaves a note where the usage would be', async ($, on) => {
+  engine(on, { hasLimits: false, percents: [] })
+  await start($)
+  for (const surface of SURFACES) {
+    const words = (await shown($, surface)).words
+    expect(words).toContain('No usage reading yet')
+    expect(words).not.toContain('loading')
+  }
 })
 
 test('a fresh load shows every meter with its countdown, and the toolbar', async ($, on) => {

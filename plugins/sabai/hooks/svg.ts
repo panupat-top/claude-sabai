@@ -195,7 +195,7 @@ function compactCard(look: Look, m: Meter, x: number, y: number, w: number, styl
   const label = m.kind === 'context' ? 'CTX' : m.label.split(' ')[0]!.toUpperCase()
   const countdownText = m.resetsInMs === undefined ? '' : ` ↻${countdown(m.resetsInMs).replace(' ', '')}`
   const room = (tail: string) => x + w - PAD - monoWidth(tail, 11) - 8 - (labelX + monoWidth(label, 10) + 8)
-  const tail = room(`${m.percent}%${countdownText}`) >= 40 ? `${m.percent}%${countdownText}` : `${m.percent}%`
+  const tail = room(`${pctText(m)}${countdownText}`) >= 40 ? `${pctText(m)}${countdownText}` : pctText(m)
   const barX = labelX + monoWidth(label, 10) + 8
   const barW = Math.max(30, room(tail))
   return (
@@ -203,7 +203,7 @@ function compactCard(look: Look, m: Meter, x: number, y: number, w: number, styl
     (m.kind === 'context' ? sprite('context', x + PAD + 1, y + CARD_H_COMPACT / 2 - spriteSize('context').height / 2) : '') +
     `<text class="m" x="${labelX}" y="${y + 15}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${label}</text>` +
     pixelBar(`sabai-${m.kind}`, barX, y + 7, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, style) +
-    `<text class="c-${m.level ?? m.kind}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
+    `<text class="${pctClass(m)}" x="${x + w - PAD}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${xml(tail)}</text>`
   )
 }
 
@@ -288,7 +288,7 @@ function cardsPart(look: Look, list: readonly Meter[], W: number, y0: number, st
       `<text class="m" x="${labelX}" y="${top + 3.5}" font-family="${MONO}" font-size="10" font-weight="600" letter-spacing=".08em">${xml(m.label.toUpperCase())}</text>` +
       detail +
       pixelBar(`sabai-${m.kind}`, x + PAD, bottom - 4.5, cardW - PAD * 2 - 44, 9, m.percent / 100, color, 0, style) +
-      `<text class="c-${m.level ?? m.kind}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${m.percent}%</text>`
+      `<text class="${pctClass(m)}" x="${right}" y="${bottom + 4}" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="700">${pctText(m)}</text>`
     )
   })
   const alt = list
@@ -313,11 +313,12 @@ const fitMono = (s: string, size: number, maxW: number, min = 1) => {
 }
 
 const INFO_H = 22
+const SKELETON_W = 180
 // The info row: the project, its branch as a tinted tag with the sync counts, then at the right
 // the guard, Node and the git user as small marks in the muted ink. Room runs out from the right:
 // the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
 // The row sits on the surface, so every word takes the surface's inks.
-function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
+function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
   const all = [...info.left, ...info.right]
   const by = (k: IconKind) => all.find(c => c.icon === k)
   const folder = by('folder')
@@ -349,7 +350,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
   const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 8
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
-  const leftW = (f: string, b: string) => x0 + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
+  const leftW = (f: string, b: string) => x0 + (info.pending ? SKELETON_W : 0) + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
   let shown = items
   while (shown.length && leftW(folder?.value ?? '', name) + 12 > W - rightW(shown)) {
     const least = Math.min(...shown.map(i => i.keep))
@@ -374,6 +375,11 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
   if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
   let x = x0
   let body = lead
+  // Until git and node answer, two still bars where the folder and branch will be.
+  if (info.pending) {
+    body += `<g class="sm" opacity=".22"><rect x="${x}" y="${mid - 6}" width="96" height="12" rx="6"/><rect x="${x + 106}" y="${mid - 6}" width="64" height="12" rx="6"/></g>`
+    x += SKELETON_W
+  }
   if (folder) {
     body += icon('folder', x, mid - 6.5, 13, 'sm') + `<text class="st" x="${x + 19}" y="${mid + 5}" font-family="${SANS}" font-size="14.5" font-weight="700">${xml(f)}</text>`
     x += folderW(f)
@@ -396,7 +402,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[] }, W: nu
     rx += itemW(i) + 16
   }
   const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
-  const alt = drawn.map(c => `${c.label} ${c.value}`).join(', ') + (clawd ? moodSaid(clawd.mood) : '')
+  const alt = [...(info.pending ? ['Reading the project'] : []), ...drawn.map(c => `${c.label} ${c.value}`)].join(', ') + (clawd ? moodSaid(clawd.mood) : '')
   return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
 }
 
@@ -608,7 +614,9 @@ const USAGE_SHORT_H = 80
 // clock time), each only when the meter has it.
 const mainOf = (m: Meter) => m.amount ?? (m.resetsInMs === undefined ? '' : `↻ ${countdown(m.resetsInMs)}`)
 const subOf = (m: Meter, now: number | undefined) => m.left ?? (now === undefined ? undefined : resetClock(m.resetsInMs, now)) ?? ''
-const pctClass = (m: Meter) => `c-${m.level ?? m.kind}`
+// A skeleton meter has no reading: a dash in the muted ink where its percent will be.
+const pctClass = (m: Meter) => (m.pending ? 'm' : `c-${m.level ?? m.kind}`)
+const pctText = (m: Meter) => (m.pending ? '—' : `${m.percent}%`)
 const usageLabel = (m: Meter) => (m.kind === 'context' ? 'CONTEXT' : m.label.split(' ')[0]!.toUpperCase())
 // One line of a usage cell, cut to its room.
 const utext = (cls: string, x: number, y: number, s: string, size: number, room: number, extra = '') =>
@@ -632,11 +640,11 @@ function tilesStyle(look: Look, list: readonly Meter[], w: number, h: number, ba
       .map((m, i) => {
         const x = at(i)
         const inner = cw - 28
-        const pctW = monoWidth(`${m.percent}%`, size)
+        const pctW = monoWidth(pctText(m), size)
         return (
           cardRect(x, cw, h) +
           utext('m', x + 14, 18, usageLabel(m), 9.5, inner - pctW - 6, ' font-weight="700" letter-spacing=".08em"') +
-          utext(pctClass(m), x + cw - 14, 19, `${m.percent}%`, size, inner, ' font-weight="800" text-anchor="end"') +
+          utext(pctClass(m), x + cw - 14, 19, pctText(m), size, inner, ' font-weight="800" text-anchor="end"') +
           pixelBar(`sabai-u-${m.kind}`, x + 14, 26, inner, 6, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
           utext('t', x + 14, Math.min(h - 6, 46), mainOf(m), 10.5, inner, ' font-weight="600"')
         )
@@ -651,7 +659,7 @@ function tilesStyle(look: Look, list: readonly Meter[], w: number, h: number, ba
       return (
         cardRect(x, cw, h) +
         utext('m', x + 14, 18, usageLabel(m), 9.5, inner, ' font-weight="700" letter-spacing=".08em"') +
-        utext(pctClass(m), x + 14, Math.min(barY - 6, 18 + big + 4), `${m.percent}%`, big, inner, ' font-weight="800"') +
+        utext(pctClass(m), x + 14, Math.min(barY - 6, 18 + big + 4), pctText(m), big, inner, ' font-weight="800"') +
         pixelBar(`sabai-u-${m.kind}`, x + 14, barY, inner, roomy ? 8 : 6, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
         utext('t', x + 14, h - (roomy ? 22 : 10), mainOf(m), 10.5, roomy ? inner : inner / 2, ' font-weight="600"') +
         (roomy ? utext('m', x + 14, h - 8, subOf(m, now), 10, inner) : utext('m', x + cw - 14, h - 10, subOf(m, now), 9.5, inner / 2 - 6, ' text-anchor="end"'))
@@ -681,7 +689,7 @@ function ringsStyle(look: Look, list: readonly Meter[], w: number, h: number, _b
         `<circle class="k-stroke" cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke-width="${at2(sw)}"/>` +
         // None at 0%: a round cap on an empty arc still draws a dot.
         (m.percent > 0 ? `<circle cx="${at2(cx)}" cy="${at2(cy)}" r="${at2(r)}" fill="none" stroke="${look.bar(m.kind, m.level)}" stroke-width="${at2(sw)}" stroke-linecap="round" stroke-dasharray="${at2((c * m.percent) / 100)} ${at2(c)}" transform="rotate(-90 ${at2(cx)} ${at2(cy)})"/>` : '')
-      const pct = utext(pctClass(m), cx, cy + fs * 0.35, `${m.percent}%`, fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
+      const pct = utext(pctClass(m), cx, cy + fs * 0.35, pctText(m), fs, d - 2 * sw, ' font-weight="800" text-anchor="middle"')
       const words = stacked
         ? utext('t', cx, cy + d / 2 + 16, [usageLabel(m), mainOf(m)].filter(Boolean).join(' · '), 10, cw - 12, ' font-weight="600" text-anchor="middle"') +
           (h - (cy + d / 2) >= 34 ? utext('m', cx, cy + d / 2 + 30, subOf(m, now), 9.5, cw - 12, ' text-anchor="middle"') : '')
@@ -710,7 +718,7 @@ function columnsStyle(look: Look, list: readonly Meter[], w: number, h: number, 
         cardRect(x, cw, h) +
         column +
         utext('m', x + 40, 20, usageLabel(m), 9.5, inner, ' font-weight="700" letter-spacing=".08em"') +
-        utext(pctClass(m), x + 40, short ? 20 + big + 1 : Math.min(h - 26, 20 + big + 2), `${m.percent}%`, big, inner, ' font-weight="800"') +
+        utext(pctClass(m), x + 40, short ? 20 + big + 1 : Math.min(h - 26, 20 + big + 2), pctText(m), big, inner, ' font-weight="800"') +
         (short && h < 20 + big + 1 + 14 ? '' : utext('t', x + 40, h - (h >= 110 ? 24 : 6), mainOf(m), short ? 9.5 : 10.5, inner, ' font-weight="600"')) +
         (h >= 110 ? utext('m', x + 40, h - 10, subOf(m, now), 9.5, inner) : '')
       )
@@ -738,7 +746,7 @@ function rowsStyle(look: Look, list: readonly Meter[], w: number, h: number, bar
           pixelBar(`sabai-r-${m.kind}`, barX, mid - 4, barW, 8, m.percent / 100, look.bar(m.kind, m.level), 0, bar) +
           utext('t', w - pctW - 8, mid + (rowH >= 44 ? -1 : 4), mainOf(m), 10.5, wordsW - 10, ' font-weight="600" text-anchor="end"') +
           (rowH >= 44 ? utext('m', w - pctW - 8, mid + 13, subOf(m, now), 9.5, wordsW - 10, ' text-anchor="end"') : '') +
-          utext(pctClass(m), w - 14, mid + big * 0.36, `${m.percent}%`, big, pctW, ' font-weight="800" text-anchor="end"')
+          utext(pctClass(m), w - 14, mid + big * 0.36, pctText(m), big, pctW, ' font-weight="800" text-anchor="end"')
         )
       })
       .join('')
@@ -751,12 +759,16 @@ function usagePart(look: Look, list: readonly Meter[], x: number, y: number, w: 
   const alt = list.map(m => `${m.label} ${value(m)}${m.resetsInMs === undefined ? '' : `, resets in ${countdown(m.resetsInMs)}`}`).join('; ')
   return { body: `<g class="usage" transform="translate(${x},${y})">${USAGE_DRAW[style](look, list, w, h, bar, now)}</g><!--usage-->`, height: h, alt }
 }
+// The usage's place when the engine has answered with nothing to show: its card, and why it is empty.
+function notePart(text: string, x: number, y: number, w: number, h: number): Part {
+  return { body: `<g transform="translate(${x},${y})">${cardRect(0, w, h)}${utext('m', w / 2, h / 2 + 4, text, 10.5, w - 28, ' text-anchor="middle"')}</g>`, height: h, alt: text }
+}
 
 // The comfortable band: Clawd large in his own panel at the left, with his mood and the turn's
 // time under him; at the right the info row, then the live strip, tasks and crew when present,
 // then the usage limits as rows.
-function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[] }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', now } = opts
+function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
+  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', usageNote, now } = opts
   // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
   const race = W >= RACE_MIN_W ? opts.race : undefined
   const look = lookOf(skin)
@@ -768,7 +780,7 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
     parts.push(part)
     y += part.height + GAP
   }
-  if (info.left.length + info.right.length > 0) add(infoPart(info, rw, y, look))
+  if (info.left.length + info.right.length > 0 || info.pending) add(infoPart(info, rw, y, look))
   if (live && !race) add(livePart(look, live, rw, y))
   if (p) add(progressPart(look, p, rw, mood, y, style, false))
   if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
@@ -776,9 +788,11 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
   const raced = race ? racePart(look, race, RACE_W, 0) : undefined
   // The usage fills what the band's height leaves under the rows above it.
   const usageTop = y
-  const H = Math.max(clawd ? 112 : 0, raced?.height ?? 0, list.length ? usageTop + USAGE_MIN_H : middleH)
+  const usage = list.length > 0 || Boolean(usageNote)
+  const H = Math.max(clawd ? 112 : 0, raced?.height ?? 0, usage ? usageTop + USAGE_MIN_H : middleH)
   if (H === 0) return undefined
   if (list.length > 0) parts.push(usagePart(look, list, 0, usageTop, rw, H - usageTop, usageStyle, style, now))
+  else if (usageNote) parts.push(notePart(usageNote, 0, usageTop, rw, H - usageTop))
   let panel = ''
   const words = mood === 'working' && live?.elapsedMs !== undefined ? clock(live.elapsedMs) : (clawdLine ?? '')
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
@@ -797,7 +811,7 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
       (words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
   }
   // Shorter than the band, the middle sits in its middle; with the usage it fills the band.
-  const dy = list.length ? 0 : Math.max(0, Math.round((H - middleH) / 2))
+  const dy = usage ? 0 : Math.max(0, Math.round((H - middleH) / 2))
   const box = raced ? `<g transform="translate(${W - RACE_W},0)"><rect class="p" width="${RACE_W}" height="${H}" rx="10"/>${raced.body}</g>` : ''
   const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>` + box
   const alt = [...(clawd ? [`Clawd: ${MOOD_WORDS[mood]}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
@@ -820,6 +834,8 @@ export type BandOpts = {
   clawdLine?: string
   trick?: Trick
   usageStyle?: UsageStyle
+  // Said in the usage's place when the engine has answered with nothing to show.
+  usageNote?: string
   // The band's clock, for the reset's clock time.
   now?: number
 }
@@ -854,7 +870,7 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
 // surface's between two elements. Rows top to bottom: info row, tasks, usage cards.
 export function bandSvg(
   p: Progress | undefined,
-  info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean },
+  info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean; pending?: boolean },
   list: readonly Meter[],
   W: number,
   opts: BandOpts = {},
@@ -875,13 +891,14 @@ export function bandSvg(
   const clawdInInfo = !p && !live && Boolean(info.show) && clawd
   // A hat rises above Clawd: when he stands in the first row, the band starts lower to show it.
   const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
-  const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && (clawdInLive || (!live && Boolean(p))))
+  const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && !info.pending && (clawdInLive || (!live && Boolean(p))))
   if (hatted && firstHoldsClawd) y = HAT_H
-  if (info.left.length + info.right.length > 0 || clawdInInfo) add(infoPart(info, W, y, look, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
+  if (info.left.length + info.right.length > 0 || info.pending || clawdInInfo) add(infoPart(info, W, y, look, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
   if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
   if (list.length > 0) add(cardsPart(look, list, W, y, style, compact))
+  else if (opts.usageNote) add(notePart(opts.usageNote, 0, y, W, compact ? CARD_H_COMPACT : CARD_H))
   if (parts.length === 0) return undefined
   return drawing(look, W, y - gap, parts.map(part => part.body).join(''), parts.map(part => part.alt).join('; '))
 }
