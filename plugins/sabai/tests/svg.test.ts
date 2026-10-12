@@ -640,36 +640,43 @@ test('no two info-row texts overlap at any width', () => {
   }
 })
 
-test('the desktop top row packs every chip from the left and is as wide as what it draws', () => {
+test('the desktop top row packs every chip from the left on a card as wide as its room', () => {
   const d = infoSvg(ROW, 900)!
   expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'Panupat', 'v24.21.0'])
-  // The guard follows the counts a gap apart, not from the right edge; the drawing ends at Node.
-  const counts = d.source.match(/<text class="s-warn" x="([\d.]+)"/)!
-  // The folder's mark is the first muted path; the guard's shield the second.
-  const guard = [...d.source.matchAll(/<path class="sm" transform="translate\(([\d.]+),/g)][1]!
+  // The guard follows the counts a gap apart, not from the right edge; Node ends well short of it.
+  const counts = d.source.match(/<text class="c-warn" x="([\d.]+)"/)!
+  // The folder's mark is the first muted path; the guard's shield the second. On the card they take its inks.
+  const guard = [...d.source.matchAll(/<path class="m" transform="translate\(([\d.]+),/g)][1]!
   expect(Number(guard[1]) - (Number(counts[1]) + monoWidth('±3', 10.5) + 7)).toBe(8)
-  const node = d.source.match(/<text class="sm" x="([\d.]+)"[^>]*>v24\.21\.0</)!
-  expect(Math.abs(Number(node[1]) + monoWidth('v24.21.0', 10.5) - d.width)).toBeLessThan(1)
-  expect(d.width).toBeLessThan(600)
+  const node = d.source.match(/<text class="m" x="([\d.]+)"[^>]*>v24\.21\.0</)!
+  expect(Number(node[1]) + monoWidth('v24.21.0', 10.5)).toBeLessThan(600)
+  // The card fills the room the buttons leave, the words 8 px inside it.
+  expect(d.width).toBe(900)
+  expect(d.source).toContain('<rect class="p" y="0" width="900" height="22" rx="6"/><g transform="translate(8,0)">')
   // Short of room it drops from the right as the band's row does, and never draws past W.
   expect(infoSvg(ROW, 390)!.alt).not.toContain('Git user')
   expect(infoSvg(ROW, 390)!.width).toBeLessThanOrEqual(390)
   // Clawd leads it when he stands here; with nothing to show and no Clawd there is no drawing.
   expect(infoSvg(ROW, 900, { clawd: { mood: 'idle' } })!.source).toContain('crispEdges')
   expect(infoSvg(ROW, 900)!.source).not.toContain(MOTION)
+  // No surface ink is left on the card, where it may not read (a dark skin's card on a light OS).
+  expect(infoRow(d.source)).not.toMatch(/class="s(t|m|-[a-z]+)"/)
   expect(infoSvg({ left: [], right: [] }, 900)).toBeUndefined()
 })
 
-test('a toolbar icon draws its Lucide shape, its count and the ink that marks it, in both themes', () => {
+test('a toolbar icon sits on a tile of the card, its Lucide shape and count in the skin\u2019s ink', () => {
   const quiet = toolIconSvg('settings')
-  expect([quiet.width, quiet.height]).toEqual([16, 16])
-  expect(quiet.source).toContain(`.i{stroke:${TEXT.m[0]}}`)
-  expect(quiet.source).toContain(`@media (prefers-color-scheme: dark){.i{stroke:${TEXT.m[1]}}`)
+  expect([quiet.width, quiet.height]).toEqual([26, 22])
+  expect(quiet.source).toContain('<rect class="p" width="26" height="22" rx="6"/>')
+  // The shape masks a rect in the muted ink, so light and dark follow the skin's own stylesheet.
+  expect(quiet.source).toContain('<rect class="m" x="5" y="3" width="16" height="16" mask="url(#sabai-tool)"/>')
+  expect(quiet.source).toContain(`.m{fill:${TEXT.m[0]}}`)
   expect(quiet.source).not.toContain('<text')
-  const busy = toolIconSvg('compact', '82%', 'warn')
+  const busy = toolIconSvg('compact', '82%', 'warn', 'dracula')
+  expect(busy.source).toContain('<text class="c-warn"')
   expect(busy.source).toContain('>82%</text>')
-  expect(busy.source).toContain(`.i{stroke:${TEXT.warn[0]}}`)
-  expect(busy.width).toBe(16 + 4 + Math.ceil(monoWidth('82%', 11)))
+  expect(busy.source).toContain('.p{fill:#282a36}')
+  expect(busy.width).toBe(26 + 4 + Math.ceil(monoWidth('82%', 11)))
   expect(toolIconSvg('agents', '2', 'tasks').source).toContain('<rect width="16" height="12" x="4" y="8" rx="2"/>')
 })
 

@@ -114,6 +114,8 @@ const SKIN_PANE = 'sabai-skins'
 const QUICK: Record<string, string> = { review: '◎ Review', compact: '⇲ Compact', rewind: '↶ Rewind', resume: '↻ Resume' }
 // The desktop's toolbar icons are links a press answers (onLinkPress); this address is never opened.
 const TOOL_HREF = 'https://sabai.invalid/'
+// What the desktop adds round each icon's image (its chip), as it looks on screen.
+const TOOL_CHIP = 8
 
 const TICK_MS = 30_000
 const CREW_LINGER_MS = 60_000
@@ -1205,24 +1207,25 @@ export const register: Register = on => {
       // The toolbar as icons at the right of the top row. A Button draws its text label alone and
       // holds no Svg, so each icon is an image link in a Markdown whose press runs it. Each says
       // when it is worth a press: compact the context once it reaches the amber mark (in colour
-      // while no agents run, one call to press at a time), agents how many are working.
+      // while no agents run, one call to press at a time), agents how many are working. The guard
+      // leaves the info row to lead them, a green shield with its count that opens the settings.
       const lvl = ctx === undefined ? undefined : level(ctx, shownPrefs.warnAt, shownPrefs.alertAt)
-      const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks'; press: () => void }[] = rows.toolbar
-        ? [
-            ...(quick.includes('compact')
-              ? [{ kind: 'compact' as const, label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : ('m' as const), press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) }]
-              : []),
-            { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
-            { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: () => void togglePane($, SKIN_PANE, 'Settings', true) },
-          ]
-        : []
-      const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone) }))
-      // The guard leaves the info row for the right end: a green shield before the icons, a sign
-      // rather than a button, so a plain drawing with no chip.
       const shield = info.right.find(c => c.icon === 'shield')
-      const guardSign = shield && toolIconSvg('guard', shield.value.replace(' · ', ' '), 'ok')
-      // Room the icons take with the chip the desktop draws round each image, and the guard's.
-      const iconsW = icons.reduce((n, t) => n + t.drawn.width + 20, icons.length ? 16 : 0) + (guardSign ? guardSign.width + 12 : 0)
+      const openSettings = () => void togglePane($, SKIN_PANE, 'Settings', true)
+      const tools: { kind: ToolIcon; label: string; count: string | undefined; tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok'; press: () => void }[] = []
+      if (shield) tools.push({ kind: 'guard', label: `${shield.label} ${shield.value}`, count: shield.value.replace(' · ', ' '), tone: 'ok', press: openSettings })
+      if (rows.toolbar) {
+        if (quick.includes('compact'))
+          tools.push({ kind: 'compact', label: ctxHigh ? `Compact, context at ${Math.round(ctx)}%` : 'Compact', count: ctxHigh ? `${Math.round(ctx)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
+        tools.push(
+          { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+          { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
+        )
+      }
+      const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone, skinName) }))
+      // Room the icons take with the chip the desktop draws round each image, so the info row's
+      // card runs up to the first: the row reads as one strip of the band's card.
+      const iconsW = icons.reduce((n, t) => n + t.drawn.width + TOOL_CHIP, 0)
       // The info row leads the top row; in the stacked band Clawd stands in it when no tasks
       // row or live strip holds him, as he did in the band's own info row.
       const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
@@ -1234,11 +1237,10 @@ export const register: Register = on => {
       const band = bandSvg(p, { left: [], right: [] }, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
       return (
         <Box flexDirection="column">
-          {(top || guardSign || icons.length > 0) && (
-            <Box flexDirection="row" alignItems="center" columnGap={1}>
+          {(top || icons.length > 0) && (
+            <Box flexDirection="row" alignItems="center" columnGap={0} marginBottom={1}>
               {top && <Svg source={top.source} alt={top.alt} />}
               <Box flexGrow={1} />
-              {shield && guardSign && <Svg source={guardSign.source} alt={`${shield.label} ${shield.value}`} />}
               {icons.map(t => (
                 <Markdown key={`tool-${t.kind}`} text={`[![${t.label}](data:image/svg+xml;base64,${btoa(t.drawn.source)})](${TOOL_HREF}${t.kind})`} onLinkPress={t.press} />
               ))}

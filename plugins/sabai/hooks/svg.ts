@@ -208,7 +208,7 @@ function compactCard(look: Look, m: Meter, x: number, y: number, w: number, styl
   )
 }
 
-type Part = { body: string; height: number; alt: string; width?: number }
+type Part = { body: string; height: number; alt: string }
 
 
 // Each mood's sprite mode, and the words a reader is told for it (idle and working say nothing).
@@ -319,8 +319,8 @@ const SKELETON_W = 180
 // the guard, the git user and Node as small marks in the muted ink. Room runs out from the right:
 // the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
 // The row sits on the surface, so every word takes the surface's inks.
-// `packed` sets the right side straight after the branch instead of at the right edge, and the
-// part's width ends at its last word: the desktop's top row, with the buttons after it.
+// `packed` sets the right side straight after the branch instead of at the right edge: the
+// desktop's top row, with the guard and the buttons after it.
 function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }, packed = false): Part {
   const all = [...info.left, ...info.right]
   const by = (k: IconKind) => all.find(c => c.icon === k)
@@ -406,8 +406,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
   }
   const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
   const alt = [...(info.pending ? ['Reading the project'] : []), ...drawn.map(c => `${c.label} ${c.value}`)].join(', ') + (clawd ? moodSaid(clawd.mood) : '')
-  const width = packed ? Math.min(W, Math.ceil(shown.length ? rx - 16 : x)) : W
-  return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, width, alt: alt.replace(/^; /, '') }
+  return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
 }
 
 const CREW_H = 22
@@ -908,7 +907,8 @@ export function bandSvg(
 }
 
 // The info row on its own, for the desktop's top row beside the buttons: every chip from the
-// left, as wide as what it draws (at most W), with Clawd leading it when he stands here.
+// left on a card of the band's colour that fills W, with Clawd leading it when he stands here.
+const INFO_PAD = 8
 export function infoSvg(
   info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean },
   W: number,
@@ -918,9 +918,12 @@ export function infoSvg(
   if (info.left.length + info.right.length === 0 && !info.pending && !clawd) return undefined
   const look = lookOf(opts.skin ?? 'auto')
   const hat = clawd && (clawd.accessory === 'newyear' || clawd.accessory === 'xmas' || clawd.accessory === 'nightcap') ? HAT_H : 0
-  const part = infoPart(info, W, hat, look, clawd ? { look, ...clawd } : undefined, true)
+  const part = infoPart(info, W - INFO_PAD * 2, hat, look, clawd ? { look, ...clawd } : undefined, true)
+  // On the card the row's words take the card's inks (as the usage cards' do), not the surface's.
+  const words = part.body.replace(/class="s([tm])"/g, 'class="$1"').replace(/class="s-/g, 'class="c-')
+  const body = `<rect class="p" y="${hat}" width="${W}" height="${part.height}" rx="6"/><g transform="translate(${INFO_PAD},0)">${words}</g>`
   // Without Clawd nothing moves, so the drawing needs no motion stylesheet.
-  return drawing(look, part.width ?? W, hat + part.height, part.body, part.alt, !clawd)
+  return drawing(look, W, hat + part.height, body, part.alt, !clawd)
 }
 
 // The skin picker's swatch: a strip of the skin's card colour with its text colours (`Aa`) and
@@ -1190,26 +1193,28 @@ const stroke = (icon: StrokeKind, cls: string, x: number, y: number, size: numbe
 
 // The desktop toolbar's buttons as icons. A Button draws its text label alone, so each icon is
 // an image link in a Markdown; the count and the colour that marks it worth a press are drawn in.
-// The guard draws the same way, in green, as a sign beside them rather than a button.
+// The guard draws the same way, in green, its word and count beside the shield.
 export type ToolIcon = 'compact' | 'agents' | 'settings' | 'guard'
 const TOOL_STROKE: Record<ToolIcon, StrokeKind> = { compact: 'fold-vertical', agents: 'bot', settings: 'settings', guard: 'shield-check' }
 const TOOL_SIZE = 16
 
-export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm'): Drawing {
-  const [light, dark] = TEXT[tone]
-  const w = TOOL_SIZE + (count ? 4 + Math.ceil(monoWidth(count, 11)) : 0)
+// Each icon sits on a tile of the band's card, as tall as the info row's, so the top row reads as
+// one strip. The shape is a mask over a rect, so it takes the skin's fill inks like the cards' words.
+const TOOL_H = 22
+const TOOL_PAD = 5
+export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm', skin = 'auto'): Drawing {
+  const ink = tone === 'm' ? 'm' : `c-${tone}`
+  const w = TOOL_PAD * 2 + TOOL_SIZE + (count ? 4 + Math.ceil(monoWidth(count, 11)) : 0)
+  const y = (TOOL_H - TOOL_SIZE) / 2
   const body =
-    stroke(TOOL_STROKE[kind], 'i', 0, 0, TOOL_SIZE) +
-    (count ? `<text class="n" x="${TOOL_SIZE + 4}" y="12" font-family="${MONO}" font-size="11" font-weight="700">${xml(count)}</text>` : '')
-  return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${TOOL_SIZE}" viewBox="0 0 ${w} ${TOOL_SIZE}"><style>.i{stroke:${light}}.n{fill:${light}}@media (prefers-color-scheme: dark){.i{stroke:${dark}}.n{fill:${dark}}}</style>${body}</svg>`,
-    width: w,
-    height: TOOL_SIZE,
-    alt: kind,
-  }
+    `<rect class="p" width="${w}" height="${TOOL_H}" rx="6"/>` +
+    `<mask id="sabai-tool"><g stroke="#fff">${stroke(TOOL_STROKE[kind], '', TOOL_PAD, y, TOOL_SIZE)}</g></mask>` +
+    `<rect class="${ink}" x="${TOOL_PAD}" y="${y}" width="${TOOL_SIZE}" height="${TOOL_SIZE}" mask="url(#sabai-tool)"/>` +
+    (count ? `<text class="${ink}" x="${TOOL_PAD + TOOL_SIZE + 4}" y="${y + 12}" font-family="${MONO}" font-size="11" font-weight="700">${xml(count)}</text>` : '')
+  return drawing(lookOf(skin), w, TOOL_H, body, kind, true)
 }
 
-const STEP_ICON: Record<StepIcon, StrokeKind> ={ terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
+const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
 // A semibold proportional face's width, by kind of character: near enough to set the next
 // word after it without overlap, and to cut a title short of the right column.
 // Combining marks (Thai vowels and tones) take no width; CJK and pictographs a full em.

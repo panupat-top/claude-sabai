@@ -94,7 +94,7 @@ async function shown($: Engine, surface: Surface, isWorking = false) {
   const tools = await toolsOf(ui)
   await ui.unmount()
   return {
-    words: [...svgs.map(s => String(s.props.alt)), ...texts.map(t => t.text)].join(' | '),
+    words: [...svgs.map(s => String(s.props.alt)), ...tools.map(t => t.alt), ...texts.map(t => t.text)].join(' | '),
     buttons: buttons.length,
     svgs: svgs.length,
     tools: tools.map(t => t.alt),
@@ -103,8 +103,8 @@ async function shown($: Engine, surface: Surface, isWorking = false) {
 
 // A band mounted on either surface, or one a test mounted on the desktop itself.
 type Mounted = Awaited<ReturnType<typeof mountBand>> | TestMounted<'desktop', 'AbovePrompt'>
-// The desktop's top row holds the info row's own drawing and the guard's shield; the band is the other one.
-const bandOf = async (ui: Mounted) => (await ui.findAll({ type: 'Svg' })).find(s => !String(s.props.source).includes('<!--info-->') && !String(s.props.alt).startsWith('Turned on:'))
+// The desktop's top row is the info row's own drawing; the band is the other one.
+const bandOf = async (ui: Mounted) => (await ui.findAll({ type: 'Svg' })).find(s => !String(s.props.source).includes('<!--info-->'))
 // The desktop toolbar: each icon an image link in its own Markdown, named by its alt.
 async function toolsOf(ui: Mounted) {
   return (await ui.findAll({ type: 'Markdown' }))
@@ -429,7 +429,7 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
     ['tool-agents', 'https://sabai.invalid/agents'],
     ['tool-settings', 'https://sabai.invalid/settings'],
   ])
-  expect(tools.every(t => t.icon.startsWith('<svg') && t.icon.includes('.i{stroke:#5f5f5c}'))).toBe(true)
+  expect(tools.every(t => t.icon.includes('mask="url(#sabai-tool)"') && t.icon.includes('<rect class="m"'))).toBe(true)
   await pressTool(ui, 'agents')
   await pressTool(ui, 'settings')
   expect([...open]).toEqual(['sabai-agents', 'sabai-skins'])
@@ -441,7 +441,7 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   const agents = (await toolsOf(ui)).find(t => t.key === 'tool-agents')
   expect(agents?.alt).toBe('Agents, 2 working')
   expect(agents?.icon).toContain('>2</text>')
-  expect(agents?.icon).toContain('.i{stroke:#a8490a}')
+  expect(agents?.icon).toContain('<rect class="c-tasks"')
   const counted = await (await mountBand($, 'terminal')).find({ key: 'agents' })
   expect([counted?.text, counted?.props.label, counted?.props.variant]).toEqual(['▐✻▌ Agents · 2', '✻ Agents · 2', 'primary'])
 })
@@ -455,13 +455,13 @@ test('the toolbar lights compact at the amber mark, unless agents are running', 
   const compactIcon = async () => (await toolsOf(ui)).find(t => t.key === 'tool-compact')
   expect((await compactIcon())?.alt).toBe('Compact, context at 82%')
   expect((await compactIcon())?.icon).toContain('>82%</text>')
-  expect((await compactIcon())?.icon).toContain('.i{stroke:#a8490a}')
+  expect((await compactIcon())?.icon).toContain('<rect class="c-warn"')
   const compact = await term.find({ key: 'run-compact' })
   expect([compact?.props.label, compact?.props.variant]).toEqual(['⇲ Compact · 82%', 'primary'])
   await spawn($, 'scan')
   // One to press at a time: running agents take the colour; compact keeps its figure, muted.
   expect((await compactIcon())?.icon).toContain('>82%</text>')
-  expect((await compactIcon())?.icon).toContain('.i{stroke:#5f5f5c}')
+  expect((await compactIcon())?.icon).toContain('<rect class="m"')
   const after = await term.find({ key: 'run-compact' })
   expect([after?.props.label, after?.props.variant]).toEqual(['⇲ Compact · 82%', 'secondary'])
   expect((await term.find({ key: 'agents' }))?.props.variant).toBe('primary')
@@ -1546,13 +1546,17 @@ test('with Tool summaries on, grouped reads unfold into their own steps', async 
 
 test('the guard stands at the right of the desktop top row as a green shield; the terminal keeps its chip before Node', async ($, on) => {
   engine(on, { store: { prefs: { guard: true } } })
+  const open = panes(on)
   await start($)
   const ui = await mountBand($, 'desktop')
-  const svgs = await ui.findAll({ type: 'Svg' })
-  // The info row leaves it out; the shield follows it, before the toolbar's icons and the band.
-  expect(svgs.slice(0, 2).map(s => String(s.props.alt))).toEqual(['Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0', 'Turned on: guard'])
-  expect(String(svgs[1]!.props.source)).toContain('>guard</text>')
-  expect(String(svgs[1]!.props.source)).toContain('.i{stroke:#1a7f37}')
+  // The info row leaves it out; the shield leads the toolbar's icons, and opens the settings.
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
+  const [guard, ...rest] = await toolsOf(ui)
+  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Turned on: guard', ['tool-compact', 'tool-agents', 'tool-settings']])
+  expect(guard?.icon).toContain('>guard</text>')
+  expect(guard?.icon).toContain('<rect class="c-ok"')
+  await pressTool(ui, 'guard')
+  expect([...open]).toEqual(['sabai-skins'])
   await ui.unmount()
   expect((await shown($, 'terminal')).words).toMatch(/◈ guard \|.*⬢ v24\.1\.0/)
 })
