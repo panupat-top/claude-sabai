@@ -80,14 +80,13 @@ const wideEm = (g: string): number | undefined =>
 const charEm = (ch: string): number => wideEm(ch) ?? (/[\s.,:;'|!il1()[\]]/.test(ch) ? 0.3 : /[A-Z@%mw]/.test(ch) ? 0.72 : 0.56)
 const textWidth = (s: string, size: number): number => graphemes(s).reduce((w, g) => w + charEm(g) * size, 0)
 
-function fit(s: string, size: number, maxW: number): string {
-  if (textWidth(s, size) <= maxW) return s
-  let out = ''
-  for (const g of graphemes(s)) {
-    if (textWidth(out + g + '…', size) > maxW) break
-    out += g
-  }
-  return out + '…'
+// Cut to `maxW` with `…`, keeping at least `min` characters; a string no longer than `min` stays whole.
+function fit(s: string, size: number, maxW: number, min = 0): string {
+  const chars = graphemes(s)
+  if (chars.length <= min || textWidth(s, size) <= maxW) return s
+  let n = 0
+  while (n < chars.length && textWidth(chars.slice(0, n + 1).join('') + '…', size) <= maxW) n++
+  return chars.slice(0, Math.max(min, n)).join('') + '…'
 }
 
 // Deterministic noise, so the dither does not shimmer between redraws.
@@ -323,7 +322,7 @@ export const monoWidth = (s: string, size: number) => graphemes(s).reduce((w, g)
 const fitMono = (s: string, size: number, maxW: number, min = 1) => {
   const adv = (g: string) => ((wideEm(g) ?? 0.6) / 0.6) * 0.64 * size
   const chars = graphemes(s)
-  if (chars.reduce((w, g) => w + adv(g), 0) <= maxW) return s
+  if (chars.length <= min || chars.reduce((w, g) => w + adv(g), 0) <= maxW) return s
   let w = adv('…')
   let n = 0
   while (n < chars.length && w + adv(chars[n]!) <= maxW) w += adv(chars[n++]!)
@@ -359,14 +358,16 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
           .filter(([n]) => n !== undefined && n > 0)
           .map(([n, mark, cls]) => ({ s: `${mark}${n}`, cls }))
       : []
-  const countsW = counts.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
+  let syncs = counts
+  const syncsW = () => syncs.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
   // A very long branch (a dependabot or feature path) is cut to 23 characters and `…` before it can
   // push Node off an otherwise roomy row.
   const fullName = graphemes(branch ? (branch.branch ?? branch.value) : '')
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
   const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 8
   const folderW = (s: string) => 19 + textWidth(s, 14.5) + 12
-  const leftW = (f: string, b: string) => x0 + (info.pending ? SKELETON_W : 0) + (folder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + countsW
+  let hasFolder = Boolean(folder)
+  const leftW = (f: string, b: string) => x0 + (info.pending ? SKELETON_W : 0) + (hasFolder ? folderW(f) : 0) + (branch ? tagW(b) + 10 : 0) + syncsW()
   let shown = items
   while (shown.length && leftW(folder?.value ?? '', name) + 12 > W - rightW(shown)) {
     const least = Math.min(...shown.map(i => i.keep))
@@ -374,9 +375,13 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
   }
   let b = name
   let f = folder?.value ?? ''
-  // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
-  if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
-  if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
+  // Still too wide with nothing at the right, the branch kept longest: the sync counts go, the
+  // folder is cut (to three characters), then left out, and last the branch is cut (to six).
+  const over = () => !shown.length && leftW(f, b) > W
+  if (over()) syncs = []
+  if (over() && hasFolder) f = fit(f, 14.5, textWidth(f, 14.5) - (leftW(f, b) - W), 3)
+  if (over() && branch) hasFolder = false
+  if (over()) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
   let x = x0
   let body = lead
   // Until git and node answer, two still bars where the folder and branch will be.
@@ -384,7 +389,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
     body += `<g class="sm" opacity=".22"><rect x="${x}" y="${mid - 6}" width="96" height="12" rx="6"/><rect x="${x + 106}" y="${mid - 6}" width="64" height="12" rx="6"/></g>`
     x += SKELETON_W
   }
-  if (folder) {
+  if (folder && hasFolder) {
     body += icon('folder', x, mid - 6.5, 13, 'sm') + `<text class="st" x="${x + 19}" y="${mid + 5}" font-family="${SANS}" font-size="14.5" font-weight="700">${xml(f)}</text>`
     x += folderW(f)
   }
@@ -395,7 +400,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
       icon('branch', +(x + 8).toFixed(1), mid - 6, 12, 's-session') +
       `<text class="s-session" x="${+(x + 25).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="11" font-weight="600">${xml(b)}</text>`
     x += tw + 10
-    for (const c of counts) {
+    for (const c of syncs) {
       body += `<text class="${c.cls}" x="${+x.toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5" font-weight="600">${c.s}</text>`
       x += monoWidth(c.s, 10.5) + 7
     }
@@ -405,7 +410,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
     body += icon(i.k, +rx.toFixed(1), mid - 6, 12, 'sm') + (i.v ? `<text class="sm" x="${+(rx + 17).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5">${xml(i.v)}</text>` : '')
     rx += itemW(i) + 16
   }
-  const drawn = all.filter(c => c.icon === 'folder' || c.icon === 'branch' || shown.some(i => i.k === c.icon))
+  const drawn = all.filter(c => (c.icon === 'folder' && hasFolder) || c.icon === 'branch' || shown.some(i => i.k === c.icon))
   const alt = [...(info.pending ? ['Reading the project'] : []), ...drawn.map(c => `${c.label} ${c.value}`)].join(', ') + (clawd ? moodSaid(clawd.mood) : '')
   return { body: `<g class="info">${body}</g><!--info-->`, height: INFO_H, alt: alt.replace(/^; /, '') }
 }

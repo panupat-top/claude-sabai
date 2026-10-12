@@ -70,6 +70,32 @@ test('the info card escapes its words; the user gives way first when room is sho
   expect(infoSvg(info, 276)!.alt).toContain('Directory claude-skins')
 })
 
+test('a narrow info row keeps the branch longest and never leaves a name as a bare `…`', () => {
+  const row = (dir: string, branch: string) =>
+    ({ left: [{ icon: 'folder', label: 'Directory', value: dir }, { icon: 'branch', label: 'Branch', value: branch, branch, ahead: 2, changes: 3 }], right: [] }) as never
+  const texts = (d: { source: string }) => [...d.source.matchAll(/<text[^>]*>([^<]*)</g)].map(m => m[1]!)
+  for (const dir of ['プロジェクト管理ツール', 'claude-skins', '项目'])
+    for (const branch of ['feature/very-long-branch-name-here', 'main'])
+      for (const W of [96, 120, 144, 176, 240, 400]) {
+        const d = infoSvg(row(dir, branch), W)!
+        const t = texts(d)
+        // Nothing is cut to the ellipsis alone, and the branch always shows, at least six characters.
+        expect([W, dir, t.filter(s => s === '…')]).toEqual([W, dir, []])
+        const b = t.find(s => branch.startsWith(s.replace(/…$/, '')) && s.length > 1)
+        expect([W, dir, branch, Boolean(b && b.replace(/…$/, '').length >= Math.min(6, branch.length))]).toEqual([W, dir, branch, true])
+        // A name short enough is never given an ellipsis it does not need.
+        if (branch === 'main') expect(t).not.toContain('main…')
+        // The folder, when it shows, keeps at least three characters; when it is gone, the alt says so.
+        const f = t.find(s => s !== b && !/^[↑↓±]/.test(s))
+        if (f) expect(f.replace(/…$/, '').length).toBeGreaterThanOrEqual(Math.min(3, dir.length))
+        expect(d.alt.includes('Directory')).toBe(Boolean(f))
+      }
+  // The sync counts give way before the folder is cut: a short folder and branch keep both once the counts go.
+  const tight = texts(infoSvg(row('项目', 'main'), 150)!)
+  expect(tight).toEqual(['项目', 'main'])
+  expect(texts(infoSvg(row('项目', 'main'), 400)!)).toEqual(['项目', 'main', '↑2', '±3'])
+})
+
 test('only Clawd and the context draw a sprite, each within the row', () => {
   for (const kind of ['tasks', 'context'] as const) {
     const { width, height } = spriteSize(kind)
@@ -598,18 +624,21 @@ test('the info card: the project, a branch tag with its sync, then the user and 
 
 test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
   const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [] } as const
-  expect(rowTexts(infoSvg(row, 96)!.source)[1]).toEqual(['c-session', 'abcdef…'])
+  // At 96 px the folder has already given way; the branch alone is then cut.
+  expect(rowTexts(infoSvg(row, 96)!.source)).toEqual([['c-session', 'abcdef…']])
   expect(rowTexts(infoSvg({ left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }] }, 900)!.source)).toEqual([['m', 'v24.1.0']])
 })
 
-test('a narrow info card drops the user, then Node; then the names are cut', () => {
+test('a narrow info card drops the user, then Node, then the sync counts; then the folder gives way to the branch', () => {
   const at = (W: number) => rowTexts(infoSvg(ROW, W)!.source).map(t => t[1]!)
   expect(at(900)).toContain('Panupat')
   const noUser = [400, 380, 360, 340, 320].map(at).find(t => !t.includes('Panupat'))!
   expect(noUser).toContain('v24.21.0')
   const tiny = at(240)
-  expect(tiny.some(t => t.endsWith('…'))).toBe(true)
   expect(tiny).not.toContain('v24.21.0')
+  expect(tiny).not.toContain('↑2')
+  expect(tiny).toContain('sabai-2.4')
+  expect(at(150)).toEqual(['sabai-2.4'])
 })
 
 test('hidden or unread parts leave no gap; a plain branch chip draws its value', () => {
