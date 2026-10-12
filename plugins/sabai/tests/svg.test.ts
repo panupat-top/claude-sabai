@@ -11,10 +11,9 @@ const LIST = [
   { kind: 'session', label: '5H Limit', percent: 7, resetsInMs: 2 * 3600_000 },
   { kind: 'week', label: '7D All', percent: 3, resetsInMs: 3 * 86_400_000 },
 ] as const
-const NONE = { left: [], right: [] }
 
 test('the tasks row escapes its title and stays under the engine limits', () => {
-  const d = bandSvg({ done: 3, total: 4, title: 'Fix <b> & "quotes"' }, NONE, [], 1600)
+  const d = bandSvg({ done: 3, total: 4, title: 'Fix <b> & "quotes"' }, [], 1600)
   expect(d?.source).toContain('Fix &lt;b&gt; &amp; &quot;quotes&quot;')
   expect(d?.source).toContain('>3/4<')
   expect(d?.source).toContain('>75%<')
@@ -25,21 +24,21 @@ test('the tasks row escapes its title and stays under the engine limits', () => 
 
 test('Clawd walks while the turn works and waits otherwise, in his clay on either look', () => {
   const mode = (src = '') => src.match(/shape-rendering="crispEdges" class="(\w+)"/)?.[1]
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'working' })?.source)).toBe('run')
-  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600)?.source)).toBe('idle')
-  const raised = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'idle', skin: 'raised' })?.source
+  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, [], 600, { mood: 'working' })?.source)).toBe('run')
+  expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, [], 600)?.source)).toBe('idle')
+  const raised = bandSvg({ done: 0, total: 2, title: 'a' }, [], 600, { mood: 'idle', skin: 'raised' })?.source
   expect(raised).toContain('@keyframes wink{91%,96%{fill:#D97757}}')
   expect(spriteSize('tasks')).toEqual({ width: 24, height: 16 })
 })
 
 test('cards run side by side when wide, two or one when narrow, 8px apart', () => {
-  expect(bandSvg(undefined, NONE, LIST, 900)?.height).toBe(44)
-  expect(bandSvg(undefined, NONE, LIST, 500)?.height).toBe(2 * 44 + 8)
-  expect(bandSvg(undefined, NONE, LIST, 360)?.height).toBe(3 * 44 + 2 * 8)
-  expect(bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 900)?.height).toBe(20 + 8 + 44)
-  const wide = bandSvg(undefined, NONE, LIST, 900)
+  expect(bandSvg(undefined, LIST, 900)?.height).toBe(44)
+  expect(bandSvg(undefined, LIST, 500)?.height).toBe(2 * 44 + 8)
+  expect(bandSvg(undefined, LIST, 360)?.height).toBe(3 * 44 + 2 * 8)
+  expect(bandSvg({ done: 1, total: 2, title: 'a' }, LIST, 900)?.height).toBe(20 + 8 + 44)
+  const wide = bandSvg(undefined, LIST, 900)
   expect(wide?.source.match(/class="p"/g)?.length).toBe(3)
-  expect(bandSvg(undefined, NONE, LIST.slice(0, 2), 900)?.source).toContain('width="446"')
+  expect(bandSvg(undefined, LIST.slice(0, 2), 900)?.source).toContain('width="446"')
   for (const id of ['context', 'session', 'week']) expect(wide?.source).toContain(`id="sabai-${id}"`)
   expect(wide?.source).toContain('7D ALL')
   expect(wide?.source.match(/shape-rendering="crispEdges"/g)?.length).toBe(1)
@@ -49,10 +48,10 @@ test('cards run side by side when wide, two or one when narrow, 8px apart', () =
 })
 
 test('nothing to draw draws nothing', () => {
-  expect(bandSvg(undefined, NONE, [], 900)).toBeUndefined()
+  expect(bandSvg(undefined, [], 900)).toBeUndefined()
 })
 
-test('the info row comes first: marks and values, left group from the left, node at the right edge', () => {
+test('the info card escapes its words; the user gives way first when room is short', () => {
   const info = {
     left: [
       { icon: 'folder', label: 'Directory', value: 'claude-skins' },
@@ -61,18 +60,14 @@ test('the info row comes first: marks and values, left group from the left, node
     ],
     right: [{ icon: 'node', label: 'Node', value: 'v24.1.0' }],
   } as const
-  const d = bandSvg({ done: 1, total: 2, title: 'a' }, info, LIST, 900)
-  expect(d?.height).toBe(22 + 8 + 20 + 8 + 44)
-  expect(d?.alt).toContain('Directory claude-skins, Git user Panupat <dev>, Branch main ±2, Node v24.1.0; a: 1/2 tasks, 50%; Context')
-  expect(d?.source).toContain('Panupat &lt;dev&gt;')
-  expect(d?.source).toContain('<g transform="translate(0,30)">')
-  // Node, last at the right, ends at the right edge; the git user comes before it.
-  const node = d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>v24\.1\.0</)
-  expect(Math.abs(Number(node?.[1]) + monoWidth('v24.1.0', 10.5) - 900)).toBeLessThan(1)
-  expect(Number(d?.source.match(/<text class="sm" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)?.[1])).toBeLessThan(Number(node?.[1]))
+  const d = infoSvg(info, 900)!
+  expect(d.alt).toBe('Directory claude-skins, Git user Panupat <dev>, Branch main ±2, Node v24.1.0')
+  expect(d.source).toContain('Panupat &lt;dev&gt;')
+  // The user comes before Node, both after the branch.
+  expect(Number(d.source.match(/<text class="m" x="([\d.]+)"[^>]*>Panupat &lt;dev&gt;</)?.[1])).toBeLessThan(Number(d.source.match(/<text class="m" x="([\d.]+)"[^>]*>v24\.1\.0</)?.[1]))
   // Too narrow: the user gives way first; the folder and branch stay, cut if they must.
-  expect(bandSvg(undefined, info, [], 260)?.alt).not.toContain('Git user')
-  expect(bandSvg(undefined, info, [], 260)?.alt).toContain('Directory claude-skins')
+  expect(infoSvg(info, 276)!.alt).not.toContain('Git user')
+  expect(infoSvg(info, 276)!.alt).toContain('Directory claude-skins')
 })
 
 test('only Clawd and the context draw a sprite, each within the row', () => {
@@ -94,11 +89,11 @@ test('every text colour reads at 4.5:1 on its card, in light and dark', () => {
 })
 
 test('figures take their meter colour, then the warning ones', () => {
-  expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
+  expect(bandSvg(undefined, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
 test('the raised look colours the cards but draws no background or inset, as flat does', () => {
-  const themed = bandSvg(undefined, NONE, LIST, 900, { mood: 'idle', skin: 'raised' })
+  const themed = bandSvg(undefined, LIST, 900, { mood: 'idle', skin: 'raised' })
   expect(themed?.height).toBe(44)
   expect(themed?.source).toContain('.p{fill:#ffffff}')
   expect(themed?.source).toContain('.p{fill:#2d2d2b}')
@@ -108,7 +103,7 @@ test('the raised look colours the cards but draws no background or inset, as fla
 
 test('bars draw as dither, pixel blocks or a solid fill', () => {
   const draw = (style: 'dither' | 'blocks' | 'solid') =>
-    bandSvg({ done: 1, total: 2, title: 'a' }, NONE, LIST, 800, { mood: 'idle', skin: 'auto', style: style })?.source ?? ''
+    bandSvg({ done: 1, total: 2, title: 'a' }, LIST, 800, { mood: 'idle', skin: 'auto', style: style })?.source ?? ''
   expect(draw('dither')).toMatch(/class="d[0-3]"/)
   const blocks = draw('blocks')
   expect(blocks).not.toMatch(/class="d[0-3]"/)
@@ -124,48 +119,48 @@ const crewRun = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
 
 test('the crew row walks one Clawd per running agent, names the latest, and counts the rest', () => {
   const runs = [crewRun('a', { status: 'done', endedAt: 5000 }), crewRun('b', { tasks: [{ id: '1', subject: 'Read', activeForm: 'Reading', status: 'in_progress' }, { id: '2', subject: 'x', status: 'pending' }] })]
-  const d = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 37_000 } })
+  const d = bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 37_000 } })
   expect(d?.source).toContain('>job b<')
   expect(d?.source).toContain('0/2 · Reading')
   expect(d?.source.match(/class="run"/g)?.length).toBe(1)
   expect(d?.alt).toBe('Agents: 1 running, 1 done; job b')
-  const many = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: Array.from({ length: 7 }, (_, i) => crewRun(String(i))), now: 1000 } })
+  const many = bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: Array.from({ length: 7 }, (_, i) => crewRun(String(i))), now: 1000 } })
   expect(many?.source.match(/class="run"/g)?.length).toBe(5)
   expect(many?.source).toContain('>+2<')
   expect(many?.source.length).toBeLessThan(131_072)
-  const idle = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'done', endedAt: 2 })], now: 9000 } })
+  const idle = bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'done', endedAt: 2 })], now: 9000 } })
   expect(idle?.source).toContain('>All 2 done<')
   expect(idle?.source).not.toContain('class="run"')
-  const mixed = bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'failed', endedAt: 2 })], now: 9000 } })
+  const mixed = bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('a', { status: 'done', endedAt: 1 }), crewRun('b', { status: 'failed', endedAt: 2 })], now: 9000 } })
   expect(mixed?.source).toContain('>1 done · 1 failed<')
   expect(mixed?.alt).toBe('Agents: 1 done, 1 failed; 1 done · 1 failed')
   expect(mixed?.source.match(/>1<\/text>/g)?.length).toBe(2)
-  expect(bandSvg(undefined, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [], now: 0 } })).toBeUndefined()
+  expect(bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [], now: 0 } })).toBeUndefined()
 })
 
 test('a dithered band stays inside the engine limits at any width, its dots widening instead of multiplying', () => {
   const list = [{ kind: 'context', label: 'Context', percent: 60, amount: '1k / 1M' }] as const
   for (const W of [800, 2400, 4096]) {
-    const d = bandSvg({ done: 3, total: 5, title: 't' }, NONE, list, W, { mood: 'working', skin: 'auto', style: 'dither' })
+    const d = bandSvg({ done: 3, total: 5, title: 't' }, list, W, { mood: 'working', skin: 'auto', style: 'dither' })
     expect([W, (d?.source.length ?? 0) < 70_000]).toEqual([W, true])
   }
   // Many tasks still draw at most a dozen tick marks.
-  const many = bandSvg({ done: 1, total: 120, title: 't' }, NONE, [], 800, { mood: 'idle', skin: 'auto', style: 'dither' })?.source ?? ''
+  const many = bandSvg({ done: 1, total: 120, title: 't' }, [], 800, { mood: 'idle', skin: 'auto', style: 'dither' })?.source ?? ''
   expect((many.match(/width="1.5" height="6"/g) ?? []).length).toBeLessThanOrEqual(12)
 })
 
 test('a title of emoji is cut on whole characters, never mid-pair', () => {
-  const d = bandSvg({ done: 0, total: 1, title: '🚀'.repeat(60) }, NONE, [], 300)?.source ?? ''
+  const d = bandSvg({ done: 0, total: 1, title: '🚀'.repeat(60) }, [], 300)?.source ?? ''
   const run = crewRun('x', { description: '🚀'.repeat(60), tasks: [{ id: '1', subject: '🚀'.repeat(60), status: 'in_progress' }] })
-  const crew = bandSvg(undefined, NONE, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [run], now: 1 } })?.source ?? ''
+  const crew = bandSvg(undefined, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [run], now: 1 } })?.source ?? ''
   for (const s of [d, crew]) expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)).toBe(false)
 })
 
 test('text the band draws on the bare surface follows the OS, whatever the skin; auto defines every meter class', () => {
   for (const skin of ['auto', 'raised']) {
-    const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, NONE, [], 600, { mood: 'idle', skin: skin })?.source ?? ''
+    const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, [], 600, { mood: 'idle', skin: skin })?.source ?? ''
     expect([skin, d.includes('<text class="st"'), d.includes('.st{fill:#1f1f1f}'), d.includes('prefers-color-scheme: dark){.st')]).toEqual([skin, true, true, true])
-    const crew = bandSvg(undefined, NONE, [], 600, { mood: 'idle', skin: skin, style: 'dither', crew: { runs: [crewRun('a')], now: 1 } })?.source ?? ''
+    const crew = bandSvg(undefined, [], 600, { mood: 'idle', skin: skin, style: 'dither', crew: { runs: [crewRun('a')], now: 1 } })?.source ?? ''
     expect(crew).toContain('<text class="st"')
   }
   expect(lookOf('auto').css).toContain('.c-tasks{')
@@ -173,7 +168,7 @@ test('text the band draws on the bare surface follows the OS, whatever the skin;
 
 test('on a narrow band the crew walks fewer Clawds and drops words it has no room for, never overlapping the counts', () => {
   const runs = [...Array.from({ length: 5 }, (_, i) => crewRun(String(i))), crewRun('f', { status: 'failed', endedAt: 1 })]
-  const d = bandSvg(undefined, NONE, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 1000 } })?.source ?? ''
+  const d = bandSvg(undefined, [], 330, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs, now: 1000 } })?.source ?? ''
   expect((d.match(/class="run"/g) ?? []).length).toBeLessThan(5)
   const titleX = Number(d.match(/<text class="st" x="([\d.]+)"[^>]*font-size="12.5"/)?.[1] ?? 0)
   const firstCount = Math.min(...[...d.matchAll(/<text class="st" x="([\d.]+)"[^>]*font-size="11.5"/g)].map(m => Number(m[1])))
@@ -276,24 +271,24 @@ test('an Important callout’s title is the colour of its border', () => {
   expect(CALLOUT_KINDS.important.ink[0]).not.toBe('#8250df')
 })
 
-test('Clawd sits in the tasks row when there is one, else at the left of the info row', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Folder', value: 'work' }], right: [], show: true }
+test('Clawd sits in the tasks row when there is one, else at the left of the info card', () => {
+  const info = { left: [{ icon: 'folder' as const, label: 'Folder', value: 'work' }], right: [] }
   const p = { title: 'Doing a', done: 1, total: 2 }
-  const withTasks = bandSvg(p, info, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })!
+  const withTasks = bandSvg(p, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })!
   expect(withTasks.source.match(/class="dizzy"/g)?.length).toBe(1)
   expect(withTasks.alt).toContain('Clawd is sad')
-  const noTasks = bandSvg(undefined, info, [], 600, { mood: 'sleeping', skin: 'auto', style: 'dither' })!
+  const noTasks = infoSvg(info, 600, { clawd: { mood: 'sleeping' } })!
   expect(noTasks.source.match(/class="sleep"/g)?.length).toBe(1)
   expect(noTasks.alt).toContain('Clawd is sleeping')
   // The folder moves right of Clawd.
-  expect(noTasks.source).toMatch(/<path class="sm" transform="translate\((3[2-9]|[4-9]\d)/)
-  // Idle and working say nothing extra; an info row turned off has no Clawd.
-  expect(bandSvg(undefined, info, [], 600, { mood: 'idle', skin: 'auto', style: 'dither' })!.alt).not.toContain('Clawd')
-  expect(bandSvg(undefined, { left: [], right: [], show: false }, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })).toBeUndefined()
-  // An info row with no chips still holds Clawd.
-  expect(bandSvg(undefined, { left: [], right: [], show: true }, [], 600, { mood: 'sweating', skin: 'auto', style: 'dither' })!.source).toContain('class="sweat"')
+  expect(noTasks.source).toMatch(/<path class="m" transform="translate\((3[2-9]|[4-9]\d)/)
+  // Idle says nothing extra; with no rows the band draws nothing, Clawd stands in the info card.
+  expect(infoSvg(info, 600, { clawd: { mood: 'idle' } })!.alt).not.toContain('Clawd')
+  expect(bandSvg(undefined, [], 600, { mood: 'sad', skin: 'auto', style: 'dither' })).toBeUndefined()
+  // An info card with no chips still holds Clawd.
+  expect(infoSvg({ left: [], right: [] }, 600, { clawd: { mood: 'sweating' } })!.source).toContain('class="sweat"')
   // Celebrating hops with confetti.
-  expect(bandSvg(undefined, info, [], 600, { mood: 'celebrating', skin: 'auto', style: 'dither' })!.source).toContain('class="cf"')
+  expect(infoSvg(info, 600, { clawd: { mood: 'celebrating' } })!.source).toContain('class="cf"')
 })
 
 test('a receipt is one minimal line: its icon, a headline and muted parts, fixed in size', () => {
@@ -309,9 +304,8 @@ test('a receipt is one minimal line: its icon, a headline and muted parts, fixed
 })
 
 test('compact density draws the usage cards on one line and the band at least 35% shorter', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
-  const roomy = bandSvg(undefined, info, LIST, 900, {})!
-  const tight = bandSvg(undefined, info, LIST, 900, { density: 'compact' })!
+  const roomy = bandSvg(undefined, LIST, 900, {})!
+  const tight = bandSvg(undefined, LIST, 900, { density: 'compact' })!
   expect(tight.height).toBeLessThanOrEqual(Math.floor(roomy.height * 0.65))
   // The reset countdown still shows on a wide band.
   expect(tight.source).toContain('↻')
@@ -319,38 +313,35 @@ test('compact density draws the usage cards on one line and the band at least 35
 })
 
 test('the live strip shows the turn’s time, step and tallies, and takes Clawd when there are no tasks', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 2, commands: 5, test: { passed: 178, failed: 0 } }
-  const d = bandSvg(undefined, info, [], 800, { mood: 'working', live })!
+  const d = bandSvg(undefined, [], 800, { mood: 'working', live })!
   expect(d.alt).toContain('Working 1m 42s: Editing svg.ts; 2 files, 5 commands, 178 passed')
   expect(d.source.match(/class="run"/g)?.length).toBe(1)
   // With a tasks row, Clawd stays there.
-  const withTasks = bandSvg({ title: 't', done: 1, total: 2 }, info, [], 800, { mood: 'working', live })!
+  const withTasks = bandSvg({ title: 't', done: 1, total: 2 }, [], 800, { mood: 'working', live })!
   expect(withTasks.source.match(/class="run"/g)?.length).toBe(1)
   expect(withTasks.alt).toContain('Working 1m 42s')
 })
 
 test('on the narrowest band the live strip keeps the step and lets the tallies go', () => {
-  const info = { left: [], right: [{ icon: 'node' as const, label: 'Node', value: 'v24.21.0' }], show: true }
   const live = { elapsedMs: 31_000, step: { icon: 'terminal' as const, title: 'Wait eight seconds so the live strip can be seen' }, files: 0, commands: 2, test: { passed: 200, failed: 0 } }
-  const d = bandSvg(undefined, info, [], 200, { mood: 'working', live })!
+  const d = bandSvg(undefined, [], 200, { mood: 'working', live })!
   expect(d.source).toContain('› Wait eight')
   // Wide enough, both show.
-  expect(bandSvg(undefined, info, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
+  expect(bandSvg(undefined, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
 })
 
 test('the comfortable band puts Clawd large in his own panel, with his mood and the turn’s time', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, files: 0, commands: 0 }
-  const d = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live })!
+  const d = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live })!
   expect(d.source).toMatch(/scale\(3\)/)
   expect(d.source).toContain('>working<')
   expect(d.source).toContain('>1m 42s<')
   expect(d.alt.startsWith('Clawd: working, 1m 42s')).toBe(true)
   // Under 480 px, or compact, or Clawd hidden: not this layout.
-  expect(bandSvg(undefined, info, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
-  expect(bandSvg(undefined, info, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
-  expect(bandSvg(undefined, info, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
 })
 
 test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
@@ -377,35 +368,33 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
 })
 
 test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 0, commands: 0 }
   const race = { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], state: 'running' }] }
-  const hero = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'working', live, race: race as never, clawdLine: 'on it' })!
+  const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live, race: race as never, clawdLine: 'on it' })!
   expect(hero.source).toContain('>on it<')
   expect(hero.source).not.toMatch(/undefined|NaN|\d+:\d\d</)
   expect(hero.alt).not.toMatch(/undefined|NaN/)
-  const strip = bandSvg(undefined, info, LIST, 600, { hero: true, mood: 'working', live })!
+  const strip = bandSvg(undefined, LIST, 600, { hero: true, mood: 'working', live })!
   expect(strip.source).toContain('Editing svg.ts')
   expect(strip.source + strip.alt).not.toMatch(/undefined|NaN/)
 })
 
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
   const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], doing: 'edit', state: 'running' }] }
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
-  const wide = bandSvg(undefined, info, LIST, 900, opts)!
+  const wide = bandSvg(undefined, LIST, 900, opts)!
   expect(wide.alt).toContain('Race: 1 running')
   expect(wide.alt).not.toContain('Working 1m 42s:')
   expect(wide.alt).not.toContain('Agents:')
-  const mid = bandSvg(undefined, info, LIST, 600, opts)!
+  const mid = bandSvg(undefined, LIST, 600, opts)!
   expect(mid.alt).not.toContain('Race:')
   expect(mid.alt).toContain('Working 1m 42s: Editing svg.ts')
   expect(mid.alt).toContain('Agents:')
-  expect(bandSvg(undefined, info, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
+  expect(bandSvg(undefined, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
   // Clawd hidden: no panel, the race stays.
-  const noClawd = bandSvg(undefined, info, LIST, 900, { ...opts, clawd: false })!
+  const noClawd = bandSvg(undefined, LIST, 900, { ...opts, clawd: false })!
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
   expect(noClawd.alt).toContain('Race: 1 running')
 })
@@ -450,7 +439,6 @@ test('Main thinking between calls keeps its full lane, so the box does not shrin
 })
 
 test('in the comfortable band the race box’s words take the card’s ink', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
   const race = {
     running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
     lanes: [
@@ -458,19 +446,18 @@ test('in the comfortable band the race box’s words take the card’s ink', () 
       { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, count: 0, calls: [], state: 'finished' },
     ],
   }
-  const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'raised', race: race as never })!.source
+  const source = bandSvg(undefined, LIST, 900, { hero: true, skin: 'raised', race: race as never })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
   expect(middle).toContain('class="usage"')
 })
 
 test('the Clawd panel shows his headline and why, the failing count in alert ink', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
-  const sad = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'sad', clawdLine: '2 failed' })!
+  const sad = bandSvg(undefined, LIST, 900, { hero: true, mood: 'sad', clawdLine: '2 failed' })!
   expect(sad.source).toContain('>tests failing<')
   expect(sad.source).toMatch(/class="c-alert"[^>]*>2 failed</)
   expect(sad.alt.startsWith('Clawd: tests failing, 2 failed')).toBe(true)
-  const idle = bandSvg(undefined, info, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
+  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
   expect(idle.source).toContain('>ready<')
   expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
 })
@@ -480,7 +467,6 @@ const USAGE_LIST = [
   { kind: 'session', label: '5H Limit', percent: 27, resetsInMs: 1_140_000 },
   { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
 ] as const
-const INFO = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'w' }], right: [], show: true }
 const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', count: 0, calls: [], state: 'running' })) }
 // Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
 function usageTexts(source: string, x0: number) {
@@ -495,14 +481,14 @@ function usageTexts(source: string, x0: number) {
 for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
   test(`usage style ${style}: fills the height, colours the percent by level, and keeps its words inside at 760 px with the race`, () => {
     const now = new Date('2026-10-11T13:00:00').getTime()
-    const idle = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now })!
-    const working = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now, race: RACE4 as never })!
+    const idle = bandSvg(undefined, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now })!
+    const working = bandSvg(undefined, USAGE_LIST as never, 900, { hero: true, usageStyle: style, now, race: RACE4 as never })!
     expect(Number(working.source.match(/height="(\d+)"/)![1])).toBeGreaterThan(Number(idle.source.match(/height="(\d+)"/)![1]))
     expect(idle.source).toMatch(/class="c-warn"[^>]*>74%</)
     const group = idle.source.slice(idle.source.indexOf('<g class="usage"'), idle.source.indexOf('</g><!--usage-->'))
     expect(group).not.toMatch(/class="(st|sm)"/)
     expect(working.alt).toMatch(/Context [^;]*74%/)
-    const narrow = bandSvg(undefined, INFO, USAGE_LIST as never, 760, { hero: true, usageStyle: style, now, race: RACE4 as never })!.source
+    const narrow = bandSvg(undefined, USAGE_LIST as never, 760, { hero: true, usageStyle: style, now, race: RACE4 as never })!.source
     const left = 116, right = 760 - 300 - 8
     // The percent is never cut, however narrow the cell.
     for (const pct of ['>74%<', '>27%<', '>18%<']) expect([style, pct, narrow.includes(pct)]).toEqual([style, pct, true])
@@ -514,10 +500,10 @@ for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) 
 
 test('the usage gets its floor with Clawd hidden and no race, and no part without limits', () => {
   // Review Focus 2.
-  const d = bandSvg(undefined, INFO, USAGE_LIST as never, 900, { hero: true, clawd: false, usageStyle: 'tiles' })!
-  expect(Number(d.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(28 + 50)
+  const d = bandSvg(undefined, USAGE_LIST as never, 900, { hero: true, clawd: false, usageStyle: 'tiles' })!
+  expect(Number(d.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(50)
   expect(d.source).not.toMatch(/height="(0|-)/)
-  expect(bandSvg(undefined, INFO, [], 900, { hero: true, usageStyle: 'tiles' })!.source).not.toContain('class="usage"')
+  expect(bandSvg(undefined, [], 900, { hero: true, usageStyle: 'tiles' })!.source).not.toContain('class="usage"')
 })
 
 // Every usage text as a box: [x0, x1, top, baseline], in the usage group's coordinates.
@@ -536,12 +522,11 @@ for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) 
     const now = new Date('2026-10-11T13:00:00').getTime()
     const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
     const tasks = { title: 'Ship it', done: 1, total: 3 }
-    // Clawd shown: about 56 px of usage in 107 px cells; Clawd hidden: about 50 px.
+    // The usage takes what the tasks row leaves, in 107 px cells beside the race.
     for (const clawd of [true, false]) {
-      const d = bandSvg(tasks, INFO, USAGE_LIST as never, 760, { hero: true, clawd, usageStyle: style, now, race: race1 as never })!
+      const d = bandSvg(tasks, USAGE_LIST as never, 760, { hero: true, clawd, usageStyle: style, now, race: race1 as never })!
       const top = Number(d.source.match(/<g class="usage" transform="translate\(0,(\d+)\)"/)![1])
       const h = Number(d.source.match(/height="(\d+)"/)![1]) - top
-      expect([style, clawd, h < 80]).toEqual([style, clawd, true])
       const boxes = usageBoxes(d.source)
       for (const t of boxes) expect([style, clawd, t.text, t.top >= 0 && t.y <= h]).toEqual([style, clawd, t.text, true])
       for (const [i, p] of boxes.entries())
@@ -567,92 +552,79 @@ const ROW = {
     { icon: 'git', label: 'Git user', value: 'Panupat' },
     { icon: 'branch', label: 'Branch', value: 'sabai-2.4 ↑2 ↓1 ±3', branch: 'sabai-2.4', ahead: 2, behind: 1, changes: 3 },
   ],
-  right: [{ icon: 'shield', label: 'Turned on:', value: 'guard · 7' }, { icon: 'node', label: 'Node', value: 'v24.21.0' }],
-  show: true,
+  right: [{ icon: 'node', label: 'Node', value: 'v24.21.0' }],
 } as const
-// The info row's texts in order, from the first drawn part of the band.
+// The info card's texts in order.
 const infoRow = (source: string) => source.slice(source.indexOf('<g class="info">'), source.indexOf('</g><!--info-->'))
 const rowTexts = (source: string) => [...infoRow(source).matchAll(/<text class="([^"]+)"[^>]*>([^<]*)</g)].map(m => [m[1], m[2]])
+// Each text's [left, right] in the card's own coordinates.
+const textBoxes = (source: string) =>
+  [...infoRow(source).matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
+    const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
+    return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
+  })
 
-test('the info row: the project, a branch tag with its sync, then guard, the user and Node in muted ink', () => {
-  const d = bandSvg(undefined, ROW, [], 900, { hero: true, clawd: false })!
+test('the info card: the project, a branch tag with its sync, then the user and Node in muted ink', () => {
+  const d = infoSvg(ROW, 900)!
   expect(rowTexts(d.source)).toEqual([
-    ['st', 'claude-skins'], ['s-session', 'sabai-2.4'], ['s-ok', '↑2'], ['s-context', '↓1'], ['s-warn', '±3'],
-    ['sm', 'guard 7'], ['sm', 'Panupat'], ['sm', 'v24.21.0'],
+    ['t', 'claude-skins'], ['c-session', 'sabai-2.4'], ['c-ok', '↑2'], ['c-context', '↓1'], ['c-warn', '±3'],
+    ['m', 'Panupat'], ['m', 'v24.21.0'],
   ])
   // The tag's words sit 8 px from either end.
   expect(infoRow(d.source)).toContain('width="92.4"')
-  // Marks at the right take the muted ink; no chip cards.
-  expect(infoRow(d.source)).not.toContain('<rect class="p"')
-  expect(d.alt).toContain('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Turned on: guard · 7, Node v24.21.0')
+  expect(d.alt).toBe('Directory claude-skins, Git user Panupat, Branch sabai-2.4 ↑2 ↓1 ±3, Node v24.21.0')
 })
 
 test('a cut branch keeps six characters; a Node version without its v reads like one with it', () => {
-  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [], show: true } as const
-  expect(rowTexts(bandSvg(undefined, row, [], 80, { clawd: false })!.source)[1]).toEqual(['s-session', 'abcdef…'])
-  expect(rowTexts(bandSvg(undefined, { left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }], show: true } as const, [], 900, { hero: true, clawd: false })!.source)).toEqual([['sm', 'v24.1.0']])
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: 'x', branch: 'abcdefghijklmnop' }], right: [] } as const
+  expect(rowTexts(infoSvg(row, 96)!.source)[1]).toEqual(['c-session', 'abcdef…'])
+  expect(rowTexts(infoSvg({ left: [], right: [{ icon: 'node', label: 'Node', value: '24.1.0' }] }, 900)!.source)).toEqual([['m', 'v24.1.0']])
 })
 
-test('a narrow info row drops the user, then Node; the guard stays; at 240 px the names are cut', () => {
-  const at = (W: number) => rowTexts(bandSvg(undefined, ROW, [], W, { hero: true, clawd: false })!.source).map(t => t[1]!)
-  expect(at(452)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'v24.21.0'])
-  expect(at(390)).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7'])
+test('a narrow info card drops the user, then Node; then the names are cut', () => {
+  const at = (W: number) => rowTexts(infoSvg(ROW, W)!.source).map(t => t[1]!)
+  expect(at(900)).toContain('Panupat')
+  const noUser = [400, 380, 360, 340, 320].map(at).find(t => !t.includes('Panupat'))!
+  expect(noUser).toContain('v24.21.0')
   const tiny = at(240)
   expect(tiny.some(t => t.endsWith('…'))).toBe(true)
   expect(tiny).not.toContain('v24.21.0')
-  expect(tiny).not.toContain('guard 7')
 })
 
-test('hidden or unread parts leave no gap; a plain branch chip draws its value; plain guard says guard', () => {
+test('hidden or unread parts leave no gap; a plain branch chip draws its value', () => {
   const noFolder = { ...ROW, left: ROW.left.slice(1) }
-  expect(rowTexts(bandSvg(undefined, noFolder, [], 900, { hero: true, clawd: false })!.source)[0]).toEqual(['s-session', 'sabai-2.4'])
+  expect(rowTexts(infoSvg(noFolder, 900)!.source)[0]).toEqual(['c-session', 'sabai-2.4'])
   const noBranch = { ...ROW, left: ROW.left.slice(0, 2) }
-  expect(rowTexts(bandSvg(undefined, noBranch, [], 900, { hero: true, clawd: false })!.source).map(t => t[0])).not.toContain('s-ok')
-  const plain = { left: [{ icon: 'branch', label: 'Branch', value: 'main ±2' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
-  expect(rowTexts(bandSvg(undefined, plain, [], 900, { hero: true, clawd: false })!.source)).toEqual([['s-session', 'main ±2'], ['sm', 'guard']])
+  expect(rowTexts(infoSvg(noBranch, 900)!.source).map(t => t[0])).not.toContain('c-ok')
+  const plain = { left: [{ icon: 'branch', label: 'Branch', value: 'main ±2' }], right: [] } as const
+  expect(rowTexts(infoSvg(plain, 900)!.source)).toEqual([['c-session', 'main ±2']])
   // Zero counts are not drawn.
-  const zero = { left: [{ icon: 'branch', label: 'Branch', value: 'main', branch: 'main', ahead: 0, behind: 0, changes: 0 }], right: [], show: true } as const
-  expect(rowTexts(bandSvg(undefined, zero, [], 900, { hero: true, clawd: false })!.source)).toEqual([['s-session', 'main']])
+  const zero = { left: [{ icon: 'branch', label: 'Branch', value: 'main', branch: 'main', ahead: 0, behind: 0, changes: 0 }], right: [] } as const
+  expect(rowTexts(infoSvg(zero, 900)!.source)).toEqual([['c-session', 'main']])
 })
 
-test('in the stacked band Clawd still leads the info row', () => {
-  const d = bandSvg(undefined, ROW, [], 400, { mood: 'idle' })!
-  const row = infoRow(d.source)
-  expect(row).toContain('crispEdges')
-  const name = row.match(/<text class="st" x="([\d.]+)"[^>]*>claude-skins</)
-  expect(Number(name![1])).toBeGreaterThan(24)
-})
-
-test('no two info-row texts overlap at any width', () => {
+test('no two info-card texts overlap, nor run past the card, at any width, with or without Clawd', () => {
   for (const W of [240, 320, 400, 480, 600, 760, 900, 1400]) {
-    for (const hero of [true, false]) {
-      const src = bandSvg(undefined, ROW, [], W, { hero, clawd: false })!.source
-      const row = infoRow(src)
-      const boxes = [...row.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].map(m => {
-        const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
-        return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
-      })
-      for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, hero, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, hero, false])
-      for (const [a, b] of boxes) expect([W, hero, a! >= -1 && b! <= W + 1]).toEqual([W, hero, true])
+    for (const clawd of [undefined, { mood: 'idle' as const }]) {
+      const boxes = textBoxes(infoSvg(ROW, W, clawd ? { clawd } : {})!.source)
+      for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, Boolean(clawd), p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, Boolean(clawd), false])
+      // The words sit 8 px into the card, so they end within W − 16.
+      for (const [a, b] of boxes) expect([W, Boolean(clawd), a! >= -1 && b! <= W - 16 + 1]).toEqual([W, Boolean(clawd), true])
     }
   }
 })
 
 test('the desktop top row packs every chip from the left on a card as wide as its room', () => {
   const d = infoSvg(ROW, 900)!
-  expect(rowTexts(d.source).map(t => t[1])).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', 'guard 7', 'Panupat', 'v24.21.0'])
-  // The guard follows the counts a gap apart, not from the right edge; Node ends well short of it.
+  // The user follows the counts a gap apart, not from the right edge; Node ends well short of it.
   const counts = d.source.match(/<text class="c-warn" x="([\d.]+)"/)!
-  // The folder's mark is the first muted path; the guard's shield the second. On the card they take its inks.
-  const guard = [...d.source.matchAll(/<path class="m" transform="translate\(([\d.]+),/g)][1]!
-  expect(Number(guard[1]) - (Number(counts[1]) + monoWidth('±3', 10.5) + 7)).toBe(8)
+  const user = d.source.match(/<text class="m" x="([\d.]+)"[^>]*>Panupat</)!
+  expect(Number(user[1])).toBeGreaterThan(Number(counts[1]) + monoWidth('±3', 10.5) + 7)
   const node = d.source.match(/<text class="m" x="([\d.]+)"[^>]*>v24\.21\.0</)!
   expect(Number(node[1]) + monoWidth('v24.21.0', 10.5)).toBeLessThan(600)
   // The card fills the room the buttons leave, the words 8 px inside it.
   expect(d.width).toBe(900)
   expect(d.source).toContain('<rect class="p" y="0" width="900" height="22" rx="6"/><g transform="translate(8,0)">')
-  // Short of room it drops from the right as the band's row does, and never draws past W.
-  expect(infoSvg(ROW, 390)!.alt).not.toContain('Git user')
   expect(infoSvg(ROW, 390)!.width).toBeLessThanOrEqual(390)
   // Clawd leads it when he stands here; with nothing to show and no Clawd there is no drawing.
   expect(infoSvg(ROW, 900, { clawd: { mood: 'idle' } })!.source).toContain('crispEdges')
@@ -678,70 +650,27 @@ test('a toolbar icon sits on a tile of the card, its Lucide shape and count in t
   expect(toolIconSvg('agents', '2', 'tasks').source).toContain('<rect width="16" height="12" x="4" y="8" rx="2"/>')
 })
 
-test('a long branch name is cut before it pushes the guard and Node off a wide row', () => {
-  const long = { ...ROW, left: [ROW.left[0], ROW.left[1], { icon: 'branch', label: 'Branch', value: 'x', branch: 'dependabot/npm_and_yarn/some-package-1.2.3-beta', ahead: 1 }] }
-  const texts = rowTexts(bandSvg(undefined, long as never, [], 900, { hero: true, clawd: false })!.source).map(t => t[1]!)
-  expect(texts).toContain('guard 7')
+test('a long branch name is cut before it pushes Node off a wide row', () => {
+  const long = { ...ROW, left: [ROW.left[0], ROW.left[1], { icon: 'branch', label: 'Branch', value: 'x', branch: 'dependabot/npm_and_yarn/some-package-1.2.3-beta', ahead: 1 }] } as const
+  const texts = rowTexts(infoSvg(long, 700)!.source).map(t => t[1]!)
   expect(texts).toContain('v24.21.0')
   expect(texts.find(t => t.startsWith('dependabot'))!.endsWith('…')).toBe(true)
 })
 
-test('at 760 px with the race, the hero keeps the project, the branch and the guard (as its shield and count); the user and Node give way', () => {
-  // Pins what the real layout keeps: the middle is 760 − 116 − 308 = 336 px.
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
-  const src = bandSvg(undefined, ROW, [], 760, { hero: true, race: race as never })!.source
-  const texts = rowTexts(src).map(t => t[1]!)
-  // The guard holds on as its shield and count when its words do not fit.
-  expect(texts).toEqual(['claude-skins', 'sabai-2.4', '↑2', '↓1', '±3', '7'])
-  expect(infoRow(src).match(/<path class="sm"/g)!.length).toBe(2)
-})
-
-test('no two info-row texts overlap with Clawd leading the stacked band or the race beside the hero', () => {
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
-  const cases: [number, object][] = [[300, { mood: 'idle' }], [400, { mood: 'idle' }], [470, { mood: 'idle' }], [760, { hero: true, race }], [820, { hero: true, race }], [900, { hero: true, race }]]
-  for (const [W, o] of cases) {
-    const src = bandSvg(undefined, ROW, [], W, o as never)!.source
-    const row = infoRow(src)
-    const boxes = [...row.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)].filter(m => m[3]!.indexOf('text-anchor="middle"') < 0).map(m => {
-      const x = Number(m[1]), w = monoWidth(m[4]!, Number(m[2]))
-      return m[3]!.includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
-    })
-    for (const [i, p] of boxes.entries()) for (const q of boxes.slice(i + 1)) expect([W, p[0]! < q[1]! && q[0]! < p[1]!]).toEqual([W, false])
-  }
-})
-
-test('when the guard cannot fit even as its shield, the branch name is not left cut for it', () => {
-  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release', ahead: 2, behind: 1, changes: 3 }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard · 7' }], show: true } as const
-  for (const W of [274, 280, 286, 292, 298]) {
-    const texts = rowTexts(bandSvg(undefined, row, [], W, { clawd: false })!.source)
-    // The guard is gone at these widths, so the branch has no reason to be cut.
-    expect([W, texts.some(t => t[0] === 'sm'), texts.find(t => t[0] === 's-session')![1]]).toEqual([W, false, 'release'])
-  }
-})
-
-test('a guard with nothing caught draws its shield alone, with no empty text', () => {
-  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'claude-skins' }, { icon: 'branch', label: 'Branch', value: 'release', branch: 'release' }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
-  // Below 240 px the branch, kept to six characters, leaves the shield no room.
-  for (const W of [240, 250, 270]) {
-    const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
-    expect([W, row2.match(/<path class="sm"/g)?.length]).toEqual([W, 2])
-    expect([W, /<text class="sm"[^>]*><\/text>/.test(row2)]).toEqual([W, false])
-  }
-})
-
-test('at 240 px nothing is drawn at the right of the info row', () => {
-  const texts = rowTexts(bandSvg(undefined, ROW, [], 240, { hero: true, clawd: false })!.source)
-  expect(texts.filter(t => t[0] === 'sm')).toEqual([])
+test('at 240 px nothing is drawn after the branch in the info card', () => {
+  const texts = rowTexts(infoSvg(ROW, 240)!.source)
+  expect(texts.filter(t => t[0] === 'm')).toEqual([])
 })
 
 test('an emoji branch is measured as it is cut, so the counts stay inside the row', () => {
   const branch = 'feat/' + '🚀'.repeat(25)
-  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: branch, branch, ahead: 2, changes: 3 }], right: [{ icon: 'shield', label: 'Turned on:', value: 'guard' }], show: true } as const
+  const row = { left: [{ icon: 'folder', label: 'Directory', value: 'w' }, { icon: 'branch', label: 'Branch', value: branch, branch, ahead: 2, changes: 3 }], right: [] } as const
   for (const W of [300, 417, 418, 419, 460]) {
-    const row2 = infoRow(bandSvg(undefined, row, [], W, { clawd: false })!.source)
+    const row2 = infoRow(infoSvg(row, W)!.source)
     for (const m of row2.matchAll(/<text[^>]*? x="([\d.]+)"[^>]*? font-size="([\d.]+)"([^>]*)>([^<]*)</g)) {
       const end = m[3]!.includes('text-anchor="end"') ? Number(m[1]) : Number(m[1]) + [...m[4]!].length * Number(m[2]) * 0.6
-      expect([W, m[4], end <= W + 1]).toEqual([W, m[4], true])
+      // The words sit 8 px into the card.
+      expect([W, m[4], end <= W - 16 + 1]).toEqual([W, m[4], true])
     }
   }
 })
@@ -749,8 +678,8 @@ test('an emoji branch is measured as it is cut, so the counts stay inside the ro
 test('cutting a long branch never splits a joined emoji', () => {
   const family = '👨‍👩‍👧‍👦'
   const branch = 'feat/' + family.repeat(25)
-  const row = { left: [{ icon: 'branch', label: 'Branch', value: branch, branch }], right: [], show: true } as const
-  const drawn = rowTexts(bandSvg(undefined, row, [], 900, { hero: true, clawd: false })!.source).find(t => t[0] === 's-session')![1]!
+  const row = { left: [{ icon: 'branch', label: 'Branch', value: branch, branch }], right: [] } as const
+  const drawn = rowTexts(infoSvg(row, 900)!.source).find(t => t[0] === 'c-session')![1]!
   expect(drawn.endsWith('…')).toBe(true)
   expect(drawn).not.toMatch(/‍…$/)
   expect(drawn.slice(5, -1).split(family).join('')).toBe('')
@@ -872,7 +801,7 @@ test('a lane built without its count is paced by the tiles it holds, never drawn
 
 test('a stacked ring with nothing beside its label leaves no dangling separator', () => {
   const list = [{ kind: 'context', label: 'Context', percent: 12 }, { kind: 'session', label: '5H Limit', percent: 30 }, { kind: 'week', label: '7D All', percent: 40 }] as never
-  expect(bandSvg(undefined, { left: [], right: [] }, list, 480, { hero: true, usageStyle: 'rings' })!.source).not.toContain(' · </text>')
+  expect(bandSvg(undefined, list, 480, { hero: true, usageStyle: 'rings' })!.source).not.toContain(' · </text>')
 })
 
 test('idle skin swatches and the still bar previews carry no motion stylesheet', () => {
@@ -884,7 +813,7 @@ test('idle skin swatches and the still bar previews carry no motion stylesheet',
 
 test('a ring at 0% draws its track and no dot', () => {
   const list = [{ kind: 'session', label: '5H Limit', percent: 0 }, { kind: 'week', label: '7D All', percent: 40 }] as never
-  const source = bandSvg(undefined, { left: [], right: [] }, list, 900, { hero: true, usageStyle: 'rings', clawd: false })!.source
+  const source = bandSvg(undefined, list, 900, { hero: true, usageStyle: 'rings', clawd: false })!.source
   expect(source.match(/stroke-dasharray/g)!.length).toBe(1)
   expect(source).not.toContain('stroke-dasharray="0 ')
 })
@@ -923,27 +852,24 @@ test('the band’s loops each last a second or less', () => {
 })
 
 test('the skeleton holds the loaded band’s height in every layout and style, and draws no number', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'work' }], right: [], show: true }
-  const pending = { left: [], right: [], show: true, pending: true }
+  expect(infoSvg({ left: [], right: [], pending: true }, 600)!.alt).toBe('Reading the project')
   const ghosts = LIST.map(({ kind, label }) => ({ kind, label, percent: 0, pending: true as const }))
   for (const W of [360, 600, 900, 1200])
     for (const density of ['comfortable', 'compact'] as const)
       for (const usageStyle of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
         const opts = { hero: true, density, usageStyle }
-        const loaded = bandSvg(undefined, info, LIST, W, opts)!
-        const skeleton = bandSvg(undefined, pending, ghosts, W, opts)!
+        const loaded = bandSvg(undefined, LIST, W, opts)!
+        const skeleton = bandSvg(undefined, ghosts, W, opts)!
         expect([W, density, usageStyle, skeleton.height]).toEqual([W, density, usageStyle, loaded.height])
         expect(skeleton.source).not.toMatch(/>\d+%</)
         expect(skeleton.source).toContain('>—<')
-        expect(skeleton.alt).toContain('Reading the project')
         expect(skeleton.alt).toContain('Context loading')
       }
 })
 
 test('a usage with nothing to show leaves a note in its place', () => {
-  const info = { left: [{ icon: 'folder' as const, label: 'Directory', value: 'work' }], right: [], show: true }
   for (const opts of [{ hero: true }, {}, { density: 'compact' as const }]) {
-    const d = bandSvg(undefined, info, [], 900, { ...opts, usageNote: 'No usage reading yet' })!
+    const d = bandSvg(undefined, [], 900, { ...opts, usageNote: 'No usage reading yet' })!
     expect(d.source).toContain('>No usage reading yet<')
     expect(d.alt).toContain('No usage reading yet')
   }

@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { blocks, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -73,12 +73,6 @@ test('countdowns read in minutes, hours or days', () => {
 
 test('levels warn at 70 and alert at 90', () => {
   expect([69, 70, 89, 90].map(p => level(p))).toEqual([undefined, 'warn', 'warn', 'alert'])
-})
-
-test('blocks fill in proportion and stay in range', () => {
-  expect(blocks(0.5, 4, '█', '░')).toBe('██░░')
-  expect(blocks(1.7, 4, '█', '░')).toBe('████')
-  expect(blocks(-1, 4, '█', '░')).toBe('░░░░')
 })
 
 test('info chips: directory, git user and branch on the left, node on the right', () => {

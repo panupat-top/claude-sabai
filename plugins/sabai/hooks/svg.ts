@@ -332,26 +332,22 @@ const fitMono = (s: string, size: number, maxW: number, min = 1) => {
 
 const INFO_H = 22
 const SKELETON_W = 180
-// The info row: the project, its branch as a tinted tag with the sync counts, then at the right
-// the guard, the git user and Node as small marks in the muted ink. Room runs out from the right:
-// the user goes first, then Node; the guard stays longest; then the branch and folder names are cut.
-// The row sits on the surface, so every word takes the surface's inks.
-// `packed` sets the right side straight after the branch instead of at the right edge: the
-// desktop's top row, with the guard and the buttons after it.
-function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }, packed = false): Part {
+// The info row: the project, its branch as a tinted tag with the sync counts, then the git user
+// and Node as small marks in the muted ink. Room runs out from the right: the user goes first,
+// then Node; then the branch and folder names are cut. Its words take the surface's inks, which
+// infoSvg turns into its card's.
+function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, W: number, y: number, look: Look, clawd?: { look: Look; mood: Mood; accessory?: Accessory; trick?: Trick }): Part {
   const all = [...info.left, ...info.right]
   const by = (k: IconKind) => all.find(c => c.icon === k)
   const folder = by('folder')
   const branch = by('branch')
   const user = by('git')
   const node = by('node')
-  const guard = by('shield')
   const mid = y + INFO_H / 2
   const lead = clawd ? clawdAt(clawd.look, 0, y + (INFO_H - spriteSize('tasks').height) / 2, clawd.mood, clawd.accessory, clawd.trick) : ''
   const x0 = clawd ? spriteSize('tasks').width + GAP : 0
   // The right side in its order, each with how long it stays when room is short.
   const items = [
-    guard && { k: 'shield' as const, v: guard.value.replace(' · ', ' '), keep: 3 },
     user && { k: 'git' as const, v: user.value, keep: 1 },
     node && { k: 'node' as const, v: node.value.replace(/^v?/, 'v'), keep: 2 },
   ].filter(Boolean) as { k: IconKind; v: string; keep: number }[]
@@ -365,7 +361,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
       : []
   const countsW = counts.reduce((n, c) => n + monoWidth(c.s, 10.5) + 7, 0)
   // A very long branch (a dependabot or feature path) is cut to 23 characters and `…` before it can
-  // push the guard and Node off an otherwise roomy row.
+  // push Node off an otherwise roomy row.
   const fullName = graphemes(branch ? (branch.branch ?? branch.value) : '')
   const name = fullName.length > 24 ? `${fullName.slice(0, 23).join('')}…` : fullName.join('')
   const tagW = (s: string) => 8 + 12 + 5 + monoWidth(s, 11) + 8
@@ -378,18 +374,6 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
   }
   let b = name
   let f = folder?.value ?? ''
-  // The guard is the band's only sign of it, so it holds on longest: as its shield and count alone,
-  // then by cutting the branch name (to six characters) to make room.
-  if (guard && !shown.length) {
-    shown = [{ k: 'shield', v: guard.value.match(/\d+/)?.[0] ?? '', keep: 3 }]
-    const room = W - rightW(shown) - 12 - (leftW(f, b) - tagW(b))
-    if (room < tagW(b)) b = fitMono(b, 11, room - tagW(''), 6)
-    // Even the shield does not fit: it goes, and the branch takes back what was cut for it.
-    if (leftW(f, b) + 12 > W - rightW(shown)) {
-      shown = []
-      b = name
-    }
-  }
   // Still too wide with nothing at the right: cut the branch (to six characters), then the folder.
   if (!shown.length && leftW(f, b) > W) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
   if (!shown.length && leftW(f, b) > W) f = fit(f, 14.5, Math.max(20, textWidth(f, 14.5) - (leftW(f, b) - W)))
@@ -416,7 +400,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
       x += monoWidth(c.s, 10.5) + 7
     }
   }
-  let rx = packed ? x + 8 : W - rightW(shown)
+  let rx = x + 8
   for (const i of shown) {
     body += icon(i.k, +rx.toFixed(1), mid - 6, 12, 'sm') + (i.v ? `<text class="sm" x="${+(rx + 17).toFixed(1)}" y="${mid + 4}" font-family="${MONO}" font-size="10.5">${xml(i.v)}</text>` : '')
     rx += itemW(i) + 16
@@ -633,7 +617,6 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
 export const HERO_MIN_W = 480
 const RACE_MIN_W = 760
 const HERO_PANEL_W = 108
-const ROW_GAP = 6
 // What Clawd's panel says under him for each mood.
 const MOOD_WORDS: Record<Mood, string> = { idle: 'ready', working: 'working', startled: 'blocked', sad: 'tests failing', celebrating: 'all green', sweating: 'context full', sleeping: 'napping' }
 
@@ -797,9 +780,9 @@ function notePart(text: string, x: number, y: number, w: number, h: number): Par
 }
 
 // The comfortable band: Clawd large in his own panel at the left, with his mood and the turn's
-// time under him; at the right the info row, then the live strip, tasks and crew when present,
-// then the usage limits as rows.
-function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean }, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
+// time under him; at the right the live strip, tasks and crew when present, then the usage
+// limits; from 760 px the race at the far right.
+function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
   const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', usageNote, now } = opts
   // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
   const race = W >= RACE_MIN_W ? opts.race : undefined
@@ -812,7 +795,6 @@ function heroBand(p: Progress | undefined, info: { left: readonly Chip[]; right:
     parts.push(part)
     y += part.height + GAP
   }
-  if (info.left.length + info.right.length > 0 || info.pending) add(infoPart(info, rw, y, look))
   if (live && !race) add(livePart(look, live, rw, y))
   if (p) add(progressPart(look, p, rw, mood, y, style, false))
   if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
@@ -900,17 +882,12 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
 }
 
 // The whole band as one drawing, so its own spacing (8px) holds rather than a row of the
-// surface's between two elements. Rows top to bottom: info row, tasks, usage cards.
-export function bandSvg(
-  p: Progress | undefined,
-  info: { left: readonly Chip[]; right: readonly Chip[]; show?: boolean; pending?: boolean },
-  list: readonly Meter[],
-  W: number,
-  opts: BandOpts = {},
-): Drawing | undefined {
+// surface's between two elements. Rows top to bottom: live strip, tasks, crew, usage cards.
+// The info row is a drawing of its own (infoSvg), in the top row above.
+export function bandSvg(p: Progress | undefined, list: readonly Meter[], W: number, opts: BandOpts = {}): Drawing | undefined {
   const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live, accessory } = opts
   const compact = opts.density === 'compact'
-  if (opts.hero && !compact && W >= HERO_MIN_W) return heroBand(p, info, list, W, opts)
+  if (opts.hero && !compact && W >= HERO_MIN_W) return heroBand(p, list, W, opts)
   const gap = compact ? 4 : GAP
   const look = lookOf(skin)
   const parts: Part[] = []
@@ -919,14 +896,11 @@ export function bandSvg(
     parts.push(part)
     y += part.height + gap
   }
-  // One Clawd: the tasks row holds him, else the live strip, else the info row.
+  // One Clawd: the tasks row holds him, else the live strip (else the top row's info card).
   const clawdInLive = !p && Boolean(live) && clawd
-  const clawdInInfo = !p && !live && Boolean(info.show) && clawd
   // A hat rises above Clawd: when he stands in the first row, the band starts lower to show it.
   const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
-  const firstHoldsClawd = clawdInInfo || (info.left.length + info.right.length === 0 && !info.pending && (clawdInLive || (!live && Boolean(p))))
-  if (hatted && firstHoldsClawd) y = HAT_H
-  if (info.left.length + info.right.length > 0 || info.pending || clawdInInfo) add(infoPart(info, W, y, look, clawdInInfo ? { look, mood, accessory, trick: opts.trick } : undefined))
+  if (hatted && (clawdInLive || Boolean(p))) y = HAT_H
   if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
@@ -950,7 +924,7 @@ export function infoSvg(
   if (info.left.length + info.right.length === 0 && !info.pending && !clawd) return undefined
   const look = lookOf(opts.skin ?? 'auto')
   const hat = clawd && (clawd.accessory === 'newyear' || clawd.accessory === 'xmas' || clawd.accessory === 'nightcap') ? HAT_H : 0
-  const part = infoPart(info, W - INFO_PAD * 2, hat, look, clawd ? { look, ...clawd } : undefined, true)
+  const part = infoPart(info, W - INFO_PAD * 2, hat, look, clawd ? { look, ...clawd } : undefined)
   // On the card the row's words take the card's inks (as the usage cards' do), not the surface's.
   const words = part.body.replace(/class="s([tm])"/g, 'class="$1"').replace(/class="s-/g, 'class="c-')
   const body = `<rect class="p" y="${hat}" width="${W}" height="${part.height}" rx="6"/><g transform="translate(${INFO_PAD},0)">${words}</g>`
@@ -1362,15 +1336,15 @@ export function receiptSvg(r: Receipt): Drawing {
   }
 }
 
-// Each callout kind: its stroke icon, the theme key its box and terminal title take, a terminal
-// glyph, and its SVG ink as [light, dark].
+// Each callout kind: its stroke icon, the theme key its box's border takes, and its SVG ink as
+// [light, dark].
 export const CALLOUT_KINDS = {
-  note: { title: 'Note', icon: 'info', key: 'suggestion', glyph: 'ℹ', ink: ['#0969da', '#4493f8'] },
-  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', glyph: '✱', ink: CHAT_INK.ok },
-  important: { title: 'Important', icon: 'badge-alert', key: 'claude', glyph: '✦', ink: ['#a8461f', '#e8916b'] },
-  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', glyph: '▲', ink: CHAT_INK.warn },
-  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', glyph: '✖', ink: CHAT_INK.bad },
-} as const satisfies Record<CalloutKind, { title: string; icon: StrokeKind; key: string; glyph: string; ink: readonly [string, string] }>
+  note: { title: 'Note', icon: 'info', key: 'suggestion', ink: ['#0969da', '#4493f8'] },
+  tip: { title: 'Tip', icon: 'lightbulb', key: 'success', ink: CHAT_INK.ok },
+  important: { title: 'Important', icon: 'badge-alert', key: 'claude', ink: ['#a8461f', '#e8916b'] },
+  warning: { title: 'Warning', icon: 'triangle-alert', key: 'warning', ink: CHAT_INK.warn },
+  caution: { title: 'Caution', icon: 'octagon-x', key: 'error', ink: CHAT_INK.bad },
+} as const satisfies Record<CalloutKind, { title: string; icon: StrokeKind; key: string; ink: readonly [string, string] }>
 
 // A callout's title: its icon and name in its kind's colour.
 export function calloutTitleSvg(kind: CalloutKind): Drawing {

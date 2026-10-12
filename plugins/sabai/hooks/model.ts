@@ -78,7 +78,7 @@ export function countdown(ms: number): string {
 }
 
 // The branch chip also carries its parts, so a drawing can lay them out apart; `value` stays the
-// one-line form the terminal and the alt read.
+// one-line form the alt reads.
 export type Chip = { icon: IconKind; label: string; value: string; branch?: string; ahead?: number; behind?: number; changes?: number }
 
 // `main ↑2 ↓1 ±3`: each mark only when it is not zero.
@@ -132,11 +132,6 @@ export function progress(tasks: Task[]): Progress | undefined {
   const running = tasks.find(t => t.status === 'in_progress')
   const next = tasks.find(t => t.status === 'pending')
   return { done, total: tasks.length, title: running ? (running.activeForm ?? running.subject) : (next?.subject ?? 'Tasks') }
-}
-
-export const blocks = (ratio: number, width: number, full: string, empty: string): string => {
-  const filled = Math.round(Math.max(0, Math.min(1, ratio)) * width)
-  return full.repeat(filled) + empty.repeat(width - filled)
 }
 
 export type Mood = 'startled' | 'sad' | 'celebrating' | 'sweating' | 'working' | 'sleeping' | 'idle'
