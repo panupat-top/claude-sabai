@@ -76,7 +76,7 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
 
   Turning **Activity** off in Settings hides the race.
 
-On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
+On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band, with the usage limits in your style at its shortest.
 
 The info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Guard** (a green shield, while the guard is on, with what it caught; it opens the settings), **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run; on a window under 480 px the icons drop their figures), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear).
 
