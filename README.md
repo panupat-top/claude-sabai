@@ -22,22 +22,22 @@ The band appears in every new session, the Code tab included. Mods do not load i
 
 ### The band, above the prompt
 
-In the comfortable density (the default) the band is three panels:
+In the desktop app a top row sits above the band: the info row on a card, and the guard and toolbar as icons at the right. In the comfortable density (the default) the band under it is three panels:
 
 ```
+ ▪ claude-skins (⑂ main) ↑2 ±1  ◆ Panupat  ⬢ v24.21.0                [🛡 2] [⇕ 74%] [🤖 3] [⚙]
 ╭─────────┬─────────────────────────────────────────────┬────────────────────────────────╮
-│  CLAWD  │ ▪ claude-skins (⑂ main) ↑2 ±1  ◇ guard 2 ⬢ v24 │ 3 running · 1 done  ✗1 ✓12 1:42 │
-│   (×3)  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ Main · Editing svg.ts     1:42 │
-│ working │ │ CONTEXT     │ │ 5H          │ │ 7D          │ │ ▬▬▬▬▬     🦀✏            ⚑ │
-│  1m 42s │ │ 74%         │ │ 27%         │ │ 18%         │ │ Explore ×3 · 3 running    0:12 │
-│         │ │ ▓▓▓▓▓▓▓░░░  │ │ ▓▓▓░░░░░░░  │ │ ▓▓░░░░░░░░  │ │ ▬▬      🦀🦀🦀📖          ⚑ │
-│         │ │ 743.5k / 1M │ │ ↻ 19m       │ │ ↻ 4d 11h    │ │ Write tests · bun test… 0:31 │
+│  CLAWD  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ 3 running · 1 done  ✗1 ✓12 1:42 │
+│   (×3)  │ │ CONTEXT     │ │ 5H          │ │ 7D          │ │ Main · Editing svg.ts     1:42 │
+│ working │ │ 74%         │ │ 27%         │ │ 18%         │ │ ▬▬▬▬▬     🦀✏            ⚑ │
+│         │ │ ▓▓▓▓▓▓▓░░░  │ │ ▓▓▓░░░░░░░  │ │ ▓▓░░░░░░░░  │ │ Explore ×3 · 3 running    0:12 │
+│         │ │ 743.5k / 1M │ │ ↻ 19m       │ │ ↻ 4d 11h    │ │ ▬▬      🦀🦀🦀📖          ⚑ │
 ╰─────────┴─────────────────────────────────────────────┴────────────────────────────────╯
 ```
 
 - **Clawd**, large, with his mood in a word and why under it:
   - `ready` · `your turn`;
-  - `working` · the turn's time;
+  - `working` · the turn's time (beside the race, its header carries the time instead);
   - `blocked` · `guard stopped 1`;
   - `tests failing` · `2 failed`;
   - `all green` · `12 passed`;
@@ -46,7 +46,7 @@ In the comfortable density (the default) the band is three panels:
 
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
-  - the info row: the project's name, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly at the right the guard (`guard 2` once it has caught something), your git user and Node. In the desktop app the guard stands apart at the right end instead, as a green shield leading the toolbar's icons; pressing it opens the settings. On a narrow window the user goes first, then Node; the guard holds on longest, as just its shield and count when room is tight;
+  - the info row (in the desktop app, the top row above): the project's folder, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly your git user and Node at its full version. On a narrow window the user goes first, then Node. In the terminal the guard joins the row as `◈ guard · 2`;
   - Claude's task list as a progress bar, when it keeps one;
   - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`). Until the session has read them, the band stands as a still outline with no numbers; with nothing to read yet, it says so.
   - Pick how they look in Settings → Usage → Style:
@@ -69,7 +69,7 @@ In the comfortable density (the default) the band is three panels:
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band with one-line usage cards.
 
-In the desktop app the info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear). In the terminal the info row stays in the band and the toolbar sits under it: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
+In the desktop app the info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Guard** (a green shield, while the guard is on, with what it caught; it opens the settings), **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run; on a window under 480 px the icons drop their figures), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear). In the terminal the info row stays in the band and the toolbar sits under it: `◎ Review` (with the count of uncommitted files), `⇲ Compact` (with the context percentage once it reaches the amber mark, highlighted while no agents run), `↶ Rewind`, `↻ Resume`, and the `✻ Agents` and `⚙ Settings` buttons. Only the commands your surface offers are shown.
 
 ### The agents panel
 
@@ -78,7 +78,7 @@ Press the Agents icon (`✻ Agents` in the terminal) or type `/sabai-agents` to 
 - the task, effort, model and step progress;
 - a status that pops when done or shakes on failure.
 
-Press **Report** on a finished agent to read what it found, and **Clear** to tidy up.
+Finished agents fold behind **▸ Show**; press **▸ Report** on one to read what it found, and **Clear finished** to tidy up.
 
 ### In the conversation
 
@@ -102,17 +102,17 @@ Press the gear (`⚙ Settings` in the terminal) or type `/sabai-settings`. Chang
 
 | Group | Choices |
 |---|---|
-| Layout | Density (comfortable or compact); each row as a toggle: Info, Tasks, Activity (the race or the live strip), Agents (race lanes or the crew row), Usage, Toolbar |
+| Layout | Density (comfortable or compact; desktop only); each row as a toggle: Info, Tasks, Activity (the race from 760 px, else the live strip), Agents (race lanes or the crew row), Usage, Toolbar |
 | Info | Each part: Folder, Git user, Branch, Node |
-| Usage | Style (Tiles, Rings, Columns, Rows); each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
+| Usage | Style (Tiles, Rings, Columns, Rows; desktop only); each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
 | Clawd | Clawd on or off; extras: Accessories (hats and props) and Tricks (waves, yawns, looks) |
 | Agents | Step reports: agents report their own progress to their card (on; takes effect from the next session) |
 | Conversation | Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Safety | Guard (off). Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
-| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes 90% (on) |
-| Look | Progress bar style, and ten colour themes (`auto` follows your OS) |
+| Notifications | A notification when a long turn ends or an agent fails; a toast when 5H or 7D passes your red mark (on) |
+| Look | Desktop only. Cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; the progress bar style |
 
-**Reset to defaults**, at the bottom, puts the settings, the skin and the bar style back.
+**Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the look and the bar style back.
 
 The guard is a safety net, not a sandbox: it catches common slips, not someone set on getting round it.
 

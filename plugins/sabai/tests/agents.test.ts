@@ -110,9 +110,11 @@ test('the summary counts agents, sums context and spans the wall time; Clear kee
     run('a', { status: 'done', startedAt: 1000, endedAt: 9000, contextTokens: 40_000 }),
     run('b', { startedAt: 3000, contextTokens: 2_000 }),
   ]
-  expect(summary(list, 21_000)).toEqual({ running: 1, done: 1, context: 42_000, ms: 20_000 })
+  expect(summary(list, 21_000)).toEqual({ running: 1, done: 1, failed: 0, context: 42_000, ms: 20_000 })
+  // A failed run is counted as failed, not done, as the band counts it.
+  expect(summary([...list, { ...list[0]!, id: 'f', status: 'failed', endedAt: 9000 }], 21_000)).toMatchObject({ running: 1, done: 1, failed: 1 })
   expect(summary([list[0]!], 21_000).ms).toBe(8000)
-  expect(summary([], 21_000)).toEqual({ running: 0, done: 0, context: 0, ms: 0 })
+  expect(summary([], 21_000)).toEqual({ running: 0, done: 0, failed: 0, context: 0, ms: 0 })
   expect(clearFinished(list).map(a => a.id)).toEqual(['b'])
 })
 
@@ -121,7 +123,7 @@ test('a card draws hat, clock, effort · type · model, own progress and context
     type: 'Plan', effort: 'medium', contextTokens: 39_000, steps: 9,
     tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'Draw', activeForm: 'Drawing', status: 'in_progress' }],
   })
-  const d = agentCardSvg(a, 420, 19_000, 'dracula', 'blocks')
+  const d = agentCardSvg(a, 420, 19_000, 'raised', 'blocks')
   expect(d.height).toBe(52)
   expect(d.source).toContain('>1/2<')
   expect(d.source).not.toContain('>task a<')
@@ -130,7 +132,8 @@ test('a card draws hat, clock, effort · type · model, own progress and context
   expect(d.source).toContain('>Drawing<')
   expect(d.source).toContain('39k ctx')
   expect(d.source).toContain('class="run"')
-  expect(d.source).toContain('fill="#bd93f9"')
+  // A Plan agent's hat takes the session colour.
+  expect(d.source).toContain('fill="#8f8cf4"')
   expect(d.alt).toBe('task a: Plan, sonnet 5.5, running, 18s')
 })
 
@@ -166,7 +169,7 @@ test('status marks: a rippling dot while running, a check popped in and a cross 
 
 
 test('a finished card waves its report and keeps no headline; a failed bar turns red; the bar is the band’s', () => {
-  const done = agentCardSvg(run('a', { status: 'done', endedAt: 4000, result: '## Found\nThree launches came out this week. More.' }), 420, 60_000, 'dracula')
+  const done = agentCardSvg(run('a', { status: 'done', endedAt: 4000, result: '## Found\nThree launches came out this week. More.' }), 420, 60_000, 'raised')
   expect(done.height).toBe(52)
   expect(done.source).not.toContain('Three launches')
   expect(done.source).toContain('class="pr-wave"')

@@ -3,7 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
-import { THEMES, contrast } from '../hooks/themes'
+import { contrast } from '../hooks/themes'
 import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, agentCardSvg, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
 
 const LIST = [
@@ -23,14 +23,12 @@ test('the tasks row escapes its title and stays under the engine limits', () => 
   expect([d?.width, d?.height]).toEqual([1600, 20])
 })
 
-test('Clawd walks while the turn works and waits otherwise, tinted by the skin', () => {
+test('Clawd walks while the turn works and waits otherwise, in his clay on either look', () => {
   const mode = (src = '') => src.match(/shape-rendering="crispEdges" class="(\w+)"/)?.[1]
   expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'working' })?.source)).toBe('run')
   expect(mode(bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600)?.source)).toBe('idle')
-  const mocha = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'idle', skin: 'catppuccin-mocha' })?.source
-  expect(mocha).toContain('fill="#fab387"')
-  expect(mocha).toContain('@keyframes wink{91%,96%{fill:#fab387}}')
-  expect(mocha).not.toContain('fill="#D97757"')
+  const raised = bandSvg({ done: 0, total: 2, title: 'a' }, NONE, [], 600, { mood: 'idle', skin: 'raised' })?.source
+  expect(raised).toContain('@keyframes wink{91%,96%{fill:#D97757}}')
   expect(spriteSize('tasks')).toEqual({ width: 24, height: 16 })
 })
 
@@ -99,11 +97,11 @@ test('figures take their meter colour, then the warning ones', () => {
   expect(bandSvg(undefined, NONE, LIST, 900)?.source).toContain('class="c-warn"')
 })
 
-test('a skin colours the cards and bars but draws no background or inset, as auto does', () => {
-  const themed = bandSvg(undefined, NONE, LIST, 900, { mood: 'idle', skin: 'catppuccin-mocha' })
+test('the raised look colours the cards but draws no background or inset, as flat does', () => {
+  const themed = bandSvg(undefined, NONE, LIST, 900, { mood: 'idle', skin: 'raised' })
   expect(themed?.height).toBe(44)
-  expect(themed?.source).toContain('.p{fill:#1e1e2e}')
-  expect(themed?.source).toContain('<g fill="#b4befe">')
+  expect(themed?.source).toContain('.p{fill:#ffffff}')
+  expect(themed?.source).toContain('.p{fill:#2d2d2b}')
   expect(themed?.source).not.toContain('rx="10" fill=')
   expect(themed?.source).not.toContain('translate(10,10)')
 })
@@ -164,7 +162,7 @@ test('a title of emoji is cut on whole characters, never mid-pair', () => {
 })
 
 test('text the band draws on the bare surface follows the OS, whatever the skin; auto defines every meter class', () => {
-  for (const skin of ['auto', 'catppuccin-latte', 'nord']) {
+  for (const skin of ['auto', 'raised']) {
     const d = bandSvg({ done: 1, total: 2, title: 'Polish' }, NONE, [], 600, { mood: 'idle', skin: skin })?.source ?? ''
     expect([skin, d.includes('<text class="st"'), d.includes('.st{fill:#1f1f1f}'), d.includes('prefers-color-scheme: dark){.st')]).toEqual([skin, true, true, true])
     const crew = bandSvg(undefined, NONE, [], 600, { mood: 'idle', skin: skin, style: 'dither', crew: { runs: [crewRun('a')], now: 1 } })?.source ?? ''
@@ -182,12 +180,10 @@ test('on a narrow band the crew walks fewer Clawds and drops words it has no roo
   if (titleX) expect(titleX).toBeLessThan(firstCount - 40)
 })
 
-test('every skin’s empty bar track stands out from its card', () => {
-  for (const key of Object.keys(THEMES)) {
-    const card = lookOf(key).css.match(/\.p\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
-    const track = lookOf(key).css.match(/\.k\{fill:(#[0-9a-f]{6})\}/)?.[1] ?? ''
-    expect([key, contrast(track, card) >= 1.35]).toEqual([key, true])
-  }
+test('the raised look’s empty bar track stands out from its card, light and dark', () => {
+  const cards = [...lookOf('raised').css.matchAll(/\.p\{fill:(#[0-9a-f]{6})\}/g)].map(m => m[1]!)
+  const tracks = [...lookOf('raised').css.matchAll(/\.k\{fill:(#[0-9a-f]{6})\}/g)].map(m => m[1]!)
+  for (const i of [0, 1]) expect([i, contrast(tracks[i]!, cards[i]!) >= 1.35]).toEqual([i, true])
 })
 
 test('chat ink reads on a light and a dark conversation', () => {
@@ -374,7 +370,9 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(3)
+  // The merged lane draws its runner once and its two ghosts by reference.
+  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(1)
+  expect(part.body.match(/<use href="#sabai-run-1"/g)!.length).toBe(2)
   expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
 })
 
@@ -434,7 +432,7 @@ test('Main waiting and a finished agent fold to one line: a mark, the name, the 
   const part = racePart(lookOf('auto'), race as never, 300, 0)
   expect(part.height).toBe(24 + 3 * 18 + 6)
   for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', 'fill-rule="evenodd"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  for (const s of ['scale(.8)', 'class="flag', '<path transform="translate(', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  for (const s of ['scale(.8)', 'class="flag', '<use href="#sabai-tr-', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
   // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
   for (const m of part.body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
     const x = Number(m[1])
@@ -460,7 +458,7 @@ test('in the comfortable band the race box’s words take the card’s ink', () 
       { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, count: 0, calls: [], state: 'finished' },
     ],
   }
-  const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'dracula', race: race as never })!.source
+  const source = bandSvg(undefined, info, LIST, 900, { hero: true, skin: 'raised', race: race as never })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
   expect(middle).toContain('class="usage"')
@@ -672,10 +670,10 @@ test('a toolbar icon sits on a tile of the card, its Lucide shape and count in t
   expect(quiet.source).toContain('<rect class="m" x="5" y="3" width="16" height="16" mask="url(#sabai-tool)"/>')
   expect(quiet.source).toContain(`.m{fill:${TEXT.m[0]}}`)
   expect(quiet.source).not.toContain('<text')
-  const busy = toolIconSvg('compact', '82%', 'warn', 'dracula')
+  const busy = toolIconSvg('compact', '82%', 'warn', 'raised')
   expect(busy.source).toContain('<text class="c-warn"')
   expect(busy.source).toContain('>82%</text>')
-  expect(busy.source).toContain('.p{fill:#282a36}')
+  expect(busy.source).toContain('.p{fill:#ffffff}')
   expect(busy.width).toBe(26 + 4 + Math.ceil(monoWidth('82%', 11)))
   expect(toolIconSvg('agents', '2', 'tasks').source).toContain('<rect width="16" height="12" x="4" y="8" rx="2"/>')
 })
@@ -776,13 +774,22 @@ test('the race header’s figures never overlap, however long the time or the co
 })
 
 // A one-lane race's footprints (tile x positions) and runners (x of each runner group).
+// A footprint is a <use> of its kind's shape in <defs>; a merged lane's ghosts are <use>s of its
+// runner, offset from it.
 const trail = (lane: object) => {
   const body = racePart(lookOf('auto'), { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [lane] } as never, 300, 0).body
+  const runner = [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1]))
+  const ghosts = [...body.matchAll(/<use href="#sabai-run-\d+" x="(-?[\d.]+)"/g)].map(m => runner[0]! + Number(m[1]))
   return {
     body,
-    tiles: [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)"/g)].map(m => Number(m[1])),
-    runners: [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1])),
+    tiles: [...body.matchAll(/<use href="#sabai-tr-\w+" x="([\d.]+)"/g)].map(m => Number(m[1])),
+    runners: [...ghosts, ...runner],
   }
+}
+// The trail's icons left to right: each footprint's shape (from <defs>) and its paint.
+const trailIcons = (body: string) => {
+  const shapes = Object.fromEntries([...body.matchAll(/<path id="sabai-tr-(\w+)" d="([^"]+)"\/>/g)].map(m => [m[1], m[2]]))
+  return [...body.matchAll(/<use href="#sabai-tr-(\w+)" x="([\d.]+)" y="[\d.]+" ([^/]+)\/>/g)].sort((a, b) => Number(a[2]) - Number(b[2])).map(m => [shapes[m[1]!], m[3]!.trim()])
 }
 const reads = (n: number) => Array.from({ length: Math.min(n, 16) }, () => ({ kind: 'read', ok: true }))
 
@@ -806,7 +813,7 @@ test('each call leaves its kind’s icon in its colour, and a failed one a red c
   const calls = [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }, { kind: 'command', ok: true }, { kind: 'test', ok: true }, { kind: 'edit', ok: false }]
   const { body } = trail({ id: 'main', who: 'Main', step: 'n', count: 5, calls, state: 'running' })
   // Oldest first, left to right: the icon and the paint of each.
-  const icons = [...body.matchAll(/<path transform="translate\(([\d.]+),[\d.]+\)" d="([^"]+)" ([^/]+)\/>/g)].sort((a, b) => Number(a[1]) - Number(b[1])).map(m => [m[2], m[3]!.trim()])
+  const icons = trailIcons(body)
   expect(icons).toEqual([
     [TRAIL_ICONS.read, `fill="${look.bar('context')}"`],
     [TRAIL_ICONS.edit, `fill="${look.bar('session')}"`],
@@ -843,7 +850,7 @@ test('only a moving lane scrolls its dashed ground, each lane clipped by its own
   const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
   expect([moving.includes('class="scroll"'), moving.includes('h6v1h-6zm10 0'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
   // The tiles are history: they sit outside the scrolling group.
-  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<path transform=')
+  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<use href="#sabai-tr-')
   const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
   expect([still.includes('class="scroll"'), still.includes('h6v1h-6z')]).toEqual([false, false])
   const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
@@ -869,10 +876,10 @@ test('a stacked ring with nothing beside its label leaves no dangling separator'
 })
 
 test('idle skin swatches and the still bar previews carry no motion stylesheet', () => {
-  expect(skinPreview('nord', 400).source).not.toContain(MOTION)
-  expect(skinPreview('nord', 400, true).source).toContain(MOTION)
-  expect(barPreview('solid', 'nord', 400).source).not.toContain(MOTION)
-  expect(barPreview('dither', 'nord', 400).source).toContain(MOTION)
+  expect(skinPreview('raised', 400).source).not.toContain(MOTION)
+  expect(skinPreview('raised', 400, true).source).toContain(MOTION)
+  expect(barPreview('solid', 'raised', 400).source).not.toContain(MOTION)
+  expect(barPreview('dither', 'raised', 400).source).toContain(MOTION)
 })
 
 test('a ring at 0% draws its track and no dot', () => {

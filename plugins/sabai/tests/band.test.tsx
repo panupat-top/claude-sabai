@@ -127,7 +127,7 @@ test('the info row leads with directory, git user and branch, node at the right'
   engine(on)
   await start($)
   // On the desktop it is the top row's own drawing, above the band.
-  expect((await shown($, 'desktop')).words).toMatch(/^Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
+  expect((await shown($, 'desktop')).words).toMatch(/^Folder work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24\.1\.0 \| (Clawd: [^;]+; )?Context/)
   const terminal = (await shown($, 'terminal')).words
   expect(terminal).toMatch(/^▤ work \|.*◆ Panupat \|.*⎇ main ↑2 ↓1 ±2 \|.*⬢ v24\.1\.0 \|.*CONTEXT/)
 })
@@ -136,7 +136,7 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   engine(on, { failing: ['node', 'git'] })
   await start($)
   const words = (await shown($, 'desktop')).words
-  expect(words).toMatch(/^Directory work \| (Clawd: [^;]+; )?Context/)
+  expect(words).toMatch(/^Folder work \| (Clawd: [^;]+; )?Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
 })
@@ -262,8 +262,8 @@ test('TodoWrite drives the progress row too', async ($, on) => {
 const settingsCommand = ($: Engine) =>
   $.command.run({ command: 'sabai-settings', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
-test('Clawd takes the skin colour and walks only while the turn works', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+test('Clawd keeps his clay on either look and walks only while the turn works', async ($, on) => {
+  engine(on, { store: { skin: 'raised' } })
   await start($)
   await $.tool.call({ tool: 'TaskCreate', subject: 'a', description: '' })
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
@@ -276,15 +276,27 @@ test('Clawd takes the skin colour and walks only while the turn works', async ($
   expect(await source(false)).toContain('shape-rendering="crispEdges" class="idle"')
   // While working beside the race he also looks at it: the run motion stays.
   expect(await source(true)).toMatch(/shape-rendering="crispEdges" class="run( look-[a-z]+)?"/)
-  expect(await source(true)).toContain('fill="#ffb86c"')
+  expect(await source(true)).toContain('fill="#D97757"')
 })
 
-test('a saved skin comes back with the next session', async ($, on) => {
+// Which look the band's cards wear: flat, raised, or neither.
+const cardLook = async ($: Engine) => {
+  const ui = await mountBand($, 'desktop')
+  const source = String((await bandOf(ui))?.props.source)
+  await ui.unmount()
+  return source.includes('.p{fill:#f4f4f2}') ? 'flat' : source.includes('.p{fill:#ffffff}') ? 'raised' : '?'
+}
+
+test('a saved look comes back with the next session', async ($, on) => {
+  engine(on, { store: { skin: 'auto' } })
+  await start($)
+  expect(await cardLook($)).toBe('flat')
+})
+
+test('a skin an older version saved, or none, starts raised', async ($, on) => {
   engine(on, { store: { skin: 'dracula' } })
   await start($)
-  const ui = await mountBand($, 'desktop')
-  const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
-  expect(svg?.props.source).toContain('.p{fill:#282a36}')
+  expect(await cardLook($)).toBe('raised')
 })
 
 // The agents pane, opened and closed through the engine's own ui noun.
@@ -373,30 +385,28 @@ test('/sabai-settings opens the settings panel and closes it again', async ($, o
   expect([...open]).toEqual([])
 })
 
-test('the skins panel previews every skin and a press switches to it', async ($, on) => {
+test('the look picker offers raised and flat cards, each with its swatch, and a press switches', async ($, on) => {
   const { store } = engine(on)
   panes(on)
   await start($)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await mountPane($, surface, 'sabai-skins')
-    const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.filter(b => b.text === 'Use')).toHaveLength(9)
-    expect(await ui.find({ text: '✓ In use' })).toBeDefined()
-    // Ten skin swatches and one preview of the chosen bar style.
-    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 + 1 : 0)
-    // The engine draws nothing of a tree past 100,000 characters.
-    expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
-    await ui.unmount()
-  }
+  // The look is the desktop's drawings' alone, so the terminal shows no picker.
+  expect(await (await mountPane($, 'terminal', 'sabai-skins')).find({ key: 'skin-raised' })).toBeUndefined()
+  const desk = await mountPane($, 'desktop', 'sabai-skins')
+  expect([(await desk.find({ key: 'skin-raised' }))?.props.variant, (await desk.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
+  // Two swatches and one preview of the chosen bar style.
+  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(2 + 1)
+  expect(JSON.stringify(await desk.drawn()).length).toBeLessThan(100_000)
+  await desk.unmount()
   const ui = await mountPane($, 'desktop', 'sabai-skins')
-  await ui.press({ key: 'use-dracula' })
-  expect(store.skin).toBe('dracula')
-  expect(await ui.find({ key: 'use-dracula' })).toBeUndefined()
-  expect(await ui.find({ key: 'use-auto' })).toBeDefined()
+  await ui.press({ key: 'skin-auto' })
+  expect(store.skin).toBe('auto')
+  expect((await ui.find({ key: 'skin-auto' }))?.props.variant).toBe('primary')
   const previews = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
-  const dracula = previews.find(p => p.props.alt === 'Dracula skin colours')
-  expect(dracula?.props.source).toContain('.p{fill:#282a36}')
-  expect(dracula?.props.source).toContain('class="run"')
+  const flat = previews.find(p => p.props.alt === 'Flat cards')
+  // The look in use carries Clawd, walking.
+  expect(flat?.props.source).toContain('.p{fill:#f4f4f2}')
+  expect(flat?.props.source).toContain('class="run"')
+  expect(previews.find(p => p.props.alt === 'Raised cards')?.props.source).not.toContain('class="run"')
 })
 
 test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {
@@ -482,11 +492,12 @@ test('the skins panel picks a bar style for the band', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('✓ Dither')
+  // The bar style is a choice like the others: the one in use is the primary button.
+  expect((await pane.find({ key: 'bar-dither' }))?.props.variant).toBe('primary')
   await pane.press({ key: 'bar-blocks' })
   expect(store.bar).toBe('blocks')
-  expect((await pane.find({ key: 'bar-blocks' }))?.props.label).toBe('✓ Pixel blocks')
-  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('Dither')
+  expect([(await pane.find({ key: 'bar-blocks' }))?.props.variant, (await pane.find({ key: 'bar-blocks' }))?.props.label]).toEqual(['primary', 'Pixel blocks'])
+  expect((await pane.find({ key: 'bar-dither' }))?.props.variant).toBe('secondary')
   const band = await mountBand($, 'desktop')
   const svg = (await bandOf(band)) as { props: { source: string } } | undefined
   expect(svg?.props.source).not.toMatch(/class="d[0-3]"/)
@@ -498,11 +509,11 @@ test('a saved bar style comes back with the next session', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect((await pane.find({ key: 'bar-solid' }))?.props.label).toBe('✓ Solid')
+  expect((await pane.find({ key: 'bar-solid' }))?.props.variant).toBe('primary')
 })
 
 test('a skin leaves the band on the surface’s own background, as auto does', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+  engine(on, { store: { skin: 'raised' } })
   await start($)
   const ui = await mountBand($, 'desktop')
   const tree = (await ui.drawn()) as { props: { backgroundColor?: string; borderStyle?: string } }
@@ -656,14 +667,14 @@ test('the band shows the crew while agents work, on both surfaces, and drops it 
 })
 
 test('a finished agent’s Report button opens its report as Markdown; the card sets no colour its text cannot follow', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+  engine(on, { store: { skin: 'raised' } })
   panes(on)
   await start($)
   await spawn($, 'ok')
   await $.turn.complete({ turnId: 't', agentId: 'agent-ok', answer: '## Found\n- three launches', durationMs: 10, isAborted: false, reason: 'answer' })
   const ui = await mountPane($, 'desktop')
   await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('Report')
+  expect((await ui.find({ key: 'result-agent-ok' }))?.props.label).toBe('▸ Report')
   expect(await ui.find({ type: 'Text', text: '🔍 ok' })).toBeDefined()
   // Native titles and Markdown take the OS theme's ink, so no Box behind them may force a colour.
   expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
@@ -696,7 +707,7 @@ test('a running agent has its title and no Report button; once it ends, Report a
   expect(await ui.find({ type: 'Text', text: '🔍 scan' })).toBeDefined()
   await $.turn.complete({ turnId: 't', agentId: 'agent-scan', answer: 'done.', durationMs: 10, isAborted: false, reason: 'answer' })
   await ui.press({ key: 'toggle-finished' })
-  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('Report')
+  expect((await ui.find({ key: 'result-agent-scan' }))?.props.label).toBe('▸ Report')
 })
 
 test('a wide fan-out of running agents shows the newest few and counts the rest, under the tree limit', async ($, on) => {
@@ -837,7 +848,7 @@ test('git runs with a timeout, and the band follows the session to a new folder'
   place = '/elsewhere/other-project'
   await clock.advance(30_000)
   await settle()
-  expect((await shown($, 'desktop')).words).toContain('Directory other-project')
+  expect((await shown($, 'desktop')).words).toContain('Folder other-project')
 })
 
 test('the crew row leaves the band a minute after the last agent ends', async ($, on) => {
@@ -980,10 +991,13 @@ test('the band’s guard chip counts what the guard caught this session', async 
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await guardOn($)
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringMatching(/guard(?! ·)/)])
+  // The desktop's shield says it in its alt; the terminal's chip in words.
+  expect((await shown($, 'desktop')).words).toContain('Guard on. Opens settings')
+  expect((await shown($, 'terminal')).words).toMatch(/guard(?! ·)/)
   await bash($, 'rm -rf /')
   await check($, 'git reset --hard')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 2')])
+  expect((await shown($, 'desktop')).words).toContain('Guard on, 2 caught')
+  expect((await shown($, 'terminal')).words).toContain('guard · 2')
 })
 
 test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
@@ -1164,7 +1178,8 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   })
   await start($)
   await clock.advance(3000)
-  expect((await shown($, 'desktop', true)).words).toContain('3s')
+  // The race's header carries the turn's time while it shows.
+  expect((await shown($, 'desktop', true)).words).toContain('0:03')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
@@ -1550,10 +1565,11 @@ test('the guard stands at the right of the desktop top row as a green shield; th
   await start($)
   const ui = await mountBand($, 'desktop')
   // The info row leaves it out; the shield leads the toolbar's icons, and opens the settings.
-  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Directory work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
+  expect(String((await ui.findAll({ type: 'Svg' }))[0]?.props.alt)).toBe('Folder work, Git user Panupat, Branch main ↑2 ↓1 ±2, Node v24.1.0')
   const [guard, ...rest] = await toolsOf(ui)
-  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Turned on: guard', ['tool-compact', 'tool-agents', 'tool-settings']])
-  expect(guard?.icon).toContain('>guard</text>')
+  expect([guard?.key, guard?.alt, rest.map(t => t.key)]).toEqual(['tool-guard', 'Guard on. Opens settings', ['tool-compact', 'tool-agents', 'tool-settings']])
+  // Nothing caught yet: the shield alone.
+  expect(guard?.icon).not.toContain('<text')
   expect(guard?.icon).toContain('<rect class="c-ok"')
   await pressTool(ui, 'guard')
   expect([...open]).toEqual(['sabai-skins'])
@@ -1570,7 +1586,7 @@ test('the guard chip follows the guard alone: off, no chip; an old Guard label s
 test('a guard turned on shows its chip even where an older version saved Guard label off', async ($, on) => {
   engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
   await start($)
-  expect((await shown($, 'desktop')).words).toContain('Turned on: guard')
+  expect((await shown($, 'desktop')).words).toContain('Guard on')
 })
 
 test('the footer’s modes are left to the engine on the desktop; the terminal adds the guard there too', async ($, on) => {
@@ -1652,11 +1668,13 @@ test('settings are nine bordered groups in order: layout, info, usage, Clawd, ag
   for (const surface of SURFACES) {
     const pane = await mountPane($, surface, 'sabai-skins')
     const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-    expect([surface, cards.length]).toEqual([surface, 9])
+    // Look (cards and bars) is the desktop's alone.
+    const titles = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', ...(surface === 'desktop' ? ['Look'] : [])]
+    expect([surface, cards.length]).toEqual([surface, titles.length])
     const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
-    const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(t => words.indexOf(`  ${t}`))
+    const order = titles.map(t => words.indexOf(`  ${t}`))
     expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
-    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', ...(surface === 'desktop' ? ['bar-dither', 'skin-auto'] : [])]) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
     await pane.unmount()
   }
 })
@@ -1760,15 +1778,20 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(await svg()).toContain('stroke-dasharray')
   await pane.press({ key: 'pref-extras-tricks' })
   expect(await labels()).toContain('○ Tricks')
-  await pane.press({ key: 'use-dracula' })
-  expect(await svg()).toContain('#282a36')
+  await pane.press({ key: 'skin-auto' })
+  expect(await svg()).toContain('.p{fill:#f4f4f2}')
+  // The first press only asks; the second, within five seconds, resets.
+  await pane.press({ key: 'reset-defaults' })
+  await clock.advance(1)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Press again to reset')
+  expect(await labels()).toContain('○ Folder')
   await pane.press({ key: 'reset-defaults' })
   await clock.advance(1)
   const after = await labels()
   expect(after).toContain('● Folder')
   expect(after).toContain('● Tricks')
   const reset = await svg()
-  expect(reset).not.toContain('#282a36')
+  expect(reset).not.toContain('.p{fill:#f4f4f2}')
   expect(reset).not.toContain('stroke-dasharray')
   await pane.unmount()
 })
@@ -1810,10 +1833,11 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
     await bash($, 'npm run build')
   }, 'Built.')
   expect(await receiptUnder($, 'desktop', 'Built.')).toContain('Turn receipt')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words]).toEqual([surface, expect.stringContaining('guard · 1')])
+  expect((await shown($, 'desktop')).words).toContain('Guard on, 1 caught')
+  expect((await shown($, 'terminal')).words).toContain('guard · 1')
   await $.classic.SessionStart({ source: 'clear' } as never)
   expect(await receiptUnder($, 'desktop', 'Built.')).not.toContain('Turn receipt')
-  for (const surface of SURFACES) expect([surface, (await shown($, surface)).words.includes('guard · ')]).toEqual([surface, false])
+  for (const surface of SURFACES) expect([surface, /guard · |caught/.test((await shown($, surface)).words)]).toEqual([surface, false])
 })
 
 test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {
@@ -1863,4 +1887,65 @@ test('a Write over an existing file counts its diff in the receipt, a new file e
     await $.tool.call({ tool: 'Write', file_path: '/w/new.ts', content: 'x\ny\n' } as Parameters<typeof $.tool.call>[0])
   }, 'Wrote both.')
   expect(await receiptUnder($, 'desktop', 'Wrote both.')).toBe('Turn receipt: Done; 2 files +3 −1')
+})
+
+test('with every row but the toolbar hidden, the toolbar stays on both surfaces', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: true } } } })
+  await start($)
+  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect((await shown($, 'terminal')).buttons).toBe(5)
+})
+
+test('the desktop shows the guard while it is on, with the info row hidden too', async ($, on) => {
+  engine(on, { store: { prefs: { guard: true, rows: { info: false, tasks: true, usage: true, live: true, crew: true, toolbar: true } } } })
+  await start($)
+  expect((await shown($, 'desktop')).tools[0]).toMatch(/^Guard on/)
+})
+
+test('a limit notification fires at the red mark the person set', async ($, on) => {
+  engine(on, { store: { prefs: { alertAt: 85 } } })
+  const toasts: string[] = []
+  on('ui.toast', ($, e) => {
+    toasts.push(e.text)
+    return { value: undefined }
+  })
+  await start($)
+  await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 87, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
+  await settle()
+  expect(toasts).toEqual(['5H limit at 87% — resets in 5h 0m'])
+})
+
+test('beside the race, Clawd says his mood rather than the turn time the race already shows', async ($, on) => {
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'w' } as never)
+  const words = (await shown($, 'desktop', true)).words
+  expect(words).toContain('Race:')
+  expect(words).not.toMatch(/Clawd: [^;]*\d+s/)
+})
+
+test('a narrow desktop top row drops the icons’ counts and fits its width', async ($, on) => {
+  engine(on, { percents: [82, 7, 3], contextTokens: 164_000, store: { prefs: { guard: true } } })
+  await start($)
+  const ui = await mountBand($, 'desktop', false, 30)
+  const tools = await toolsOf(ui)
+  expect(tools.every(t => !t.icon.includes('<text'))).toBe(true)
+  const top = (await ui.findAll({ type: 'Svg' })).find(s => String(s.props.source).includes('<!--info-->'))
+  const width = (s: string) => Number(s.match(/width="(\d+(?:\.\d+)?)"/)?.[1])
+  const row = width(String(top?.props.source)) + tools.reduce((n, t) => n + width(t.icon) + 8, 0)
+  expect(row).toBeLessThanOrEqual(Math.round(30 * 8.25))
+})
+
+test('a first press of Reset that is not followed within five seconds lapses, and nothing is reset', async ($, on) => {
+  const { clock, store } = engine(on, { store: { prefs: { guard: true } } })
+  panes(on)
+  await start($)
+  const pane = await mountPane($, 'desktop', 'sabai-skins')
+  await pane.press({ key: 'reset-defaults' })
+  await clock.advance(1)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Press again to reset')
+  await clock.advance(6000)
+  expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Reset to defaults')
+  expect((store.prefs as { guard: boolean }).guard).toBe(true)
 })

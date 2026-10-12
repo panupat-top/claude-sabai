@@ -84,7 +84,7 @@ test('blocks fill in proportion and stay in range', () => {
 test('info chips: directory, git user and branch on the left, node on the right', () => {
   expect(chips({ dir: 'claude-skins', gitUser: 'Panupat', branch: 'main', ahead: 2, behind: 1, changes: 3, node: 'v24.1.0' })).toEqual({
     left: [
-      { icon: 'folder', label: 'Directory', value: 'claude-skins' },
+      { icon: 'folder', label: 'Folder', value: 'claude-skins' },
       { icon: 'git', label: 'Git user', value: 'Panupat' },
       { icon: 'branch', label: 'Branch', value: 'main ↑2 ↓1 ±3', branch: 'main', ahead: 2, behind: 1, changes: 3 },
     ],

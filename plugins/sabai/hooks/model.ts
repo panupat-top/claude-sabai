@@ -94,7 +94,7 @@ export function chips(env: Env, show: Partial<Show> = {}): { left: Chip[]; right
   const on = (key: keyof Show) => show[key] !== false
   return {
     left: known([
-      { icon: 'folder', label: 'Directory', value: on('folder') && env.dir },
+      { icon: 'folder', label: 'Folder', value: on('folder') && env.dir },
       { icon: 'git', label: 'Git user', value: on('gitUser') && env.gitUser },
       { icon: 'branch', label: 'Branch', value: on('branch') && env.branch && branchLine(env), branch: env.branch, ahead: env.ahead, behind: env.behind, changes: env.changes },
     ]),
