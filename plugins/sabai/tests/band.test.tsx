@@ -262,8 +262,8 @@ test('TodoWrite drives the progress row too', async ($, on) => {
 const settingsCommand = ($: Engine) =>
   $.command.run({ command: 'sabai-settings', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
-test('Clawd takes the skin colour and walks only while the turn works', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+test('Clawd keeps his clay on either look and walks only while the turn works', async ($, on) => {
+  engine(on, { store: { skin: 'raised' } })
   await start($)
   await $.tool.call({ tool: 'TaskCreate', subject: 'a', description: '' })
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
@@ -276,15 +276,27 @@ test('Clawd takes the skin colour and walks only while the turn works', async ($
   expect(await source(false)).toContain('shape-rendering="crispEdges" class="idle"')
   // While working beside the race he also looks at it: the run motion stays.
   expect(await source(true)).toMatch(/shape-rendering="crispEdges" class="run( look-[a-z]+)?"/)
-  expect(await source(true)).toContain('fill="#ffb86c"')
+  expect(await source(true)).toContain('fill="#D97757"')
 })
 
-test('a saved skin comes back with the next session', async ($, on) => {
+// Which look the band's cards wear: flat, raised, or neither.
+const cardLook = async ($: Engine) => {
+  const ui = await mountBand($, 'desktop')
+  const source = String((await bandOf(ui))?.props.source)
+  await ui.unmount()
+  return source.includes('.p{fill:#f4f4f2}') ? 'flat' : source.includes('.p{fill:#ffffff}') ? 'raised' : '?'
+}
+
+test('a saved look comes back with the next session', async ($, on) => {
+  engine(on, { store: { skin: 'auto' } })
+  await start($)
+  expect(await cardLook($)).toBe('flat')
+})
+
+test('a skin an older version saved, or none, starts raised', async ($, on) => {
   engine(on, { store: { skin: 'dracula' } })
   await start($)
-  const ui = await mountBand($, 'desktop')
-  const svg = (await ui.find({ type: 'Svg' })) as { props: { source: string } } | undefined
-  expect(svg?.props.source).toContain('.p{fill:#282a36}')
+  expect(await cardLook($)).toBe('raised')
 })
 
 // The agents pane, opened and closed through the engine's own ui noun.
@@ -373,30 +385,28 @@ test('/sabai-settings opens the settings panel and closes it again', async ($, o
   expect([...open]).toEqual([])
 })
 
-test('the skins panel previews every skin and a press switches to it', async ($, on) => {
+test('the look picker offers raised and flat cards, each with its swatch, and a press switches', async ($, on) => {
   const { store } = engine(on)
   panes(on)
   await start($)
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountPane($, surface, 'sabai-skins')
-    const buttons = await ui.findAll({ type: 'Button' })
-    expect(buttons.filter(b => b.text === 'Use')).toHaveLength(9)
-    expect(await ui.find({ text: '✓ In use' })).toBeDefined()
-    // Ten skin swatches and one preview of the chosen bar style.
-    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 10 + 1 : 0)
-    // The engine draws nothing of a tree past 100,000 characters.
+    expect([(await ui.find({ key: 'skin-raised' }))?.props.variant, (await ui.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
+    // Two swatches and one preview of the chosen bar style.
+    expect(await ui.findAll({ type: 'Svg' })).toHaveLength(surface === 'desktop' ? 2 + 1 : 0)
     expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
     await ui.unmount()
   }
   const ui = await mountPane($, 'desktop', 'sabai-skins')
-  await ui.press({ key: 'use-dracula' })
-  expect(store.skin).toBe('dracula')
-  expect(await ui.find({ key: 'use-dracula' })).toBeUndefined()
-  expect(await ui.find({ key: 'use-auto' })).toBeDefined()
+  await ui.press({ key: 'skin-auto' })
+  expect(store.skin).toBe('auto')
+  expect((await ui.find({ key: 'skin-auto' }))?.props.variant).toBe('primary')
   const previews = (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
-  const dracula = previews.find(p => p.props.alt === 'Dracula skin colours')
-  expect(dracula?.props.source).toContain('.p{fill:#282a36}')
-  expect(dracula?.props.source).toContain('class="run"')
+  const flat = previews.find(p => p.props.alt === 'Flat cards')
+  // The look in use carries Clawd, walking.
+  expect(flat?.props.source).toContain('.p{fill:#f4f4f2}')
+  expect(flat?.props.source).toContain('class="run"')
+  expect(previews.find(p => p.props.alt === 'Raised cards')?.props.source).not.toContain('class="run"')
 })
 
 test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {
@@ -482,11 +492,12 @@ test('the skins panel picks a bar style for the band', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('✓ Dither')
+  // The bar style is a choice like the others: the one in use is the primary button.
+  expect((await pane.find({ key: 'bar-dither' }))?.props.variant).toBe('primary')
   await pane.press({ key: 'bar-blocks' })
   expect(store.bar).toBe('blocks')
-  expect((await pane.find({ key: 'bar-blocks' }))?.props.label).toBe('✓ Pixel blocks')
-  expect((await pane.find({ key: 'bar-dither' }))?.props.label).toBe('Dither')
+  expect([(await pane.find({ key: 'bar-blocks' }))?.props.variant, (await pane.find({ key: 'bar-blocks' }))?.props.label]).toEqual(['primary', 'Pixel blocks'])
+  expect((await pane.find({ key: 'bar-dither' }))?.props.variant).toBe('secondary')
   const band = await mountBand($, 'desktop')
   const svg = (await bandOf(band)) as { props: { source: string } } | undefined
   expect(svg?.props.source).not.toMatch(/class="d[0-3]"/)
@@ -498,11 +509,11 @@ test('a saved bar style comes back with the next session', async ($, on) => {
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  expect((await pane.find({ key: 'bar-solid' }))?.props.label).toBe('✓ Solid')
+  expect((await pane.find({ key: 'bar-solid' }))?.props.variant).toBe('primary')
 })
 
 test('a skin leaves the band on the surface’s own background, as auto does', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+  engine(on, { store: { skin: 'raised' } })
   await start($)
   const ui = await mountBand($, 'desktop')
   const tree = (await ui.drawn()) as { props: { backgroundColor?: string; borderStyle?: string } }
@@ -656,7 +667,7 @@ test('the band shows the crew while agents work, on both surfaces, and drops it 
 })
 
 test('a finished agent’s Report button opens its report as Markdown; the card sets no colour its text cannot follow', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+  engine(on, { store: { skin: 'raised' } })
   panes(on)
   await start($)
   await spawn($, 'ok')
@@ -1661,7 +1672,7 @@ test('settings are nine bordered groups in order: layout, info, usage, Clawd, ag
     const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
     const order = ['Layout', 'Info', 'Usage', 'Clawd', 'Agents', 'Conversation', 'Safety', 'Notifications', 'Look'].map(t => words.indexOf(`  ${t}`))
     expect([surface, order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))]).toEqual([surface, true])
-    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'use-nord']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+    for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
     await pane.unmount()
   }
 })
@@ -1765,15 +1776,15 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(await svg()).toContain('stroke-dasharray')
   await pane.press({ key: 'pref-extras-tricks' })
   expect(await labels()).toContain('○ Tricks')
-  await pane.press({ key: 'use-dracula' })
-  expect(await svg()).toContain('#282a36')
+  await pane.press({ key: 'skin-auto' })
+  expect(await svg()).toContain('.p{fill:#f4f4f2}')
   await pane.press({ key: 'reset-defaults' })
   await clock.advance(1)
   const after = await labels()
   expect(after).toContain('● Folder')
   expect(after).toContain('● Tricks')
   const reset = await svg()
-  expect(reset).not.toContain('#282a36')
+  expect(reset).not.toContain('.p{fill:#f4f4f2}')
   expect(reset).not.toContain('stroke-dasharray')
   await pane.unmount()
 })

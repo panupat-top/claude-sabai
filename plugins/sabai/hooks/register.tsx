@@ -10,7 +10,8 @@ import type { ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { CALLOUT_HINT, EMPTY_LOG, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
 import type { Logged, Step, StepIcon, Tone } from './chat'
-import { SKINS, THEMES, contrast } from './themes'
+import { SKINS, SKIN_NAMES, contrast } from './themes'
+import type { Skin } from './themes'
 
 // Black or white, whichever reads better on a tile of `bg`.
 const inkOn = (bg: string) => (contrast('#ffffff', bg) >= contrast('#111111', bg) ? '#ffffff' : '#111111')
@@ -19,7 +20,7 @@ const usage = atom({ plugin: 'sabai', key: 'usage' } as const, null as Usage | n
 const tasks = atom({ plugin: 'sabai', key: 'tasks' } as const, [] as Task[])
 const now = atom({ plugin: 'sabai', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
-const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'auto')
+const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'raised')
 const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
 const DEFAULT_GUARD_RULES = Object.fromEntries(Object.entries(GUARD_RULES).map(([k, r]) => [k, r.action])) as Record<GuardRule, GuardAction>
@@ -222,7 +223,7 @@ async function setBar($: EngineInterface, style: string) {
 // Settings, skin and bar style back to their defaults.
 async function resetAll($: EngineInterface) {
   await setPrefs($, () => DEFAULT_PREFS)
-  await setSkin($, 'auto')
+  await setSkin($, 'raised')
   await setBar($, 'dither')
 }
 
@@ -333,7 +334,7 @@ export const register: Register = on => {
     cwd = started.cwd
     // What the person sees first: their saved choices and the commands, before any slow read.
     const saved = await $.store.get('skin').catch(() => undefined)
-    if (typeof saved === 'string' && SKINS.includes(saved)) await update($, skin, () => saved)
+    if (typeof saved === 'string' && (SKINS as readonly string[]).includes(saved)) await update($, skin, () => saved)
     const savedBar = await $.store.get('bar').catch(() => undefined)
     if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
     const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
@@ -846,36 +847,13 @@ export const register: Register = on => {
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
     const preview = Svg && barPreview(style, current, W)
-    // The color themes, each with its swatch and a Use button: the longest list, so last.
-    const themes = SKINS.map(k => {
-            const t = THEMES[k]
-            const tone = t ? (contrast(t.base, '#ffffff') > contrast(t.base, '#000000') ? 'Dark' : 'Light') : 'Matches your system'
-            const kLook = lookOf(k)
-            const swatch = Svg && skinPreview(k, W, k === current)
-            return (
-              <Box key={`row-${k}`} flexDirection="column">
-                <Box flexDirection="row" alignItems="center" columnGap={2}>
-                  {named(t?.name ?? 'Auto', tone)}
-                  {k === current ? (
-                    <Text color={kLook.clawd} bold>
-                      ✓ In use
-                    </Text>
-                  ) : (
-                    <Button key={`use-${k}`} label="Use" variant="primary" onPress={() => setSkin($, k)} />
-                  )}
-                </Box>
-                {Svg && swatch ? (
-                  <Svg source={swatch.source} alt={swatch.alt} />
-                ) : (
-                  <Text>
-                    {(['tasks', 'context', 'session', 'week'] as const).map(kind => (
-                      <Text key={kind} color={kLook.bar(kind)}>{'▰▰▰ '}</Text>
-                    ))}
-                  </Text>
-                )}
-              </Box>
-            )
-          })
+    // The two looks side by side, each a swatch of its cards in the app's light or dark.
+    const looks = Svg
+      ? SKINS.map(k => {
+          const swatch = skinPreview(k, Math.floor(W / 2) - 8, k === current)
+          return <Svg key={`swatch-${k}`} source={swatch.source} alt={swatch.alt} />
+        })
+      : []
     return (
       <Box flexDirection="column" rowGap={1}>
         <Text dimColor>Settings apply at once and are kept for new sessions. Esc closes.</Text>
@@ -974,17 +952,14 @@ export const register: Register = on => {
           'look',
           '◐',
           'Look',
-          'Colours and bars',
+          'Cards and bars',
           <>
-            {subheading('Progress bar', 'Tasks and usage cards')}
-            <Box flexDirection="row" columnGap={1}>
-              {(Object.keys(BAR_STYLES) as BarStyle[]).map(b => (
-                <Button key={`bar-${b}`} label={b === style ? `✓ ${BAR_STYLES[b]}` : BAR_STYLES[b]} onPress={() => setBar($, b)} />
-              ))}
-            </Box>
+            {subheading('Cards', 'Raised off the band, or flat on it; both follow the app’s light or dark look')}
+            {choice('skin', SKINS, k => SKIN_NAMES[k]!, (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised', k => void setSkin($, k))}
+            <Box flexDirection="row" columnGap={1}>{looks}</Box>
+            {subheading('Progress bar', 'Tasks and usage bars (Rings draw their own)')}
+            {choice('bar', Object.keys(BAR_STYLES) as BarStyle[], b => BAR_STYLES[b], style, b => void setBar($, b))}
             {Svg && preview ? <Svg source={preview.source} alt={preview.alt} /> : <Text color={look.bar('tasks')}>{blocks(0.62, 16, ...BAR_GLYPHS[style])}</Text>}
-            {subheading('Color theme', 'Ten looks')}
-            <Box flexDirection="column" rowGap={1}>{themes}</Box>
           </>,
         )}
         <Box flexDirection="row" alignItems="center" columnGap={2}>

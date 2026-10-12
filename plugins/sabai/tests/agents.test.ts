@@ -123,7 +123,7 @@ test('a card draws hat, clock, effort · type · model, own progress and context
     type: 'Plan', effort: 'medium', contextTokens: 39_000, steps: 9,
     tasks: [{ id: '1', subject: 'a', status: 'completed' }, { id: '2', subject: 'Draw', activeForm: 'Drawing', status: 'in_progress' }],
   })
-  const d = agentCardSvg(a, 420, 19_000, 'dracula', 'blocks')
+  const d = agentCardSvg(a, 420, 19_000, 'raised', 'blocks')
   expect(d.height).toBe(52)
   expect(d.source).toContain('>1/2<')
   expect(d.source).not.toContain('>task a<')
@@ -132,7 +132,8 @@ test('a card draws hat, clock, effort · type · model, own progress and context
   expect(d.source).toContain('>Drawing<')
   expect(d.source).toContain('39k ctx')
   expect(d.source).toContain('class="run"')
-  expect(d.source).toContain('fill="#bd93f9"')
+  // A Plan agent's hat takes the session colour.
+  expect(d.source).toContain('fill="#8f8cf4"')
   expect(d.alt).toBe('task a: Plan, sonnet 5.5, running, 18s')
 })
 
@@ -168,7 +169,7 @@ test('status marks: a rippling dot while running, a check popped in and a cross 
 
 
 test('a finished card waves its report and keeps no headline; a failed bar turns red; the bar is the band’s', () => {
-  const done = agentCardSvg(run('a', { status: 'done', endedAt: 4000, result: '## Found\nThree launches came out this week. More.' }), 420, 60_000, 'dracula')
+  const done = agentCardSvg(run('a', { status: 'done', endedAt: 4000, result: '## Found\nThree launches came out this week. More.' }), 420, 60_000, 'raised')
   expect(done.height).toBe(52)
   expect(done.source).not.toContain('Three launches')
   expect(done.source).toContain('class="pr-wave"')

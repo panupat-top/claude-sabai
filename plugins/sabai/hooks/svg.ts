@@ -11,7 +11,7 @@ import { STROKES } from './strokes'
 import type { StrokeKind } from './strokes'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
-import { THEMES, cardOf, readable } from './themes'
+import { SKIN_NAMES } from './themes'
 
 // Desktop drawings in savvy-progress's pixel style (MIT). Each group is one SVG, so its own
 // spacing holds; in a row Box the desktop sets one beside Buttons or other drawings. Light and
@@ -50,7 +50,7 @@ export const CHAT_INK: Record<Tone, readonly [string, string]> = {
 }
 // How strongly a result pill is tinted with its ink: the ink must still read on the tint.
 export const PILL_TINT = 0.1
-const css = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
+const css = (i: 0 | 1, text: Readonly<Record<string, readonly [string, string]>> = TEXT) => Object.entries(text).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
 // White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
 const PILL = '#b5532f'
 export const MOTION =
@@ -102,27 +102,35 @@ export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' 
 
 const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
 
-const AUTO: Look = {
-  css: `${css(0)}.k{fill:#e8e8e5}.k-stroke{stroke:#e8e8e5}.p{fill:${CARD[0]}}@media (prefers-color-scheme: dark){${css(1)}.k{fill:#2a2a2a}.k-stroke{stroke:#2a2a2a}.p{fill:${CARD[1]}}}${wink(ICON_COLORS.tasks)}`,
+// A look in light and dark: its words, the bar track and the card, each [light, dark].
+const twoModes = (text: Readonly<Record<string, readonly [string, string]>>, card: readonly [string, string], track: readonly [string, string]): Look => ({
+  css: `${css(0, text)}.k{fill:${track[0]}}.k-stroke{stroke:${track[0]}}.p{fill:${card[0]}}@media (prefers-color-scheme: dark){${css(1, text)}.k{fill:${track[1]}}.k-stroke{stroke:${track[1]}}.p{fill:${card[1]}}}${wink(ICON_COLORS.tasks)}`,
   bar: (kind, lvl) => (lvl === 'alert' ? ALERT : lvl === 'warn' ? WARN : ICON_COLORS[kind]),
   pill: PILL,
   clawd: ICON_COLORS.tasks,
-}
+})
 
-// A theme's own colours; any text colour that would not read on its card is stepped until it does.
-export function lookOf(skin: string): Look {
-  const t = THEMES[skin]
-  if (!t) return AUTO
-  const card = cardOf(t)
-  const ink = (c: string) => readable(c, card)
-  const kinds = Object.entries(t.accents).map(([k, c]) => `.c-${k}{fill:${ink(c)}}`).join('')
-  return {
-    css: `.t{fill:${ink(t.text)}}.m{fill:${ink(t.subtext)}}.k{fill:${readable(t.track, card, 1.35)}}.k-stroke{stroke:${readable(t.track, card, 1.35)}}.p{fill:${card}}${kinds}.c-warn{fill:${ink(t.warn)}}.c-alert{fill:${ink(t.alert)}}.c-ok{fill:${ink(TEXT.ok[1])}}${wink(t.accents.tasks)}`,
-    bar: (kind, lvl) => (lvl === 'alert' ? t.alert : lvl === 'warn' ? t.warn : t.accents[kind]),
-    pill: readable(t.accents.tasks, '#ffffff'),
-    clawd: t.accents.tasks,
-  }
-}
+// Raised: white cards in light and cards lighter than the desktop's #222 in dark, lifted off the
+// band; its words are set for those cards. Each at least 4.5:1 on its card (checked by the tests).
+export const RAISED_CARD = ['#ffffff', '#2d2d2b'] as const
+export const RAISED_TEXT = {
+  t: ['#1a1a19', '#ececea'],
+  tasks: ['#b04f2c', '#ee9b78'],
+  m: ['#66665f', '#a6a6a0'],
+  context: ['#12736a', '#4cc4b3'],
+  session: ['#4f47c4', '#aca8ff'],
+  week: ['#845700', '#eab65c'],
+  warn: ['#ad4810', '#ffa166'],
+  alert: ['#bf2b2b', '#ff7d74'],
+  ok: ['#18793a', '#5fd16d'],
+} as const
+// Flat (`auto`, the first look): cards a shade off the surface.
+const FLAT = twoModes(TEXT, CARD, ['#e8e8e5', '#2a2a2a'])
+// Its empty bar track stands 1.35:1 off the card in both modes.
+const RAISED = twoModes(RAISED_TEXT, RAISED_CARD, ['#dadad5', '#474744'])
+
+// The two looks, both following the app between light and dark; anything else is flat.
+export const lookOf = (skin: string): Look => (skin === 'raised' ? RAISED : FLAT)
 
 const CELL = 3
 const DOT_COLS = 200
@@ -951,7 +959,7 @@ export function infoSvg(
   return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}"><style>${leanCss(look, INFO_INKS)}</style>${body}</svg>`, width: W, height: h, alt: part.alt }
 }
 
-// The skin picker's swatch: a strip of the skin's card colour with its text colours (`Aa`) and
+// The look picker's swatch: a strip of the look's card colour with its text colours (`Aa`) and
 // the four accents as segmented bars. Kept small, since a pane's whole tree
 // must stay under 100,000 characters: only the skin in use carries Clawd (~14k), walking.
 const SWATCH_H = 32
@@ -983,7 +991,7 @@ export function skinPreview(skin: string, W: number, inUse = false): Drawing {
     (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
     `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
     bars
-  return swatch(look, w, body, `${THEMES[skin]?.name ?? 'Auto'} skin colours`, !inUse)
+  return swatch(look, w, body, `${SKIN_NAMES[skin] ?? SKIN_NAMES.auto} cards`, !inUse)
 }
 
 // The picker's sample of a bar style: one bar, part filled, in the skin's task colour.
