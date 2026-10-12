@@ -350,7 +350,7 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
     lanes: [
       { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, count: 2, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
       { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, count: 1, calls: [{ kind: 'test', ok: true }], state: 'scored' },
-      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
+      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, fails: 1, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
       { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, count: 0, calls: [], state: 'finished' },
     ],
   } as const
@@ -364,7 +364,28 @@ test('the race box draws a lane per member with its state, tools, glow, tiles an
   // The merged lane draws its runner once and its two ghosts by reference.
   expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(1)
   expect(part.body.match(/<use href="#sabai-run-1"/g)!.length).toBe(2)
-  expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts; Explore ×3 scored: 3 running; Write race tests tripped: bun test failed; Plan the race finished: Done; 1 more')
+  expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts (2 ok); Explore ×3 scored: 3 running (1 ok); Write race tests tripped: bun test failed (1 failed); Plan the race finished: Done; 1 more')
+  // Each lane tallies its own calls before its time: a ✗ only for failures, nothing for a lane with no calls.
+  for (const s of ['>✓2<', '>✓1<', '>✗1<']) expect([s, part.body.includes(s)]).toEqual([s, true])
+  expect(part.body).not.toContain('>✓0<')
+})
+
+test('a lane’s tally stays inside the box and leaves its step the room it has, on a full and a slim lane', () => {
+  const race = {
+    running: 1, done: 1, ok: 120, fails: 30, elapsedMs: 5000, more: 0,
+    lanes: [
+      { id: 'main', who: 'Main', step: 'Edited a file with a rather long name indeed.ts', timeMs: 3_599_000, count: 150, fails: 30, calls: [], state: 'thinking' },
+      { id: 'd', who: 'Done agent', type: 'Explore', step: 'Done', timeMs: 3_599_000, progress: 1, count: 99, fails: 9, calls: [], state: 'finished' },
+    ],
+  }
+  const body = racePart(lookOf('auto'), race as never, 300, 0).body
+  for (const s of ['>✓120<', '>✗30<', '>✓90<', '>✗9<']) expect([s, body.includes(s)]).toEqual([s, true])
+  // Every text ends inside the box: the tallies are end-anchored at or before the time's start.
+  for (const m of body.matchAll(/<text[^>]*x="([\d.]+)"[^>]*text-anchor="end"[^>]*>([^<]*)</g)) expect(Number(m[1])).toBeLessThanOrEqual(300)
+  // The long step is cut short for the tally, which itself ends before the time.
+  expect(body).toMatch(/>· Edited[^<]*…</)
+  const tallyX = Number(body.match(/x="([\d.]+)"[^>]*>✗30</)![1])
+  expect(tallyX).toBeLessThanOrEqual(300 - 12 - monoWidth('59:59', 9.5) - 6)
 })
 
 test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {

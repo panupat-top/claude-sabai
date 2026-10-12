@@ -1276,7 +1276,9 @@ test('each member’s calls land in its own lane; the header counts the turn’s
   const words = (await shown($, 'desktop', true)).words
   expect(words).toMatch(/Race: 2 running, 2 ok, 1 failed/)
   expect(words).toMatch(/Main (tripped|running|thinking)/)
-  expect(words).toContain('x running')
+  // The agent's lane names its latest call and tallies it; Main's tallies its pass and its failure.
+  expect(words).toContain('x running: Read a.ts (1 ok)')
+  expect(words).toMatch(/Main \w+: [^;]*\(1 ok, 1 failed\)/)
 })
 
 test('the race leaves when the turn ends and no agent runs', async ($, on) => {

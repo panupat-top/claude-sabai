@@ -56,10 +56,19 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
     - **Rows**: one card with a row each.
 - **The race**, while Claude or a subagent works:
   - the header counts who is running and done, the turn's calls that worked (`✓`) and failed (`✗`), and the time;
-  - each lane is `Main` or a subagent, named by its task, with its step and its own time on a line above its ground;
+  - each lane is `Main` or a subagent, named by its task, with its step (its reported progress, or else its latest call) and, before its own time, its calls that worked (`✓`) and failed (`✗`), on a line above its ground;
   - more agents of one type than the lanes hold share a lane (`Explore ×3`); `+N` counts any left over;
   - a runner's place is its progress, from Claude's task list or the agent's step reports, or else how far its calls have carried it (quick at first, never to the flag before it is done);
-  - behind the runner, a pixel icon per call, the newest closest: a magnifier for a read, a pencil for an edit, `>_` for a command, a flask for a passing test, a red cross for a failure;
+  - behind the runner, a pixel icon per call, the newest closest, in the colour of its kind:
+
+    | Icon | Call | Colour |
+    |---|---|---|
+    | magnifier | a read | the Context meter's teal |
+    | pencil | an edit or a write | the 5H meter's indigo |
+    | `>_` | a command | grey |
+    | flask | a test run that passed | green |
+    | cross | any call that failed | red |
+
   - a running lane's ground scrolls in dashes of Clawd's colour;
   - a runner holds the tool of its call in flight (pencil, book, terminal, flask) over a glow in its colour;
   - a failed call trips it (`OUCH`), a passing test throws a coin;

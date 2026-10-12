@@ -71,6 +71,9 @@ export type RaceLog = {
   count: Record<string, number>
   // Each member's calls in flight, oldest first: parallel calls each hold their own.
   doing: Record<string, CallKind[]>
+  // Each member's latest call as its step line names it, and how many of its calls failed.
+  said: Record<string, string>
+  failed: Record<string, number>
   fellAt: Record<string, number>
   scoredAt: Record<string, number>
   // The turn's finished calls, and how many of them failed.

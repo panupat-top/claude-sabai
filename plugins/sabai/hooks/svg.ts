@@ -541,6 +541,20 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // Each footprint's shape is drawn once in <defs> and placed by <use>: the race is redrawn every
   // second while work runs, and a lane holds up to 16 of them.
   const used = new Set<string>()
+  // A lane's calls that worked and failed, at the right of its line before its time; `room` is
+  // what they and the time leave for the step.
+  const tally = (l: Race['lanes'][number], laneTime: string, ty: number) => {
+    const ok = Math.max(0, l.count - (l.fails ?? 0))
+    let edge = W - 12 - (laneTime ? monoWidth(laneTime, 9.5) + 6 : 0)
+    const marks: string[] = []
+    // In the header's order, from the time leftward: worked, then failed.
+    for (const [n, cls, s] of [[ok, 'c-ok', '✓'], [l.fails ?? 0, 'c-alert', '✗']] as const) {
+      if (!n) continue
+      marks.push(`<text class="${cls}" x="${+edge.toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">${s}${n}</text>`)
+      edge -= monoWidth(`${s}${n}`, 9.5) + 5
+    }
+    return { svg: marks.join(''), room: (stepX: number) => Math.max(20, edge - stepX - 6) }
+  }
   const lanes = race.lanes.map((l, i) => {
     const y = next
     const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
@@ -551,10 +565,12 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       const mark = done ? statusMark(look, 'done', laneX + 4, cy, look.clawd, false) : `<path class="m" opacity=".7" fill-rule="evenodd" d="M${laneX + 1} ${cy}a3 3 0 1 0 6 0a3 3 0 1 0-6 0zM${laneX + 2.4} ${cy}a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0z"/>`
       const slimName = fit(l.who, 10.5, 150)
       const slimStepX = laneX + 16 + textWidth(slimName, 10.5) + 8
+      const slimTally = tally(l, laneTime, cy + 3.5)
       return (
         mark +
         `<text class="${done ? 'c-ok' : 'm'}" x="${laneX + 16}" y="${cy + 3.5}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(slimName)}</text>` +
-        `<text class="m" x="${slimStepX}" y="${cy + 3.5}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - slimStepX - 46)))}</text>` +
+        `<text class="m" x="${slimStepX}" y="${cy + 3.5}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, slimTally.room(slimStepX)))}</text>` +
+        slimTally.svg +
         (laneTime ? `<text class="m" x="${W - 12}" y="${cy + 3.5}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
       )
     }
@@ -592,10 +608,12 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const nameW = textWidth(name, 10.5)
     const badge = l.many ? `<rect class="k" x="${laneX + nameW + 4}" y="${y + 1.5}" width="20" height="11" rx="5.5"/><text class="t" x="${laneX + nameW + 14}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>` : ''
     const stepX = laneX + nameW + (l.many ? 30 : 8)
+    const laneTally = tally(l, laneTime, y + 10)
     const line =
       `<text class="${nameClass}" x="${laneX}" y="${y + 10}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` +
       badge +
-      `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, Math.max(20, W - stepX - 46)))}</text>` +
+      `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, laneTally.room(stepX)))}</text>` +
+      laneTally.svg +
       (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
     // While the lane moves its ground is dashes in Clawd's colour scrolling left; a 10 px period loops
     // without a seam. At rest it is a faint line. Both in inks that show on every card.
@@ -607,7 +625,10 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   })
   const alt = [
     `Race: ${race.running} running${race.done ? `, ${race.done} done` : ''}, ${race.ok} ok${race.fails ? `, ${race.fails} failed` : ''}${time ? `, ${time}` : ''}`,
-    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${l.step}`),
+    ...race.lanes.map(l => {
+      const calls = [l.count - (l.fails ?? 0) > 0 ? `${l.count - (l.fails ?? 0)} ok` : '', l.fails ? `${l.fails} failed` : ''].filter(Boolean).join(', ')
+      return `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${l.step}${calls ? ` (${calls})` : ''}`
+    }),
     ...(race.more ? [`${race.more} more`] : []),
   ].join('; ')
   const defs = used.size ? `<defs>${[...used].map(k => `<path id="sabai-tr-${k}" d="${TRAIL_ICONS[k as keyof typeof TRAIL_ICONS]}"/>`).join('')}</defs>` : ''

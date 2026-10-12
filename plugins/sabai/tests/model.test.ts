@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, failsOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -145,6 +145,16 @@ test('raced keeps each member’s last tiles and counts the turn’s calls and f
   expect([log.total, log.fails, log.fellAt['agent-a']]).toEqual([21, 1, 30])
   log = raced(log, 'main', { kind: 'test', ok: true }, 32)
   expect([log.total, log.fails, log.scoredAt.main]).toEqual([22, 1, 32])
+  // Each member's failures, for its lane's tally; an old log without them counts from none.
+  expect([failsOf(log, 'agent-a'), failsOf(log, 'main')]).toEqual([1, 0])
+  expect(failsOf(raced({ ...log, failed: undefined } as never, 'main', { kind: 'edit', ok: false }, 33), 'main')).toBe(1)
+})
+
+test('a new turn keeps the latest call and failures only of the agents it keeps', () => {
+  const log = { ...raced(raced(EMPTY_RACE, 'main', { kind: 'read', ok: false }, 1), 'live', { kind: 'read', ok: false }, 1), said: { main: 'Read a.ts', live: 'Read b.ts' } }
+  const next = nextTurnRace(log, new Set(['live']))
+  expect([next.said, next.failed]).toEqual([{ live: 'Read b.ts' }, { live: 1 }])
+  expect(nextTurnRace({ ...log, said: undefined, failed: undefined } as never, new Set(['live'])).said).toEqual({})
 })
 
 test('a new turn’s race keeps only the lanes of agents it can still show', () => {
@@ -200,6 +210,27 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   const ends = raceOf(EMPTY_RACE, [run('d', { status: 'done', endedAt: now - 2000 }), run('e', { status: 'failed', endedAt: now - 2000 })], undefined, now, true, now - 10)!
   expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
   expect([ends.running, ends.done]).toEqual([1, 2])
+})
+
+test('a lane with no progress names its latest call, and tallies its failures, merged lanes summed', () => {
+  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  const now = 100_000
+  let log = raced(raced(EMPTY_RACE, 'a', { kind: 'read', ok: true }, 1), 'a', { kind: 'command', ok: false }, 1)
+  log = { ...log, said: { main: 'Edited svg.ts', a: 'Run the tests', p: 'Read x.ts' } }
+  const r = raceOf(log, [run('a'), run('p', { progress: { done: 1, total: 2, note: 'half' } })], undefined, now + 5000, true, now)!
+  expect(r.lanes.map(l => [l.who, l.step, l.count, l.fails])).toEqual([
+    // Main between calls names its latest; a reported step still wins over the latest call.
+    ['Main', 'Edited svg.ts', 0, 0],
+    ['p', '1/2 · half', 0, 0],
+    ['a', 'Run the tests', 2, 1],
+  ])
+  // A call in flight names itself; Main not working waits whatever it last did.
+  expect(raceOf(log, [], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.step).toBe('Editing a.ts')
+  expect(raceOf(log, [run('a')], undefined, now, false, 0)!.lanes[0]!.step).toBe('Waiting')
+  // Four of one type share a lane: their failures add up.
+  const many = ['a', 'b', 'c', 'd'].map(id => run(id))
+  const four = raced(raced(log, 'b', { kind: 'edit', ok: false }, 1), 'c', { kind: 'edit', ok: false }, 1)
+  expect(raceOf(four, many, undefined, now + 5000, true, now)!.lanes[1]).toMatchObject({ many: 4, count: 4, fails: 3 })
 })
 
 test('a turn whose start was not seen (the mod loaded mid-turn) shows no time, never one counted from 1970', () => {
