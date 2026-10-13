@@ -114,6 +114,11 @@ export type RaceLog = {
   // When each member's latest call ended, for how long it has thought since; absent in a log kept from before.
   lastAt?: Record<string, number>
   failed: Record<string, number>
+  // The kind of each member's latest call in flight as the pane names it (an MCP call's plug, a
+  // skill's bulb), where `doing` keeps the race's four; absent in a log kept from before.
+  acting?: Record<string, ActKind>
+  // The skills and MCP servers each member has called, once each: `skill:pdf`, `mcp:Browser`; absent in a log kept from before.
+  used?: Record<string, string[]>
   fellAt: Record<string, number>
   scoredAt: Record<string, number>
   // The turn's finished calls, and how many of them failed.

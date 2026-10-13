@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
-import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
+import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf, usedBy } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, estimated, updated, usageNote } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
@@ -294,8 +294,14 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
 // subagent's calls leave it alone), one with no row of its own (an MCP tool) by those words.
 async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown, kind: CallKind) {
   const member = agentId ?? 'main'
-  const said = actOf(tool, input).now
-  await update($, race, r => ({ ...r, said: { ...r.said, [member]: said }, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
+  const act = actOf(tool, input)
+  const said = act.now
+  // A skill or MCP server the member had not called yet joins its list in the same write.
+  const use = usedBy(act)
+  await update($, race, r => {
+    const had = r.used?.[member] ?? []
+    return { ...r, said: { ...r.said, [member]: said }, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] }, acting: { ...r.acting, [member]: act.kind }, ...(use && !had.includes(use) ? { used: { ...r.used, [member]: [...had, use] } } : {}) }
+  })
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   const at = await $.clock.now()
@@ -310,7 +316,7 @@ const UNFINISHED = { deny: 'unfinished' }
 async function racing($: EngineInterface, agentId: string | undefined, kind: CallKind, called?: { deny?: string; isError?: boolean }, ok?: boolean) {
   const member = agentId ?? 'main'
   if (called === undefined && ok === undefined) {
-    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
+    await update($, race, r => ({ ...r, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] }, acting: { ...r.acting, [member]: kind } }))
     return
   }
   const at = await $.clock.now()
@@ -324,6 +330,7 @@ async function racing($: EngineInterface, agentId: string | undefined, kind: Cal
 }
 
 // The Task tools are an agent's own bookkeeping, shown as its progress: not calls in its log.
+const RACE_KINDS = new Set<string>(['read', 'edit', 'command', 'test'])
 const UNLOGGED = new Set(['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TodoWrite'])
 // The tools whose own hooks run the race; any other a subagent calls runs in its lane from here,
 // so the lane and the pane count the same calls.
@@ -1510,7 +1517,8 @@ export const register: Register = on => {
     const live = rows.live && e.props.isWorking
       ? {
           ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}),
-          ...(step ? { step } : {}),
+          // An MCP or skill call wears its own icon, which the race's four kinds have none of.
+          ...(step ? { step: { ...step, ...(raceLog.acting?.main && !RACE_KINDS.has(raceLog.acting.main) ? { kind: raceLog.acting.main } : {}) } } : {}),
           ...(stepped?.at !== undefined ? { stepMs: Math.max(0, at - stepped.at) } : {}),
           // Between calls, timed as the race times Main; a turn of unknown start with no call yet has none.
           ...(!step && (began !== 0 || raceLog.lastAt?.main) ? { thinkingMs: Math.max(0, at - Math.max(raceLog.lastAt?.main ?? 0, began)) } : {}),

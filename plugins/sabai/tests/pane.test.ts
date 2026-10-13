@@ -180,7 +180,8 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
 test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main is named so and wears its cap; still once settled', () => {
   const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
   expect(lane.source).toContain('Reading svg.ts')
-  expect(lane.source).toContain('<rect y="6" width="4" height="30" rx="2" fill="var(--kl-skill)"/>')
+  // Its skill and MCP server's row makes it 59 px tall.
+  expect(lane.source).toContain('<rect y="6" width="4" height="47" rx="2" fill="var(--kl-skill)"/>')
   expect(lane.source).toContain('stroke="#D97757" stroke-width="1.5"')
   expect(lane.source).toContain('class="run wave"')
   expect(lane.source).toContain('font-weight="800"')
@@ -188,7 +189,7 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
   expect(laneSvg(busy('a'), 454, 30_000, 'raised').source).not.toContain('wave')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
   expect(quiet.source).toMatch(/class="c-warn"[^>]*>Quiet 60s/)
-  expect(quiet.source).toContain(`<rect y="6" width="4" height="30" rx="2" fill="var(--kl-warn)"/>`)
+  expect(quiet.source).toContain(`<rect y="6" width="4" height="47" rx="2" fill="var(--kl-warn)"/>`)
   expect(laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source).not.toContain('@keyframes')
   const main = laneSvg(busy('main:1', { type: 'main', description: 'Main' }), 454, 30_000)
   expect([main.source.includes('>Main<'), main.source.includes('#3a5899'), main.alt.startsWith('Main:')]).toEqual([true, true, true])
@@ -298,4 +299,20 @@ test('an earlier crew’s day reads today, yesterday, else its date', () => {
   expect(dayOf(new Date(2026, 9, 13, 0, 5).getTime(), now)).toBe('TODAY')
   expect(dayOf(new Date(2026, 9, 12, 23, 50).getTime(), now)).toBe('YESTERDAY')
   expect(dayOf(new Date(2026, 9, 10, 18, 5).getTime(), now)).toBe('SAT 10 OCT')
+})
+
+test('a lane names the skills and MCP servers it called as chips: the one in use first and pulsing, then the most called, +N past the room', () => {
+  const at = (tools: Record<string, number>, over: object = {}, W = 454) => laneSvg(busy('u', { tools, ...over }), W, 30_000, 'raised')
+  // None called: no row, the lane keeps its height.
+  expect(at({ Read: 4 }).height).toBe(42)
+  const lane = at({ Read: 4, 'skill:pdf': 1, mcp__claude_ai_Slack__search: 2, mcp__claude_ai_Slack__fetch: 1, 'mcp__plugin_context7_context7__query-docs': 1 }, { doing: [{ kind: 'skill', title: 'Skill pdf', target: 'pdf', now: 'Using pdf' }] })
+  expect(lane.height).toBe(59)
+  // An MCP tool counts under its server; the skill in use leads, outlined, its bulb pulsing.
+  const words = [...lane.source.matchAll(/fill="var\(--kf-(?:skill|web)\)">([^<]+)</g)].map(m => m[1])
+  expect(words).toEqual(['pdf', 'Slack ×3', 'context7'])
+  expect(lane.source).toMatch(/stroke="var\(--kf-skill\)" stroke-width="1"\/><g class="st-pulse"><use href="#sabai-du-lightbulb"/)
+  expect(lane.source).toContain('href="#sabai-du-plug"')
+  expect(lane.alt).toContain('. Used pdf, Slack, context7')
+  // A narrow lane keeps what fits and counts the rest.
+  expect(at({ 'skill:frontend-design': 1, 'skill:superpowers:brainstorming': 1, mcp__claude_ai_Notion__fetch: 1, mcp__claude_ai_Slack__search: 1 }, {}, 280).source).toMatch(/>\+\d</)
 })

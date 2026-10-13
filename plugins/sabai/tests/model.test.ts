@@ -371,3 +371,15 @@ test('a lane counts its calls, a merged lane its members’; Main thinks between
   expect(raceOf({ ...log, doing: { main: ['edit'] } }, [run('a')], undefined, 1000, true, 1)!.lanes[0]!.state).toBe('running')
   expect(raceOf(log, [run('a')], undefined, 1000, false, 0)!.lanes[0]!.state).toBe('waiting')
 })
+
+test('a lane counts the skills and MCP servers its members called, a merged lane all of theirs; a new turn keeps a shown agent’s', () => {
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1 })
+  const used = { main: ['mcp:Browser', 'skill:pdf', 'mcp:Slack'], a: ['mcp:Browser'], b: ['mcp:Browser', 'skill:docx'], c: ['skill:docx'] }
+  const solo = raceOf({ ...EMPTY_RACE, used }, [run('a')], undefined, 1000, true, 1)!
+  expect(solo.lanes.map(l => l.uses)).toEqual([{ skills: 1, mcp: 2 }, { skills: 0, mcp: 1 }])
+  // Four Explore agents share a lane: what any of them called, once each.
+  expect(raceOf({ ...EMPTY_RACE, used }, ['a', 'b', 'c', 'd'].map(run), undefined, 1000, true, 1)!.lanes[1]!.uses).toEqual({ skills: 1, mcp: 1 })
+  // Nothing called, nothing drawn; a log from before has none.
+  expect(raceOf(EMPTY_RACE, [run('a')], undefined, 1000, true, 1)!.lanes.map(l => l.uses)).toEqual([undefined, undefined])
+  expect(nextTurnRace({ ...EMPTY_RACE, used }, new Set(['a'])).used).toEqual({ a: ['mcp:Browser'] })
+})

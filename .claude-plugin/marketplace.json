@@ -12,7 +12,7 @@
       "name": "sabai",
       "source": "./plugins/sabai",
       "description": "Mod: pixel-art band above the prompt (info, tasks, subagents, usage, toolbar), a Subagents pane with reports, settings with raised or flat cards, alerts and a guard, and touches to the conversation (tool summaries, test results, callouts, turn receipts).",
-      "version": "2.21.0",
+      "version": "2.22.0",
       "category": "mod"
     }
   ]
