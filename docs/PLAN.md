@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-13): sabai 2.21.0 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-14): sabai 2.23.0 (release บน GitHub `sabai-v2.23.0`) ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -12,18 +12,18 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | แถว | แสดง | ที่มาของข้อมูล |
 |---|---|---|
 | Info | แถวบนเหนือ band ชิดซ้ายทั้งหมด: ชื่อโปรเจกต์ · ป้าย branch `↑ ↓ ±` · git user · Node (เวอร์ชันเต็ม) | `git`, `node` ผ่าน `$.process.run` (timeout 5 วิ, ไม่รอตอนเริ่ม) · ตาม folder เมื่อ session ย้าย (`$.session.cwd`) · หาไม่ได้ = ซ่อน |
-| Live | step ที่กำลังรันเป็นไอคอนชนิด call (กะพริบ) พร้อมเวลาของ call หรือ `thinking` ระหว่าง call · ขวาเป็นรอยไอคอน call ของ turn (`+N` เมื่อเกิน) · บรรทัด `+/−` และผล test | `turn.start` / `turn.step` / race log / `turnLog` |
+| Live | step ที่กำลังรันเป็นไอคอนชนิด call (กะพริบ) พร้อมเวลาของ call หรือ `Thinking 12s` ระหว่าง call · ขวาเป็นรอยไอคอน call ของ turn (`+N` เมื่อเกิน) · บรรทัด `+/−` และผล test | `turn.start` / `turn.step` / race log / `turnLog` |
 | Tasks | Clawd · bar (dither/blocks/solid) · pill `n/total` · % | `TaskCreate` / `TaskUpdate` / `TodoWrite` ของบทสนทนาหลัก |
 | Clawd | แผงซ้ายของ comfortable: อารมณ์ + เหตุผล + ลูกเล่น · `● N running` เมื่อเป็นตาผู้ใช้แต่ยังมี shell/Monitor เบื้องหลัง | `moodOf` / `moodLine` / `trickOf` · `backgroundTaskId` ของ Bash, `taskId` ของ Monitor |
-| Crew | แถวใน compact/แคบ (comfortable กว้างใช้ Race แทน): Clawd ตัวเล็กต่อ agent พร้อมหมวก/ของ · งานล่าสุด · badge ✓ ✗ ✋ · เวลา | `agent.spawn` / `turn.step` / `turn.complete` |
-| Usage | Context · 5H · 7D All พร้อม countdown · 4 แบบ (Tiles/Rings/Columns/Rows) ทั้ง comfortable และ compact · เตือน/แดงตั้งได้ (ค่าเริ่มต้น 70% / 90%) · ค่าประมาณ `~` ก่อน response แรกและหลัง compact/clear | `session.usage`, `session.measure` |
-| Race | กล่องขวาสุดของ band (comfortable, ≥ 760 px) เมื่อมี agent: แถวละ 22 px ต่อ Main และ agent · stripe สีตาม mood · แผน `n/total` · quiet · จบแล้วกระโดด/ล้ม/✋ แล้วพับเป็น badge | hook ของ Read/Edit/Write/Bash + `tool.call` ไม่มี matcher |
-| Toolbar | icon Lucide ชิดขวาของแถวบน: Guard (เมื่อเปิด) · Compact (บอก % เมื่อถึง warnAt) · Agents (นับที่ทำงาน) · Settings · สีทีละ icon: Agents ตอนมี agent ทำงาน ไม่งั้น Compact | `$.command.list`, `$.command.run` |
+| Crew | แถวใน compact/แคบ (comfortable กว้างใช้ Race แทน): Clawd ตัวเล็กต่อ agent พร้อมหมวก/ของ · งานล่าสุด · นับ done/failed/stopped เป็น tile สถานะ · เวลา | `agent.spawn` / `turn.step` / `turn.complete` |
+| Usage | Context · Session limit · Weekly limit พร้อม countdown · 4 แบบ (Tiles/Rings/Columns/Rows) ทั้ง comfortable และ compact · เตือน/แดงตั้งได้ (ค่าเริ่มต้น 70% / 90%) · ค่าประมาณ `~` ก่อน response แรกและหลัง compact/clear | `session.usage`, `session.measure` |
+| Race | กล่องขวาสุดของ band (comfortable, ≥ 760 px) เมื่อมี agent: แถวละ 22 px ต่อ Main และ agent · stripe สีตาม mood · แผน `n/total` · quiet · นับ skill (หลอดไฟ) และ MCP server (ปลั๊ก) ที่ใช้ · จบแล้วกระโดด/ล้ม/หยุด แล้วพับเป็น tile สถานะ (check/cross/stop) | hook ของ Read/Edit/Write/Bash + `tool.call` ไม่มี matcher |
+| Toolbar | icon Lucide ชิดขวาของแถวบน: Guard (เมื่อเปิด) · Compact (บอก % เมื่อถึง warnAt) · Subagents (นับที่ทำงาน) · Settings · สีทีละ icon: Subagents ตอนมี agent ทำงาน ไม่งั้น Compact | `$.command.list`, `$.command.run` |
 
-- **Agents pane** (`/sabai-agents`): 3 กล่อง **Now** (หัวบอก `N running · N done · N failed`, timeline ของ crew บนแกนเวลาเดียว, lane ของ Main และ agent ละ lane พร้อม stripe mood, ประโยคไทย, ปุ่ม View) → **Viewing** (head: Clawd, mood, call ล่าสุด, STEPS/CONTEXT/TOKENS · Summary ไทยจาก Haiku · Plan · Tools · Calls · Files · Report/Answer · Asked to) → **Earlier** (crew ก่อนหน้าพับเป็นบรรทัด, ป้ายวันเมื่อข้ามวัน, 👑 MVP, Clear) · crew ตาม turn หลัก / workflow / parent เก็บ `CREWS_KEPT` crew · วาดตามขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k
-- **Settings pane** (`/sabai-settings`, `⚙`): Look (layout, theme light/dark อย่างละ 3, bar, แถวที่ไม่มีตัวเลือกของตัวเอง) → Usage → Info row → Clawd → Agents (Step reports, Thai summary) → Conversation → Guard (4 rule เลือก Block/Ask/Off ทีละ rule, ปิดไว้ก่อน) → Notifications → Reset (กดสองครั้ง) · ตัวเลือกที่เป็นภาพ (layout, การ์ด, usage) มีภาพโครงเหนือปุ่ม · ทุกค่าเก็บใน `$.store`
-- **Chat** (เปิดปิดทีละข้อ): แถว Edit/Write/Read/Bash เป็น step บรรทัดเดียว (icon Lucide · หัวข้อ · รายละเอียด · pill ผลลัพธ์ · เวลา) · ผล test ของ bun/jest/vitest/pytest/cargo/go · callout `> [!NOTE]` · spinner ภาษาไทย · receipt ใต้คำตอบของ turn ที่ทำงาน · สีในหน้า chat ใช้ theme key ของผู้ใช้
-- **สี:** pastel ชุดเดียว (`PALETTE`) ใช้กับไอคอน call, badge, stripe, แถบ และ timeline ทั้ง light/dark
+- **Subagents pane** (`/sabai-agents`): 3 กล่อง **Now** (หัวบอก `N running · N done · N failed`, timeline ของ crew บนแกนเวลาเดียว, lane ของ Main และ agent ละ lane พร้อม stripe mood, บรรทัดสถานะภาษาอังกฤษพร้อมไฟล์ที่แตะล่าสุด, chip ของ skill/MCP server ที่ใช้, ปุ่ม View) → **Viewing** (head: Clawd, mood, model และ effort, STEPS/CONTEXT/TOKENS · Summary ไทยจาก Haiku · Progress · Tools · Calls · Files · Report/Answer · Asked to) → **Earlier** (crew ก่อนหน้าพับเป็นบรรทัด, ป้ายวันเมื่อข้ามวัน, 👑 MVP, Clear) · crew ตาม turn หลัก / workflow / parent เก็บ `CREWS_KEPT` crew · วาดตามขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k
+- **Settings pane** (`/sabai-settings`, `⚙`): Look (layout, theme light/dark อย่างละ 3, bar, แถวที่ไม่มีตัวเลือกของตัวเอง) → Usage → Info row → Clawd → Subagents (Step reports, Thai summary) → Conversation → Guard (4 rule เลือก Block/Ask/Off ทีละ rule, ปิดไว้ก่อน) → Notifications → Reset (กดสองครั้ง) · ตัวเลือกที่เป็นภาพ (layout, theme, usage) มีภาพของตัวที่ใช้อยู่ภาพเดียวเหนือแถวปุ่ม · ทุกค่าเก็บใน `$.store`
+- **Chat** (เปิดปิดทีละข้อ): แถว Edit/Write/Read/Bash เป็น step บรรทัดเดียว (icon Lucide · หัวข้อ · รายละเอียด · pill ผลลัพธ์ · เวลา) · ผล test ของ bun/jest/vitest/pytest/cargo/go · callout `> [!NOTE]` · receipt ใต้คำตอบของ turn ที่ทำงาน · สีในหน้า chat ใช้ theme key ของผู้ใช้
+- **สี:** ธีม light 3 แบบ (Mono, Pastel, Matcha) กับ dark 3 แบบ (Ink, Forest, Synthwave) เลือกโหมดละตัว (`themes.ts`) ใช้กับการ์ด ตัวอักษร แถบ ไอคอน call tile สถานะ stripe และ timeline · Clawd เป็นส้ม clay ทุกธีม
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 
 ## 2. การตัดสินใจ
@@ -36,6 +36,8 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | 7D <model> | ตัดทิ้ง | engine ไม่มีค่านี้ ทางเดียวคือให้ mod อ่าน OAuth token เอง |
 | ปุ่ม / status line | icon ในแถวบนข้างแถว info · ไม่มี status line | เดิมตัดปุ่มออก ตอนนี้เพิ่มกลับเฉพาะเรียก feature · `$.ui.status` ไม่แสดงใน Code tab |
 | ตั้งค่า | pane Settings + slash command | `/config` ใช้ใน Code tab ไม่ได้ |
+| สี | ธีมสำเร็จรูป light 3 + dark 3 เป็นค่าคงที่ (2.23.0) | test รับประกัน contrast ทุกธีม (ตัวอักษร ≥ 4.5:1, glyph ≥ 5:1) · สี hex อิสระรับประกันไม่ได้ |
+| Release | ทุก release ที่ push ขึ้น main ออก tag `sabai-vX.Y.Z` และ GitHub release ด้วย | 2.5.0–2.22.1 ไม่ได้ออก หน้า Releases ค้างที่ 2.4.2 จนถึง 2.23.0 |
 
 ## 3. บทเรียนจาก engine (Claude Code 2.1.29x)
 
@@ -72,13 +74,13 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
 |---|---|---|---|---|
-| V1 | Agents pane | contrast บนพื้น tint | S–M | NEW และ icon บน tile แก้แล้ว · ยังต่ำกว่า 4.5:1: ป้าย mood `m` บน `kl-skill` (Raised dark 4.25), mood failed (Raised dark 4.27, Flat dark 4.39), mood done (Flat light 4.35), ตัวนับใน chip MCP (Raised dark 4.12, Flat dark 4.31), `+added` (Flat light 4.41) · เพิ่ม test ที่วัดตัวหนังสือบนพื้น tint |
-| V2 | Agents pane | ค่า CONTEXT ใน head ถูกตัด | S | การทับกับป้าย mood แก้แล้ว · ต่ำกว่า ~391 px ค่า `64k · 32%` ถูกตัด และที่ 240 px เหลือแค่ `…` ให้ใช้ `%` อย่างเดียวเมื่อค่าเต็มไม่พอดี (svg.ts:1500) |
-| V3 | Agents pane | สิ่งที่เกิน budget หายเงียบ | S | แถว Earlier (register.tsx:771) และกล่องย่อยของ Viewing (:752–755) ไม่มีตัวนับ `+N` เหมือน lane · หัว Earlier นับ crew ทั้งหมดแม้วาดไม่ครบ |
-| V5 | Agents pane | performance ที่เหลือ | M | ทำแล้วใน 2.21.0: รวม update, นาฬิกา 1 วินาทีเดินเฉพาะตอนมีงาน, Haiku พร้อมกันไม่เกิน 2 · `durations` (หนึ่งตัวเลขต่อ Bash call) ลบไม่ได้เพราะ `$.state` ไม่มีการลบ จึงคงไว้ · เหลือ: ถ้ายังช้า แยกรายละเอียดหนักของ run (`calls`, `files`, `tools`, `result`, `rounds`) ไปเป็น StateFamily ตาม agentId ให้ atom `agents` เหลือแค่ list เบา ๆ (ได้มากสุดแต่แตะหลายไฟล์ ควรวัดบน desktop ก่อน) |
+| V1 | Subagents pane | contrast บนพื้น tint | S–M | NEW และ icon บน tile แก้แล้ว · ก่อน 2.23.0 ยังต่ำกว่า 4.5:1: ป้าย mood บนพื้น tint, ตัวนับใน chip MCP, `+added` (วัดกับ Raised/Flat เดิม) · ต้องวัดใหม่กับ 6 ธีม แล้วเพิ่ม test ที่วัดตัวหนังสือบนพื้น tint ทุกธีม |
+| V2 | Subagents pane | ค่า CONTEXT ใน head ถูกตัด | S | การทับกับป้าย mood แก้แล้ว · ต่ำกว่า ~391 px ค่า `64k · 32%` ถูกตัด และที่ 240 px เหลือแค่ `…` ให้ใช้ `%` อย่างเดียวเมื่อค่าเต็มไม่พอดี (meter CONTEXT ใน `agentHeadSvg`) |
+| V3 | Subagents pane | สิ่งที่เกิน budget หายเงียบ | S | แถว Earlier และกล่องย่อยของ Viewing (`fits` ใน pane ของ register.tsx) ไม่มีตัวนับ `+N` เหมือน lane · หัว Earlier นับ crew ทั้งหมดแม้วาดไม่ครบ |
+| V5 | Subagents pane | performance ที่เหลือ | M | ทำแล้วใน 2.21.0: รวม update, นาฬิกา 1 วินาทีเดินเฉพาะตอนมีงาน, Haiku พร้อมกันไม่เกิน 2 · `durations` (หนึ่งตัวเลขต่อ Bash call) ลบไม่ได้เพราะ `$.state` ไม่มีการลบ จึงคงไว้ · เหลือ: ถ้ายังช้า แยกรายละเอียดหนักของ run (`calls`, `files`, `tools`, `result`, `rounds`) ไปเป็น StateFamily ตาม agentId ให้ atom `agents` เหลือแค่ list เบา ๆ (ได้มากสุดแต่แตะหลายไฟล์ ควรวัดบน desktop ก่อน) |
 | L1 | Band · usage | เก็บ rate limit ล่าสุด | S | ข้อ 4 ของ review 2.20.0 · `readUsage` และ `session.measure` แทน usage ทั้งก้อน ถ้า response ไม่มี rate limit ค่า 5H/7D เดิมหายไป |
 | R3 | Band · live strip | ต่อยอดการทำงานและการแสดงผล | M | ต้องกำหนด scope ก่อนเริ่ม (ยังไม่ชัดว่าจะเพิ่มอะไร) |
-| L2 | โค้ด | ของค้างจาก 2.19.0 | S–M | รวมตัวสร้าง `<svg xmlns…>` ที่มีอยู่ 8 จุดใน svg.ts · หัวกลุ่ม settings ยังใช้ ✻/◈ (register.tsx:1235, 1263) |
+| L2 | โค้ด | ของค้างจาก 2.19.0 | S–M | รวมตัวสร้าง `<svg xmlns…>` ที่มีอยู่ 9 จุดใน svg.ts · หัวกลุ่ม settings ยังใช้ ✻/◈ (กลุ่ม Subagents และ Guard) |
 
 ### P3 — ภายหลัง (ใหญ่)
 
@@ -91,8 +93,8 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 | ID | งาน | เหตุผล |
 |---|---|---|
-| S-A | Customize มุม, พื้นหลัง, animation | ส่วนที่มีค่าทำแล้ว (density 2.2, Raised/Flat 2.8, ปิดลูกเล่นได้, เคารพ reduced motion) · band ตั้งใจไม่วาดพื้นหลัง · มุมอย่างเดียวไม่คุ้ม |
-| S-C | Custom skin (hex), export/import JSON, skin ต่อ project | ขัดกับการตัดสินใจใน 2.8 ที่เหลือ 2 look ซึ่ง test รับประกัน contrast ≥ 4.5:1 ทั้ง light/dark · สี hex อิสระรับประกันไม่ได้ |
+| S-A | Customize มุม, พื้นหลัง, animation | ส่วนที่มีค่าทำแล้ว (density 2.2, ธีม light/dark 2.23, ปิดลูกเล่นได้, เคารพ reduced motion) · band ตั้งใจไม่วาดพื้นหลัง · มุมอย่างเดียวไม่คุ้ม |
+| S-C | สี hex เอง, export/import JSON, ธีมต่อ project | ธีมเป็นชุดสีคงที่ที่ test รับประกัน contrast ทุกธีม (2.23) · สี hex อิสระรับประกันไม่ได้ |
 | A1–A4 | ธีมทั้ง transcript | เสี่ยงพังเมื่อ Claude Code อัปเดต |
 
 ### ข้อจำกัดที่รู้แล้ว (ตั้งใจไม่แก้)

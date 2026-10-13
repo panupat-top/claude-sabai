@@ -25,14 +25,14 @@ The band appears in every new Code tab session. Mods do not load in the desktop 
 A top row sits above the band: the info row on a card, and the guard and toolbar as icons at the right. In the comfortable density (the default) the band under it is three panels:
 
 ```
- ▪ claude-skins (⑂ main) ↑2 ±1  ◆ Panupat  ⬢ v24.21.0                [🛡 2] [⇕ 74%] [🤖 3] [⚙]
-╭─────────┬─────────────────────────────────────────────┬────────────────────────────────╮
-│  CLAWD  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ 3 running · 1 done  ✗1 ✓12 1:42 │
-│   (×3)  │ │ CONTEXT     │ │SESSION LIMIT│ │WEEKLY LIMIT │ │ Main · Editing svg.ts     1:42 │
-│ working │ │ 74%         │ │ 27%         │ │ 18%         │ │ ▬▬▬▬▬     🦀✏            ⚑ │
-│         │ │ ▓▓▓▓▓▓▓░░░  │ │ ▓▓▓░░░░░░░  │ │ ▓▓░░░░░░░░  │ │ Explore ×3 · 3 running    0:12 │
-│         │ │ 743.5k / 1M │ │ ↻ 19m       │ │ ↻ 4d 11h    │ │ ▬▬      🦀🦀🦀📖          ⚑ │
-╰─────────┴─────────────────────────────────────────────┴────────────────────────────────╯
+ ▪ claude-skins (⑂ main) ↑2 ±1  ◆ Panupat  ⬢ v24.21.0                       [🛡 2] [⇕ 74%] [🤖 3] [⚙]
+╭─────────┬───────────────────────────────────────────────┬─────────────────────────────────────╮
+│  CLAWD  │ ✎ Editing svg.ts 4s           ▪▪▪▪+12  +42 −8 │ 3 running · 1 done       ✗ 1  1m 42s │
+│   (×3)  │ ╭─────────────╮ ╭─────────────╮ ╭─────────────╮ │ ▌🦀 Main     ✎ Editing svg.ts 1m 42s │
+│ working │ │ CONTEXT     │ │SESSION LIMIT│ │WEEKLY LIMIT │ │ ▌🦀 Fix race 📖 Reading… 2/5 ▬  58s │
+│         │ │ 74%         │ │ 27%         │ │ 18%         │ │ ▌🦀 Explore ×2 ••• Thinking 3s  12s │
+│         │ │ ▓▓▓▓▓▓▓░░░  │ │ ▓▓▓░░░░░░░  │ │ ▓▓░░░░░░░░  │ │ ▌🦀 Run tests ✓ Done            20s │
+╰─────────┴───────────────────────────────────────────────┴─────────────────────────────────────╯
 ```
 
 - **Clawd**, large, with his mood in a word and why under it:
@@ -63,7 +63,7 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
   - a subagent that has said nothing for 30 s dozes and reads `Quiet 47s`; a failed call trips it for a moment;
   - a subagent that just failed falls on a red-flashing row, then settles, its Clawd dimmed and its line led by a red cross (`Failed`); one you stopped settles with a stop mark (`Stopped`);
   - a subagent that just finished hops among confetti on a flashing row (`Done 🎉`), then settles, its Clawd dimmed and its line led by a green check;
-  - each finished, failed or stopped subagent wears the same mark everywhere, in the race, the subagents row and the Subagents pane: a check, a cross or a stop, filled soft green, red or grey. The band's and pane's colours are one pastel set, softer tiles with deep glyphs in light mode and deep tiles with bright glyphs in dark;
+  - each finished, failed or stopped subagent wears the same mark everywhere, in the race, the subagents row and the Subagents pane: a check, a cross or a stop on a soft tile. Every tile, bar and word takes your theme's colours (Settings › Look), one theme in light mode and one in dark;
   - more subagents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Subagents for all` counts any left over. The details live in the Subagents pane.
 
   Turning **Subagents** off in Settings hides the race; **Activity** is the line of what Main is doing.
@@ -143,7 +143,7 @@ Groups run from what you see most to what you set once. A part of the band with 
 | Guard | Off by default. Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
 | Notifications | Turn ended: when a turn of a minute or more ends or a subagent fails; Limit warnings: once per window when the session or weekly limit passes your red mark (on) |
 
-**Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the look and the bar style back.
+**Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the theme (Mono and Ink) and the bar style back.
 
 The guard is a safety net, not a sandbox: it catches common slips, not someone set on getting round it.
 
@@ -162,7 +162,7 @@ Restart Claude Code after either one.
 
 ## Privacy
 
-sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests of its own. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads. With **Thai summary** on, a finished subagent's description, prompt, report, file names and failed calls are sent to Haiku through Claude Code's own API client (your session's account) to be summed up; turn it off in Settings › Agents to send nothing.
+sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests of its own. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads. With **Thai summary** on, a finished subagent's description, prompt, report, file names and failed calls are sent to Haiku through Claude Code's own API client (your session's account) to be summed up; turn it off in Settings › Subagents to send nothing.
 
 ## Troubleshooting
 
