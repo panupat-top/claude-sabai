@@ -110,6 +110,7 @@ async function shown($: Engine, surface: Surface, isWorking = false) {
     buttons: buttons.length,
     svgs: svgs.length,
     tools: tools.map(t => t.alt),
+    sources: svgs.map(s => String(s.props.source)).join(''),
   }
 }
 
@@ -631,7 +632,8 @@ const step = async ($: Engine, agentId: string, effort?: 'low' | 'high' | 'xhigh
 type PaneUi = Awaited<ReturnType<typeof mountPane>> | Awaited<ReturnType<typeof widePane>>
 const svgsOf = async (ui: PaneUi) => (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
 const altsOf = async (ui: PaneUi) => (await svgsOf(ui)).map(s => s.props.alt)
-const laneOf = async (ui: PaneUi, name: string) => (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith(`${name}:`))
+// A lane is 42 px tall, 59 with its row of skills and MCP servers.
+const laneOf = async (ui: PaneUi, name: string) => (await svgsOf(ui)).find(s => /height="(42|59)"/.test(s.props.source) && s.props.alt.startsWith(`${name}:`))
 // The detail's head: the drawing 128 px tall.
 const headOf = async (ui: PaneUi) => (await svgsOf(ui)).find(s => s.props.source.includes('height="128"'))
 // The pane's Markdowns.
@@ -720,12 +722,16 @@ test('Main’s MCP call runs in its race lane in the pane’s words; after it, t
   await spawn($, 'scout')
   const call = $.tool.call({ tool: 'mcp__Claude_Browser__computer', action: 'screenshot' } as never)
   await settle()
-  expect((await shown($, 'desktop', true)).words).toContain('Main running: Using Browser · computer')
+  const during = await shown($, 'desktop', true)
+  expect(during.words).toContain('Main running: Using Browser · computer')
+  // Its lane leads with the MCP plug, pulsing, not the race's terminal.
+  expect(during.sources).toMatch(/<g class="st-pulse"><use href="#sabai-du-plug"/)
   finishCall()
   await call
   await clock.advance(3000)
-  expect((await shown($, 'desktop', true)).words).toContain('Main thinking: Thinking 3s')
-  expect((await laneOf(await mountPane($, 'desktop'), 'Main'))?.props.alt).toContain('Thinking 3s · last: Browser · computer')
+  expect((await shown($, 'desktop', true)).words).toContain('Main thinking: Thinking 3s, 1 MCP server')
+  const lane = await laneOf(await mountPane($, 'desktop'), 'Main')
+  expect(lane?.props.alt).toContain('Thinking 3s · last: Browser · computer. Used Browser')
 })
 
 test('the race follows the Subagents switch, not Activity', async ($, on) => {
@@ -2334,4 +2340,24 @@ test('a first press of Reset that is not followed within five seconds lapses, an
   await clock.advance(6000)
   expect((await pane.find({ key: 'reset-defaults' }))?.props.label).toBe('Reset to defaults')
   expect((store.prefs as { guard: boolean }).guard).toBe(true)
+})
+
+test('Main alone on an MCP call: the live strip leads with the plug, and a skill with its bulb', async ($, on) => {
+  let finish = () => {}
+  for (const tool of ['mcp__Claude_Browser__computer', 'Skill'])
+    on('tool.call', { tool } as never, () => new Promise(done => (finish = () => done({ result: {} } as never))) as never)
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'solo' } as never)
+  const mcp = $.tool.call({ tool: 'mcp__Claude_Browser__computer', action: 'screenshot' } as never)
+  await settle()
+  expect((await shown($, 'desktop', true)).sources).toMatch(/<g class="st-pulse"><use href="#sabai-du-plug"/)
+  finish()
+  await mcp
+  const skill = $.tool.call({ tool: 'Skill', skill: 'pdf' } as never)
+  await settle()
+  expect((await shown($, 'desktop', true)).sources).toMatch(/<g class="st-pulse"><use href="#sabai-du-lightbulb"/)
+  finish()
+  await skill
 })

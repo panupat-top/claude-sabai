@@ -1,7 +1,7 @@
 import type { ActKind, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
-import { FULL_AT, isMain, agentMood, clock, quietFor, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, laneLine, toolsOf, typeEmoji, typeStyle } from './agents'
+import { FULL_AT, isMain, agentMood, clock, quietFor, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, laneLine, toolsOf, typeEmoji, typeStyle, usesOf } from './agents'
 import type { AgentMood } from './agents'
-import type { Lane, Race } from './agents'
+import type { Lane, Race, Uses } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
 import { countdown, hhmm, paceOf, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
@@ -571,6 +571,14 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
         `<text class="m" x="${+(bx - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9">${frac}</text>`
       edge = bx - 4 - monoWidth(frac, 9) - 6
     }
+    if (l.uses) {
+      for (const [kind, n] of [['skill', l.uses.skills], ['mcp', l.uses.mcp]] as const) {
+        if (!n) continue
+        edge -= 12 + 2 + monoWidth(String(n), 9.5)
+        right += useIcon(kind, +edge.toFixed(1), mid - 6, 12) + `<text class="m" x="${+(edge + 14).toFixed(1)}" y="${ty}" font-family="${MONO}" font-size="9.5">${n}</text>`
+        edge -= 6
+      }
+    }
     const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || (l.fresh && l.state === 'done') ? 'hop' : l.state === 'failed' && l.fresh ? 'out' : 'idle'
     const style = l.type ? hatOf(look, l.type) : undefined
     // Main wears the captain's cap; a finished agent holds its report.
@@ -608,7 +616,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   if (race.more) height += 16
   const alt = [
     `Race: ${[lead, ...ended.split(' · '), race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
-    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state === 'tripped' || l.state === 'scored' ? 'running' : l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
+    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state === 'tripped' || l.state === 'scored' ? 'running' : l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}${l.uses ? `, ${[l.uses.skills && plural(l.uses.skills, 'skill'), l.uses.mcp && plural(l.uses.mcp, 'MCP server')].filter(Boolean).join(' and ')}` : ''}`),
     ...(race.more ? [`${race.more} more in the Subagents pane`] : []),
   ].join('; ')
   return { body: `<style>${RACE_MOTION}</style>` + head + rows.join('') + more, height: height + 6, alt }
@@ -881,7 +889,8 @@ export type BandOpts = {
 // the turn's finished calls (the last RACE_TILES of `calls`), the lines its edits changed, its tests.
 export type LiveStrip = {
   elapsedMs?: number
-  step?: { icon: StepIcon; title: string }
+  // A call the race's kinds do not cover (MCP, a skill) carries its own kind for its icon.
+  step?: { icon: StepIcon; title: string; kind?: ActKind }
   stepMs?: number
   // With no call in flight, how long since its last call ended (or the turn began), as the race says it.
   thinkingMs?: number
@@ -938,7 +947,7 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
     const took = live.stepMs !== undefined && live.stepMs >= 1000 ? clock(live.stepMs) : ''
     const title = room > 60 ? fit(live.step.title, 12, room - 22 - (took ? monoWidth(took, 11) + 8 : 0)) : ''
     left =
-      statusTile({ call: STEP_KIND[live.step.icon] }, stepX, top + 2, 16) +
+      statusTile({ call: live.step.kind ?? STEP_KIND[live.step.icon] }, stepX, top + 2, 16) +
       (title ? `<text class="st" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` : '') +
       (title && took ? `<text class="m" x="${+(stepX + 22 + textWidth(title, 12) + 8).toFixed(1)}" y="${ty}" font-family="${MONO}" font-size="11">${took}</text>` : '')
   } else {
@@ -1360,7 +1369,7 @@ const STATUS_GLYPH: Record<'waiting' | 'quiet' | 'context' | 'done' | 'failed' |
 const laneTile = (l: Lane): StatusTile =>
   l.state === 'done' || l.state === 'failed' || l.state === 'stopped' || l.state === 'waiting'
     ? l.state
-    : l.quietMs !== undefined ? 'quiet' : l.mood === 'context' ? 'context' : l.doing ? { call: l.doing } : 'thinking'
+    : l.quietMs !== undefined ? 'quiet' : l.mood === 'context' ? 'context' : l.doing ? { call: l.act ?? l.doing } : 'thinking'
 // A run's tile, by its mood: its call's while one runs, its summary being written once done.
 const runTile = (a: AgentRun, mood: AgentMood): StatusTile =>
   mood === 'working' ? { call: a.doing!.at(-1)!.kind } : mood === 'done' ? (a.summary === 'pending' ? 'summing' : 'done') : mood
@@ -1455,6 +1464,41 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
 // its badge), his Thai line (in his mood's ink when something needs a look), his share done and
 // his time. The one viewed is ringed and tinted in Clawd's colour, and its Clawd waves in a soft light.
 export const AGENT_LANE_H = 42
+// A lane that called skills or MCP servers grows a row of chips naming them.
+const USES_ROW = 17
+
+// A skill's lightbulb or an MCP server's plug, in its hue; a call using it now pulses.
+function useIcon(kind: 'skill' | 'mcp', x: number, y: number, size: number, live = false): string {
+  const hue: Hue = kind === 'mcp' ? KIND_HUE.mcp : KIND_HUE.skill
+  const g = `<use href="#sabai-du-${CALL_ICON[kind]}" fill="${kb(hue)}" stroke="${kf(hue)}" transform="translate(${x},${y}) scale(${(size / 24).toFixed(3)})"/>`
+  return live ? `<g class="st-pulse">${g}</g>` : g
+}
+// The skills and MCP servers a run called as chips on their hue's ground, its glyph ink for the
+// words: the one in use first (outlined, its icon pulsing), then the most called; "+N" past the room.
+function usesChips(u: Uses, x: number, y: number, room: number): string {
+  const items = [...u.skills.map(([n, c]) => ['skill', n, c] as const), ...u.mcp.map(([n, c]) => ['mcp', n, c] as const)]
+  const live = (k: string, n: string) => u.live === `${k}:${n}`
+  items.sort((a, b) => +live(b[0], b[1]) - +live(a[0], a[1]) || b[2] - a[2])
+  let cx = x
+  let out = ''
+  for (const [i, [kind, name, n]] of items.entries()) {
+    const label = `${name}${n > 1 ? ` ×${n}` : ''}`
+    const w = 20 + textWidth(label, 10.5) + 8
+    // Room for this chip, and for "+N" after it unless it is the last.
+    if (cx + w > x + room - (i < items.length - 1 ? 26 : 0)) {
+      out += `<text class="m" x="${+(cx + 2).toFixed(1)}" y="${y + 12.5}" font-family="${SANS}" font-size="10.5">+${items.length - i}</text>`
+      break
+    }
+    const hue: Hue = KIND_HUE[kind]
+    const now = live(kind, name)
+    out +=
+      `<rect x="${+cx.toFixed(1)}" y="${y}" width="${+w.toFixed(1)}" height="16" rx="8" fill="${kb(hue)}"${now ? ` stroke="${kf(hue)}" stroke-width="1"` : ''}/>` +
+      useIcon(kind, +(cx + 4).toFixed(1), y + 2, 12, now) +
+      `<text x="${+(cx + 20).toFixed(1)}" y="${y + 12}" font-family="${SANS}" font-size="10.5" fill="${kf(hue)}">${xml(label)}</text>`
+    cx += w + 5
+  }
+  return out
+}
 // An ended lane's badge on its Clawd: a green check, a red cross or a hand for a stop, as the
 // timeline marks them, ringed in the card's colour. In the seconds after a run ends its lane is tinted green or red.
 function endTint(a: AgentRun, mood: AgentMood, now: number, W: number, H: number): string {
@@ -1479,9 +1523,11 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX
   const name = fit(a.description || a.type, size, textRoom)
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
-  const H = AGENT_LANE_H
+  const chips = usesChips(usesOf(a), textX, AGENT_LANE_H - 2, W - textX - PAD)
+  const H = AGENT_LANE_H + (chips ? USES_ROW : 0)
   const body =
     `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
+    chips +
     (selected
       ? `<rect x=".75" y=".75" width="${W - 1.5}" height="${H - 1.5}" rx="7.5" fill="${look.clawd}" fill-opacity=".08" stroke="${look.clawd}" stroke-width="1.5"/>` +
         spotlight(uid, look, 12 + CLAWD_W / 2, H / 2 + 2, 26, 20)
@@ -1495,7 +1541,9 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
     (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(mood), style) : '') +
     (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
     `<text class="t" x="${right}" y="17" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>`
-  return paneDrawing(look, W, H, body, `${a.description || a.type}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
+  const u = usesOf(a)
+  const used = [...u.skills, ...u.mcp].map(([n]) => n).join(', ')
+  return paneDrawing(look, W, H, body, `${a.description || a.type}: ${moodLabel(a, now, window)}, ${time}. ${line}${used ? `. Used ${used}` : ''}`, moving(a, now))
 }
 
 // The detail's head, a line for each thing: Clawd large in his mood, waving in a soft light,

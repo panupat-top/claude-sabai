@@ -896,3 +896,12 @@ test('a usage with nothing to show leaves a note in its place', () => {
     expect(d.alt).toContain('No usage reading yet')
   }
 })
+
+test('a race row shows how many skills and MCP servers its lane called, a lightbulb and a plug before its time', () => {
+  const part = racePart(lookOf('auto'), race([{ uses: { skills: 1, mcp: 2 } }, { id: 'a', who: 'Survey', type: 'Explore', line: 'Thinking 3s', uses: { skills: 0, mcp: 1 } }, { id: 'b', who: 'Map', type: 'Explore', line: 'Reading a.ts' }]), 300, 0)
+  expect((part.body.match(/href="#sabai-du-lightbulb"/g) ?? []).length).toBe(1)
+  expect((part.body.match(/href="#sabai-du-plug"/g) ?? []).length).toBe(2)
+  expect(part.alt).toContain('Main running: n, 1 skill and 2 MCP servers')
+  expect(part.alt).toContain('Survey running: Thinking 3s, 1 MCP server;')
+  expect(part.alt).toMatch(/Map running: Reading a\.ts(;|$)/)
+})

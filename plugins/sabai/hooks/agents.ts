@@ -182,7 +182,7 @@ export function clock(ms: number): string {
 export type LaneState = 'failed' | 'stopped' | 'done' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
 // agent in the seconds after it finished or failed.
-export type Lane = { id: string; who: string; type?: string; many?: number; line: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
+export type Lane = { id: string; who: string; type?: string; many?: number; line: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState; uses?: { skills: number; mcp: number }; act?: ActKind }
 export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type.includes(':') ? type.split(':').pop()! : type)
@@ -198,9 +198,17 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   if (running.length === 0 && (!mainWorking || ended.length === 0)) return undefined
   // The call a lane's runner holds: the latest in flight among its members.
-  const doingFor = (ids: string[]): { doing?: CallKind } => {
+  // A lone member's call in flight also says its kind as the pane names it (an MCP call's plug).
+  const doingFor = (ids: string[]): { doing?: CallKind; act?: ActKind } => {
     const kind = ids.flatMap(id => doingOf(log, id)).at(-1)
-    return kind ? { doing: kind } : {}
+    const act = ids.length === 1 ? log.acting?.[ids[0]!] : undefined
+    return kind ? { doing: kind, ...(act ? { act } : {}) } : {}
+  }
+  // How many skills and MCP servers a lane's members have called.
+  const usesFor = (ids: string[]): { uses?: { skills: number; mcp: number } } => {
+    const keys = new Set(ids.flatMap(id => log.used?.[id] ?? []))
+    const skills = [...keys].filter(k => k.startsWith('skill:')).length
+    return keys.size ? { uses: { skills, mcp: keys.size - skills } } : {}
   }
   const timed = (id: string): LaneState | undefined =>
     now - (log.fellAt[id] ?? -Infinity) < TRIP_MS ? 'tripped' : now - (log.scoredAt[id] ?? -Infinity) < SCORE_MS ? 'scored' : undefined
@@ -215,6 +223,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     count: countOf(log, 'main'),
     fails: failsOf(log, 'main'),
     ...doingFor(['main']),
+    ...usesFor(['main']),
     // Working between calls is thinking; waiting is Main not working while agents run.
     state: timed('main') ?? (!mainWorking ? 'waiting' : doingOf(log, 'main').length ? 'running' : 'thinking'),
   }
@@ -248,6 +257,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         count: ids.reduce((n, i) => n + countOf(log, i), 0),
         fails: ids.reduce((n, i) => n + failsOf(log, i), 0),
         ...doingFor(ids),
+        ...usesFor(ids),
         state: ids.some(i => timed(i) === 'tripped') ? 'tripped' : 'running',
       }
     }
@@ -266,6 +276,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       count: countOf(log, id),
       fails: failsOf(log, id),
       ...doingFor([id]),
+      ...usesFor([id]),
       mood,
       ...(mood === 'quiet' ? { quietMs: quietFor(a, now) } : {}),
       ...((state === 'done' || state === 'failed') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
@@ -354,6 +365,21 @@ export function toolsOf(a: AgentRun): { builtin: [string, number][]; skills: [st
     skills: all.filter(([k]) => k.startsWith('skill:')).map(([k, n]) => [k.slice(6), n]),
     mcp: all.filter(([k]) => k.startsWith('mcp__')).map(([k, n]) => [mcpName(k) ?? k, n]),
   }
+}
+
+// The skill or MCP server a call used, as the race keeps it: `skill:pdf`, `mcp:Browser`.
+export const usedBy = (act: { kind: ActKind; target: string }): string | undefined =>
+  act.kind === 'skill' && act.target ? `skill:${act.target}` : act.kind === 'mcp' ? `mcp:${act.target.split(' · ')[0]}` : undefined
+
+// The skills and MCP servers a run called, with how often (an MCP tool counted under its server),
+// and the one a call in flight is using.
+export type Uses = { skills: [string, number][]; mcp: [string, number][]; live?: string }
+export function usesOf(a: AgentRun): Uses {
+  const t = toolsOf(a)
+  const servers = new Map<string, number>()
+  for (const [name, n] of t.mcp) servers.set(name.split(' · ')[0]!, (servers.get(name.split(' · ')[0]!) ?? 0) + n)
+  const live = (a.doing ?? []).map(usedBy).filter(Boolean).at(-1)
+  return { skills: t.skills, mcp: [...servers], ...(live ? { live } : {}) }
 }
 
 // ---- Crews: the agents one main turn (or workflow run) started.

@@ -257,7 +257,7 @@ export const paceOf = (count: number): number => Math.max(0.1, Math.min(0.85, 1 
 // A new main turn's race: Main and the counts start over, and only agents the race can still show keep their lanes.
 export function nextTurnRace(log: RaceLog, kept: Set<string>): RaceLog {
   const keep = <T>(o: Record<string, T>) => Object.fromEntries(Object.entries(o).filter(([k]) => kept.has(k)))
-  return { ...EMPTY_RACE, calls: keep(log.calls), count: keep(log.count ?? {}), doing: keep(log.doing), said: keep(log.said ?? {}), failed: keep(log.failed ?? {}), fellAt: keep(log.fellAt), scoredAt: keep(log.scoredAt) }
+  return { ...EMPTY_RACE, calls: keep(log.calls), count: keep(log.count ?? {}), doing: keep(log.doing), said: keep(log.said ?? {}), failed: keep(log.failed ?? {}), fellAt: keep(log.fellAt), scoredAt: keep(log.scoredAt), ...(log.used ? { used: keep(log.used) } : {}), ...(log.acting ? { acting: keep(log.acting) } : {}) }
 }
 
 // One finished call of a member folded into the race: its tile, its fall or score, the turn's counts.
