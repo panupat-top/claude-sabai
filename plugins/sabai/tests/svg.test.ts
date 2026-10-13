@@ -4,7 +4,7 @@ import type { AgentRun } from '../types'
 import { sprite, spriteSize } from '../hooks/sprites'
 import { icon } from '../hooks/icons'
 import { contrast } from '../hooks/themes'
-import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg, TRAIL_ICONS } from '../hooks/svg'
+import { CALLOUT_KINDS, CARD, CHAT_INK, MOTION, PILL_TINT, TEXT, bandSvg, barPreview, skinPreview, monoWidth, USAGE_STYLES, calloutTitleSvg, infoSvg, lookOf, racePart, receiptSvg, stepSvg, toolIconSvg } from '../hooks/svg'
 
 const LIST = [
   { kind: 'context', label: 'Context', percent: 85, amount: '434.5k / 1M', level: 'warn' },
@@ -373,54 +373,62 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   expect(bandSvg(undefined, LIST, 900, { hero: true, clawd: false })!.source).not.toMatch(/scale\(3\)/)
 })
 
-test('the race box draws a lane per member with its state, tools, glow, tiles and flag', () => {
-  const race = {
-    running: 3, done: 1, ok: 12, fails: 1, elapsedMs: 102_000, more: 1,
-    lanes: [
-      { id: 'main', who: 'Main', step: 'Editing svg.ts', timeMs: 102_000, progress: 0.5, count: 2, calls: [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }], doing: 'edit', state: 'running' },
-      { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, count: 1, calls: [{ kind: 'test', ok: true }], state: 'scored' },
-      { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, fails: 1, calls: [{ kind: 'command', ok: false }], state: 'tripped' },
-      { id: 'c', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, count: 0, calls: [], state: 'finished' },
-    ],
-  } as const
-  const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(24 + 3 * 42 + 18 + 6)
-  // The finished lane folds to a line: no green flag.
-  expect(part.body).not.toContain('class="flag c-ok"')
-  for (const s of ['>3 running · 1 done<', '>✓ 12<', '>✗ 1<', '>1:42<', '>+1<', '>OUCH<', '>×3<', '>Write race tests<', '>· bun test failed<', '>0:31<', 'class="glow', 'class="scroll"', 'class="flag', 'class="dizzy"', 'class="hop"'])
+// A race lane as raceOf makes it, with what a test leaves out filled in.
+const lane = (over: object) => ({ id: 'main', who: 'Main', step: 'n', count: 0, fails: 0, state: 'running', ...over })
+const race = (lanes: object[], over: object = {}) => ({ agents: lanes.length - 1, done: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: lanes.map(lane), ...over }) as never
+
+test('the race box draws a row per member: its stripe, Clawd, name, step, failed calls, plan and time', () => {
+  const look = lookOf('auto')
+  const part = racePart(look, race([
+    { step: 'Editing svg.ts', timeMs: 102_000, steps: { done: 2, total: 4 }, doing: 'edit' },
+    { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, count: 1, state: 'scored' },
+    { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, fails: 1, mood: 'working', state: 'tripped' },
+    { id: 'q', who: 'Plan the race', type: 'Plan', step: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
+  ], { done: 1, fails: 1, elapsedMs: 102_000, more: 1 }), 300, 0)
+  expect(part.height).toBe(24 + 4 * 22 + 16 + 6)
+  for (const s of ['>3 agents<', '> · 1 done<', '>✗ 1<', '>1:42<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>0:31<', '>2/4<', '>· quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
-  for (const s of ['LV ', 'COMBO', 'class="far"', 'class="dust', 'class="speed"', 'class="conf"']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  // The merged lane draws its runner once and its two ghosts by reference.
-  expect(part.body.match(/class="hop"/g)!.length).toBeGreaterThanOrEqual(1)
-  expect(part.body.match(/<use href="#sabai-run-1"/g)!.length).toBe(2)
-  expect(part.alt).toBe('Race: 3 running, 1 done, 12 ok, 1 failed, 1:42; Main running: Editing svg.ts (2 ok); Explore ×3 scored: 3 running (1 ok); Write race tests tripped: bun test failed (1 failed); Plan the race finished: Done; 1 more')
-  // Each lane tallies its own calls before its time: a ✗ only for failures, nothing for a lane with no calls.
-  for (const s of ['>✓2<', '>✓1<', '>✗1<']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  expect(part.body).not.toContain('>✓0<')
+  // A quiet agent's stripe and words are amber; a tripped one's red; Main's in Clawd's colour.
+  expect(part.body).toMatch(/class="c-warn"[^>]*>· quiet 47s</)
+  expect(part.body).toMatch(/class="c-alert"[^>]*>· bun test failed</)
+  expect(part.body).toContain(`fill="${look.bar('tasks', 'warn')}"`)
+  // Gone: the turn's worked calls, a lane's ✓ tally, the track, its footprints and flags.
+  for (const s of ['✓', 'class="flag', 'class="scroll"', 'sabai-tr-', 'OUCH']) expect([s, part.body.includes(s)]).toEqual([s, false])
+  expect(part.alt).toBe('Race: 3 agents, 1 done, 1 failed call, 1:42; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: quiet 47s; 1 more in the Agents pane')
 })
 
-test('a lane’s tally stays inside the box and leaves its step the room it has, on a full and a slim lane', () => {
-  const race = {
-    running: 1, done: 1, ok: 120, fails: 30, elapsedMs: 5000, more: 0,
-    lanes: [
-      { id: 'main', who: 'Main', step: 'Edited a file with a rather long name indeed.ts', timeMs: 3_599_000, count: 150, fails: 30, calls: [], state: 'thinking' },
-      { id: 'd', who: 'Done agent', type: 'Explore', step: 'Done', timeMs: 3_599_000, progress: 1, count: 99, fails: 9, calls: [], state: 'finished' },
-    ],
-  }
-  const body = racePart(lookOf('auto'), race as never, 300, 0).body
-  for (const s of ['>✓120<', '>✗30<', '>✓90<', '>✗9<']) expect([s, body.includes(s)]).toEqual([s, true])
-  // Every text ends inside the box: the tallies are end-anchored at or before the time's start.
-  for (const m of body.matchAll(/<text[^>]*x="([\d.]+)"[^>]*text-anchor="end"[^>]*>([^<]*)</g)) expect(Number(m[1])).toBeLessThanOrEqual(300)
-  // The long step is cut short for the tally, which itself ends before the time.
+test('a just-finished agent hops among confetti on a flashing row, then folds to a check', () => {
+  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'finished' }]), 300, 0).body
+  for (const s of ['class="flash"', 'class="cf"', 'class="hop', '>· Done! 🎉<']) expect([s, fresh.includes(s)]).toEqual([s, true])
+  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'finished' }]), 300, 0).body
+  for (const s of ['class="flash"', 'class="cf"', 'class="hop', '🎉']) expect([s, later.includes(s)]).toEqual([s, false])
+  expect(later).toMatch(/class="c-ok"[^>]*>· Done</)
+  // Main waiting fades its stripe; it wears the captain's cap.
+  expect(later).toContain('opacity=".35"')
+})
+
+test('a row’s words stay inside the box, a long step cut for its failures, plan and time', () => {
+  const body = racePart(lookOf('auto'), race([
+    { step: 'Edited a file with a rather long name indeed.ts', timeMs: 3_599_000, count: 150, fails: 30, steps: { done: 12, total: 20 }, state: 'thinking' },
+    { id: 'l', who: 'A very long agent description that goes on well past what a lane can hold', type: 'Explore', step: 'a very long step that will not fit either', timeMs: 3_600_000, fails: 9, state: 'running' },
+  ], { fails: 39, elapsedMs: 6_000_000 }), 300, 0).body
   expect(body).toMatch(/>· Edited[^<]*…</)
-  const tallyX = Number(body.match(/x="([\d.]+)"[^>]*>✗30</)![1])
-  expect(tallyX).toBeLessThanOrEqual(300 - 12 - monoWidth('59:59', 9.5) - 6)
+  // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
+  for (const m of body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
+    const x = Number(m[1])
+    const w = monoWidth(m[3]!, Number(m[2]))
+    const [a, b] = m[0].includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
+    expect([m[3], a >= 0 && b <= 300]).toEqual([m[3], true])
+  }
+  // The header's failed calls end before its time.
+  const fails = Number(body.match(/x="([\d.]+)"[^>]*>✗ 39</)![1])
+  expect(fails).toBeLessThanOrEqual(300 - 12 - monoWidth('100:00', 10.5) - 10)
 })
 
 test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {
   const live = { step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 0, commands: 0 }
-  const race = { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], state: 'running' }] }
-  const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live, race: race as never, clawdLine: 'on it' })!
+  const raced = { agents: 1, done: 0, fails: 0, more: 0, lanes: [lane({ step: 'Editing svg.ts' }), lane({ id: 'a', who: 'A', type: 'Explore' })] }
+  const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live, race: raced as never, clawdLine: 'on it' })!
   expect(hero.source).toContain('>on it<')
   expect(hero.source).not.toMatch(/undefined|NaN|\d+:\d\d</)
   expect(hero.alt).not.toMatch(/undefined|NaN/)
@@ -431,11 +439,11 @@ test('a turn with no known start draws no time: Clawd says his line, the strip a
 
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
-  const race = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 102_000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Editing svg.ts', count: 0, calls: [], doing: 'edit', state: 'running' }] }
+  const raced = race([{ step: 'Editing svg.ts', doing: 'edit' }, { id: 'a', who: 'Survey', type: 'Explore' }], { elapsedMs: 102_000 })
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
-  const opts = { hero: true, mood: 'working' as const, live, race: race as never, crew }
+  const opts = { hero: true, mood: 'working' as const, live, race: raced, crew }
   const wide = bandSvg(undefined, LIST, 900, opts)!
-  expect(wide.alt).toContain('Race: 1 running')
+  expect(wide.alt).toContain('Race: 1 agent')
   expect(wide.alt).not.toContain('Working 1m 42s:')
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, LIST, 600, opts)!
@@ -446,57 +454,25 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   // Clawd hidden: no panel, the race stays.
   const noClawd = bandSvg(undefined, LIST, 900, { ...opts, clawd: false })!
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
-  expect(noClawd.alt).toContain('Race: 1 running')
+  expect(noClawd.alt).toContain('Race: 1 agent')
 })
 
-test('no race element carries two class attributes, whatever its runner is doing', () => {
+test('no race element carries two class attributes, whatever its Clawd is doing', () => {
   for (const doing of ['read', 'edit', 'command', 'test'] as const) {
-    const race = { running: 1, done: 1, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [
-      { id: 'main', who: 'Main', step: 'n', count: 2, calls: [{ kind: doing, ok: true }, { kind: doing, ok: false }], doing, state: 'running' },
-      { id: 'w', who: 'W', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
-      { id: 'f', who: 'F', step: 'Done', count: 1, progress: 1, calls: [{ kind: doing, ok: true }], state: 'finished' },
-    ] }
-    const body = racePart(lookOf('auto'), race as never, 300, 0).body
+    const body = racePart(lookOf('auto'), race([
+      { doing, fails: 1 },
+      { id: 'w', who: 'W', type: 'Plan', mood: 'quiet', quietMs: 31_000 },
+      { id: 'f', who: 'F', type: 'Explore', step: 'Done', fresh: true, mood: 'done', state: 'finished' },
+      { id: 'o', who: 'O', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out' },
+    ]), 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
   }
 })
 
-test('Main waiting and a finished agent fold to one line: a mark, the name, the step and the time, no runner or flag', () => {
-  const race = { running: 1, done: 2, ok: 3, fails: 0, elapsedMs: 5000, more: 0, lanes: [
-    { id: 'main', who: 'Main', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
-    { id: 'p', who: 'Plan the race', type: 'Plan', step: 'Done', timeMs: 125_000, progress: 1, count: 3, calls: [{ kind: 'read', ok: true }], state: 'finished' },
-    { id: 'l', who: 'A very long agent description that goes on well past what a lane can hold', type: 'Explore', step: 'Done and a very long step that will not fit either', timeMs: 3_600_000, progress: 1, count: 1, calls: [], state: 'finished' },
-  ] }
-  const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(24 + 3 * 18 + 6)
-  for (const s of ['>Main<', '>· Waiting<', '>Plan the race<', '>· Done<', '>2:05<', 'class="c-ok"', 'fill-rule="evenodd"']) expect([s, part.body.includes(s)]).toEqual([s, true])
-  for (const s of ['scale(.8)', 'class="flag', '<use href="#sabai-tr-', 'class="scroll"']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
-  for (const m of part.body.matchAll(/<text [^>]*?x="([\d.]+)"[^>]*?font-size="([\d.]+)"[^>]*>([^<]*)</g)) {
-    const x = Number(m[1])
-    const w = monoWidth(m[3]!, Number(m[2]))
-    const [a, b] = m[0].includes('text-anchor="end"') ? [x - w, x] : [x, x + w]
-    expect([m[3], a >= 0 && b <= 300]).toEqual([m[3], true])
-  }
-})
-
-test('Main thinking between calls keeps its full lane, so the box does not shrink call by call', () => {
-  const race = { running: 1, done: 0, ok: 1, fails: 0, elapsedMs: 5000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 'Working', count: 1, calls: [{ kind: 'read', ok: true }], state: 'thinking' }] }
-  const part = racePart(lookOf('auto'), race as never, 300, 0)
-  expect(part.height).toBe(24 + 42 + 6)
-  expect(part.body).toContain('scale(.8)')
-})
-
 test('in the comfortable band the race box’s words take the card’s ink', () => {
-  const race = {
-    running: 1, done: 1, ok: 1, fails: 0, elapsedMs: 1000, more: 1,
-    lanes: [
-      { id: 'main', who: 'Main', step: 'n', count: 1, calls: [{ kind: 'test', ok: true }], doing: 'test', state: 'running' },
-      { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', progress: 1, count: 0, calls: [], state: 'finished' },
-    ],
-  }
-  const source = bandSvg(undefined, LIST, 900, { hero: true, skin: 'raised', race: race as never })!.source
+  const raced = race([{ doing: 'test' }, { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', state: 'finished' }], { done: 1, more: 1 })
+  const source = bandSvg(undefined, LIST, 900, { hero: true, skin: 'raised', race: raced })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
   expect(middle).toContain('class="usage"')
@@ -517,7 +493,7 @@ const USAGE_LIST = [
   { kind: 'session', label: '5H Limit', percent: 27, resetsInMs: 1_140_000 },
   { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
 ] as const
-const RACE4 = { running: 4, done: 0, ok: 3, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', count: 0, calls: [], state: 'running' })) }
+const RACE4 = { agents: 3, done: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', count: 0, state: 'running' })) }
 // Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
 function usageTexts(source: string, x0: number) {
   const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
@@ -744,113 +720,6 @@ const endSpans = (body: string, y: number) =>
     .filter(m => Number(m[2]) === y)
     .map(m => [Number(m[1]) - monoWidth(m[4]!, Number(m[3])), Number(m[1])] as const)
     .sort((a, b) => a[0] - b[0])
-
-test('the race header’s figures never overlap, however long the time or the counts run', () => {
-  const race = { running: 2, done: 0, ok: 1234, fails: 567, elapsedMs: 6_000_000, more: 12, lanes: [{ id: 'main', who: 'Main', step: 'n', count: 0, calls: [], state: 'running' }] }
-  const spans = endSpans(racePart(lookOf('auto'), race as never, 300, 0).body, 16)
-  expect(spans.length).toBe(4)
-  for (let i = 1; i < spans.length; i++) expect(spans[i - 1]![1] + 4 <= spans[i]![0]).toBe(true)
-  // The usual case keeps its slots.
-  const usual = endSpans(racePart(lookOf('auto'), { ...race, ok: 12, fails: 1, elapsedMs: 102_000, more: 1 } as never, 300, 0).body, 16)
-  expect(usual.map(s => s[1])).toEqual([172, 210, 250, 288])
-})
-
-// A one-lane race's footprints (tile x positions) and runners (x of each runner group).
-// A footprint is a <use> of its kind's shape in <defs>; a merged lane's ghosts are <use>s of its
-// runner, offset from it.
-const trail = (lane: object) => {
-  const body = racePart(lookOf('auto'), { running: 1, done: 0, ok: 0, fails: 0, more: 0, lanes: [lane] } as never, 300, 0).body
-  const runner = [...body.matchAll(/<g transform="translate\(([\d.]+),[\d.]+\) scale\(\.8\)">/g)].map(m => Number(m[1]))
-  const ghosts = [...body.matchAll(/<use href="#sabai-run-\d+" x="(-?[\d.]+)"/g)].map(m => runner[0]! + Number(m[1]))
-  return {
-    body,
-    tiles: [...body.matchAll(/<use href="#sabai-tr-\w+" x="([\d.]+)"/g)].map(m => Number(m[1])),
-    runners: [...ghosts, ...runner],
-  }
-}
-// The trail's icons left to right: each footprint's shape (from <defs>) and its paint.
-const trailIcons = (body: string) => {
-  const shapes = Object.fromEntries([...body.matchAll(/<path id="sabai-tr-(\w+)" d="([^"]+)"\/>/g)].map(m => [m[1], m[2]]))
-  return [...body.matchAll(/<use href="#sabai-tr-(\w+)" x="([\d.]+)" y="[\d.]+" ([^/]+)\/>/g)].sort((a, b) => Number(a[2]) - Number(b[2])).map(m => [shapes[m[1]!], m[3]!.trim()])
-}
-const reads = (n: number) => Array.from({ length: Math.min(n, 16) }, () => ({ kind: 'read', ok: true }))
-
-test('a lane’s footprints trail its runner: one per call while they fit, the newest right behind it, none past the lane', () => {
-  for (const n of [1, 5, 8, 16, 40]) {
-    const { tiles, runners } = trail({ id: 'main', who: 'Main', step: 'n', count: n, calls: reads(n), state: 'running' })
-    // No repeats: one tile per kept call, each at its own place.
-    expect([n, tiles.length, new Set(tiles).size]).toEqual([n, Math.min(n, 16), Math.min(n, 16)])
-    expect([n, Math.max(...tiles) + 8 <= runners[0]!, Math.min(...tiles) >= 12]).toEqual([n, true, true])
-  }
-  // Paced by calls when no progress is known: 10% at the start, half way at 8 calls.
-  expect(trail({ id: 'main', who: 'Main', step: 'n', count: 0, calls: [], state: 'running' }).runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.1).toFixed(3))
-  expect(trail({ id: 'main', who: 'Main', step: 'n', count: 8, calls: reads(8), state: 'running' }).runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.5).toFixed(3))
-  // Real progress wins: a runner held at 10% with 16 calls behind it shows only the two that fit.
-  const held = trail({ id: 'main', who: 'Main', step: 'n', progress: 0.1, count: 16, calls: reads(16), state: 'running' })
-  expect([held.tiles.length, Math.min(...held.tiles) >= 12]).toEqual([2, true])
-})
-
-test('each call leaves its kind’s icon in its colour, and a failed one a red cross', () => {
-  const look = lookOf('auto')
-  const calls = [{ kind: 'read', ok: true }, { kind: 'edit', ok: true }, { kind: 'command', ok: true }, { kind: 'test', ok: true }, { kind: 'edit', ok: false }]
-  const { body } = trail({ id: 'main', who: 'Main', step: 'n', count: 5, calls, state: 'running' })
-  // Oldest first, left to right: the icon and the paint of each.
-  const icons = trailIcons(body)
-  expect(icons).toEqual([
-    [TRAIL_ICONS.read, `fill="${look.bar('context')}"`],
-    [TRAIL_ICONS.edit, `fill="${look.bar('session')}"`],
-    [TRAIL_ICONS.command, 'class="m"'],
-    [TRAIL_ICONS.test, 'class="c-ok"'],
-    [TRAIL_ICONS.fail, `fill="${look.bar('tasks', 'alert')}"`],
-  ])
-  // Five different 7×7 shapes.
-  expect(new Set(Object.values(TRAIL_ICONS)).size).toBe(5)
-})
-
-test('a running lane’s dashes take Clawd’s colour; the ground, flags and the waiting ring take the muted ink', () => {
-  const look = lookOf('auto')
-  const body = racePart(look, { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
-    { id: 'main', who: 'Main', step: 'Waiting', count: 0, calls: [], state: 'waiting' },
-    { id: 'a', who: 'A', step: 'n', count: 2, calls: reads(2), state: 'running' },
-    { id: 'b', who: 'B', step: 'n', count: 2, calls: reads(2), state: 'thinking' },
-  ] } as never, 300, 0).body
-  expect(body).toContain(`<path fill="${look.clawd}" opacity=".7" d="M12 `)
-  expect(body).toContain('<rect class="m" opacity=".4" x="12"')
-  expect(body.match(/<path class="flag m" opacity=".7"/g)!.length).toBe(2)
-  expect(body).toContain('<path class="m" opacity=".7" fill-rule="evenodd"')
-  // The track ink is all but the card's own colour in the auto skin: none of it is left.
-  for (const s of ['class="k"', 'class="k-stroke"', 'flag k']) expect([s, body.includes(s)]).toEqual([s, false])
-})
-
-test('a merged lane’s footprints start behind its back runner', () => {
-  const { tiles, runners } = trail({ id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', count: 19, calls: reads(16), state: 'running' })
-  expect([runners.length, tiles.length]).toEqual([3, 16])
-  expect(Math.max(...tiles) + 8 <= Math.min(...runners)).toBe(true)
-})
-
-test('only a moving lane scrolls its dashed ground, each lane clipped by its own id', () => {
-  const moving = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'running' }).body
-  expect([moving.includes('class="scroll"'), moving.includes('h6v1h-6zm10 0'), moving.includes('id="sabai-race-main"')]).toEqual([true, true, true])
-  // The tiles are history: they sit outside the scrolling group.
-  expect(moving.match(/class="scroll"[^]*?<\/g>/)![0]).not.toContain('<use href="#sabai-tr-')
-  const still = trail({ id: 'main', who: 'Main', step: 'n', count: 3, calls: reads(3), state: 'thinking' }).body
-  expect([still.includes('class="scroll"'), still.includes('h6v1h-6z')]).toEqual([false, false])
-  const two = racePart(lookOf('auto'), { running: 2, done: 0, ok: 0, fails: 0, more: 0, lanes: [
-    { id: 'main', who: 'Main', step: 'n', count: 1, calls: reads(1), state: 'running' },
-    { id: 'agent:x-1', who: 'A', step: 'n', count: 1, calls: reads(1), state: 'scored' },
-  ] } as never, 300, 0).body
-  // Ids come from the lanes, as an agent card's do, not from their order, so two races in one
-  // drawing name their own members' clips; characters an id cannot hold become underscores.
-  const ids = [...two.matchAll(/<clipPath id="([^"]+)"/g)].map(m => m[1])
-  expect(ids).toEqual(['sabai-race-main', 'sabai-race-agent_x_1'])
-  expect(two).toContain('clip-path="url(#sabai-race-agent_x_1)"')
-})
-
-test('a lane built without its count is paced by the tiles it holds, never drawn at NaN', () => {
-  const { body, runners } = trail({ id: 'main', who: 'Main', step: 'n', calls: reads(8), state: 'running' })
-  expect(body).not.toContain('NaN')
-  expect(runners[0]!.toFixed(3)).toEqual((12 + 262 * 0.5).toFixed(3))
-})
 
 test('a stacked ring with nothing beside its label leaves no dangling separator', () => {
   const list = [{ kind: 'context', label: 'Context', percent: 12 }, { kind: 'session', label: '5H Limit', percent: 30 }, { kind: 'week', label: '7D All', percent: 40 }] as never

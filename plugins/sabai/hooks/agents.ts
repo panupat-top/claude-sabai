@@ -1,6 +1,6 @@
 import type { ActKind, AgentCall, AgentFile, AgentRound, AgentRun, CallKind, RaceLog, Task } from '../types'
 import type { Progress } from './model'
-import { RACE_LANES, RACE_LINGER_MS, RACE_TILES, SCORE_MS, TRIP_MS, countOf, doingOf, failsOf, tokens } from './model'
+import { FINISH_MS, RACE_LANES, RACE_LINGER_MS, SCORE_MS, TRIP_MS, countOf, doingOf, failsOf, tokens } from './model'
 import type { HatKind } from './sprites'
 
 // The pane keeps the newest runs; older ones fall off.
@@ -174,17 +174,20 @@ export function clock(ms: number): string {
 }
 
 export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
-export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; progress?: number; count: number; fails: number; calls: { kind: CallKind; ok: boolean }[]; doing?: CallKind; state: LaneState }
-export type Race = { running: number; done: number; ok: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
+// `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
+// agent in the seconds after it finished.
+export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
+export type Race = { agents: number; done: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
 
 // The race as drawn: Main and the newest agents, each in its state, with the header's counts;
-// nothing while neither the main turn nor any agent is at work.
+// nothing without agents (the live strip tells the main turn alone) or while nothing works.
 export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainStep?: string): Race | undefined {
   // Agents are kept oldest first; the race runs the newest.
   const running = agents.filter(a => a.status === 'running').reverse()
-  if (!mainWorking && running.length === 0) return undefined
+  const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
+  if (running.length === 0 && (!mainWorking || ended.length === 0)) return undefined
   // The call a lane's runner holds: the latest in flight among its members.
   const doingFor = (ids: string[]): { doing?: CallKind } => {
     const kind = ids.flatMap(id => doingOf(log, id)).at(-1)
@@ -196,18 +199,16 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     id: 'main',
     who: 'Main',
     // Between calls, the latest one; a log kept from before calls were named has none.
-    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : 'Waiting'),
+    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : `waiting on ${running.length}`),
     // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
-    ...(tasks ? { progress: tasks.done / tasks.total } : {}),
-    calls: log.calls.main ?? [],
+    ...(tasks ? { steps: { done: tasks.done, total: tasks.total } } : {}),
     count: countOf(log, 'main'),
     fails: failsOf(log, 'main'),
     ...doingFor(['main']),
     // Working between calls is thinking; waiting is Main not working while agents run.
     state: timed('main') ?? (!mainWorking ? 'waiting' : doingOf(log, 'main').length ? 'running' : 'thinking'),
   }
-  const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
   // More running than lanes: agents of one type share a lane, the most numerous type first.
   let units: AgentRun[][] = running.map(a => [a])
   const counts = new Map<string, number>()
@@ -219,6 +220,8 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     units = units.filter(u => u[0]!.type !== type)
     units.splice(first, 0, group)
   }
+  // Shared lanes first, so a type merged to make room is not the one left out.
+  units.sort((a, b) => b.length - a.length)
   const shown = [...units, ...ended.map(a => [a])]
   const time = (r: AgentRun) => Math.max(0, (r.endedAt ?? now) - r.startedAt)
   const lane = (u: AgentRun[]): Lane => {
@@ -233,8 +236,6 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         many: u.length,
         step: `${u.length} running`,
         timeMs: Math.max(...u.map(time)),
-        // Every member's tiles, agent by agent: no call carries its time to interleave them by.
-        calls: ids.flatMap(i => log.calls[i] ?? []).slice(-RACE_TILES),
         count: ids.reduce((n, i) => n + countOf(log, i), 0),
         fails: ids.reduce((n, i) => n + failsOf(log, i), 0),
         ...doingFor(ids),
@@ -243,25 +244,28 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     }
     const p = progressOf(a)
     const state: LaneState = a.status === 'failed' ? 'out' : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
+    const mood = agentMood(a, now)
     return {
       id,
       who: a.description || laneName(a.type),
       type: a.type,
-      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? `${p.done}/${p.total} · ${p.title}` : (log.said?.[id] ?? 'Working'),
+      // A plan's step by its title: the lane draws its done and total.
+      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
       timeMs: time(a),
-      ...(state === 'finished' ? { progress: 1 } : p ? { progress: p.done / p.total } : {}),
-      calls: log.calls[id] ?? [],
+      ...(p && state !== 'finished' ? { steps: { done: p.done, total: p.total } } : {}),
       count: countOf(log, id),
       fails: failsOf(log, id),
       ...doingFor([id]),
+      mood,
+      ...(mood === 'quiet' ? { quietMs: now - (a.lastActiveAt ?? a.startedAt) } : {}),
+      ...(state === 'finished' && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
       state,
     }
   }
   const since = mainWorking ? turnStartedAt : Math.min(...running.map(a => a.startedAt))
   return {
-    running: (mainWorking ? 1 : 0) + running.length,
+    agents: running.length,
     done: ended.length,
-    ok: log.total - log.fails,
     fails: log.fails,
     ...(since !== 0 ? { elapsedMs: Math.max(0, now - since) } : {}),
     more: shown.slice(RACE_LANES).reduce((n, u) => n + u.length, 0),

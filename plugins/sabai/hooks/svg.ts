@@ -1,7 +1,7 @@
 import type { ActKind, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
 import { FULL_AT, isMain, agentMood, clock, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
 import type { AgentMood } from './agents'
-import type { Race } from './agents'
+import type { Lane, Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
 import { countdown, paceOf, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
@@ -456,22 +456,16 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
-// The race's motion, carried only by the race box: the ground scrolls, coins spin and rise, flags
-// flutter, the glow pulses.
-const RACE_MOTION =
-  '.scroll{animation:rsc 1s linear infinite}@keyframes rsc{to{transform:translateX(-10px)}}' +
-  '.coin{transform-box:fill-box;transform-origin:center;animation:rcn .6s steps(2) infinite}@keyframes rcn{50%{transform:scaleX(.35)}}' +
-  '.rise{animation:rrs 1s ease-out infinite}@keyframes rrs{70%{transform:translateY(-6px);opacity:.25}}' +
-  '.flag{transform-box:fill-box;transform-origin:0 50%;animation:rfl .5s steps(2) infinite}@keyframes rfl{50%{transform:scaleY(.8)}}' +
-  '.glow{animation:rgl 1s ease-in-out infinite}@keyframes rgl{50%{opacity:.35}}' +
-  '@media (prefers-reduced-motion: reduce){.scroll,.coin,.rise,.flag,.glow{animation:none}}'
+// The race's motion, carried only by the race box: a just-finished agent's row flashes.
+const RACE_MOTION = '.flash{animation:rfx 1s ease-in-out infinite}@keyframes rfx{50%{opacity:.03}}'
 const RACE_W = 300
 const RACE_HEAD = 24
-const LANE_H = 42
-// A lane not at work (Main waiting on agents, a finished agent) folds to one line.
-const SLIM_H = 18
+const RACE_ROW = 22
+const RACE_SCALE = 0.62
 const RACE_BODY = '#b9b9b4'
-// The footprints' pixel icons, 7×7: a magnifier for a read, a pencil for an edit, a prompt for a
+// Confetti round a just-finished Clawd: offsets from his middle and their colours.
+const RACE_CONFETTI = [[-5, -3, 'context'], [3, -7, 'session'], [10, -2, 'week'], [16, -6, 'tasks'], [-2, -8, 'week']] as const
+// The calls' pixel icons, 7×7: a magnifier for a read, a pencil for an edit, a prompt for a
 // command, a flask for a passing test, and a cross for any call that failed. Each is one path at
 // its origin, a rect per run of pixels in a row.
 const TRAIL_ROWS: Record<CallKind | 'fail', string[]> = {
@@ -481,141 +475,96 @@ const TRAIL_ROWS: Record<CallKind | 'fail', string[]> = {
   test: ['..###..', '...#...', '...#...', '..#.#..', '.#.#.#.', '#######', '#######'],
   fail: ['#.....#', '.#...#.', '..#.#..', '...#...', '..#.#..', '.#...#.', '#.....#'],
 }
-export const TRAIL_ICONS = Object.fromEntries(
+const TRAIL_ICONS = Object.fromEntries(
   Object.entries(TRAIL_ROWS).map(([k, rows]) => [k, rows.flatMap((row, y) => [...row.matchAll(/#+/g)].map(m => `M${m.index} ${y}h${m[0].length}v1h-${m[0].length}z`)).join('')]),
 ) as Record<CallKind | 'fail', string>
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 
-// The race: a header (how many run and are done, the turn's calls that worked and failed, the
-// time), then a lane per member: its name, step and time on a line above its ground, its runner at
-// its progress (or paced by its calls when unknown) holding the tool of its call in flight over a
-// glow, its footprints (a pixel icon per call) trailing it, and its flag. While a lane moves its ground
-// scrolls. A lane shared by agents of one type draws three runners.
+// The race: a header (how many agents run and are done, the turn's failed calls, its time), then a
+// row per member, Main first: a stripe in its mood's colour, its Clawd in its type's hat (Main in
+// the captain's cap) holding its call, its name and step, then its failed calls, a plan's
+// done/total and bar, and its time. A quiet agent dozes; one just finished hops among confetti on
+// a flashing row, then folds to a check. Past the rows, how many more the Agents pane holds.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
-  // A kind's colour as attributes, merged with the element's own classes: two class attributes on
-  // one element make the drawing invalid, and the desktop then draws nothing.
-  const kindFill = (k: CallKind, ok: boolean, cls = '') => {
-    const paint = !ok ? { fill: look.bar('tasks', 'alert') } : k === 'read' ? { fill: look.bar('context') } : k === 'edit' ? { fill: look.bar('session') } : { cls: k === 'test' ? 'c-ok' : 'm' }
-    const classes = [cls, paint.cls].filter(Boolean).join(' ')
-    return `${classes ? `class="${classes}"` : ''}${paint.fill ? ` fill="${paint.fill}"` : ''}`
-  }
   const time = race.elapsedMs === undefined ? '' : mmss(race.elapsedMs)
-  // The header's right side from the edge: each figure at its slot, or further left when the one
-  // after it runs long (an hour and more, a thousand calls).
-  let edge = W
-  const figure = (slot: number, cls: string, s: string, size: number, bold = true) => {
-    const x = Math.min(slot, edge - 10)
-    edge = x - monoWidth(s, size)
-    return `<text class="${cls}" x="${+x.toFixed(1)}" y="${top + 16}" text-anchor="end" font-family="${MONO}" font-size="${size}"${bold ? ' font-weight="700"' : ''}>${s}</text>`
-  }
-  const right = [
-    time ? figure(W - 12, 'm', time, 10.5, false) : '',
-    figure(W - 50, 'c-ok', `✓ ${race.ok}`, 10.5),
-    race.fails ? figure(W - 90, 'c-alert', `✗ ${race.fails}`, 10.5) : '',
-    race.more ? figure(W - 128, 'm', `+${race.more}`, 10) : '',
-  ]
-  const head =
-    `<text class="t" x="12" y="${top + 16}" font-family="${SANS}" font-size="11" font-weight="700">${race.running} running${race.done ? ` · ${race.done} done` : ''}</text>` +
-    right.reverse().join('')
-  const laneX = 12
-  const laneW = W - laneX - 26
-  // Each lane starts where the one above it ends: slim lanes are shorter.
-  let next = top + RACE_HEAD
-  // Each footprint's shape is drawn once in <defs> and placed by <use>: the race is redrawn every
-  // second while work runs, and a lane holds up to 16 of them.
-  const used = new Set<string>()
-  // A lane's calls that worked and failed, at the right of its line before its time; `room` is
-  // what they and the time leave for the step.
-  const tally = (l: Race['lanes'][number], laneTime: string, ty: number) => {
-    const ok = Math.max(0, l.count - (l.fails ?? 0))
-    let edge = W - 12 - (laneTime ? monoWidth(laneTime, 9.5) + 6 : 0)
-    const marks: string[] = []
-    // In the header's order, from the time leftward: worked, then failed.
-    for (const [n, cls, s] of [[ok, 'c-ok', '✓'], [l.fails ?? 0, 'c-alert', '✗']] as const) {
-      if (!n) continue
-      marks.push(`<text class="${cls}" x="${+edge.toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">${s}${n}</text>`)
-      edge -= monoWidth(`${s}${n}`, 9.5) + 5
+  const lead = race.agents ? `${race.agents} ${race.agents === 1 ? 'agent' : 'agents'}` : ''
+  const done = race.done ? `${lead ? ' · ' : ''}${race.done} done` : ''
+  const ty0 = top + 16
+  let head =
+    (lead ? `<text class="t" x="12" y="${ty0}" font-family="${SANS}" font-size="11" font-weight="700">${lead}</text>` : '') +
+    (done ? `<text class="m" x="${+(12 + textWidth(lead, 11)).toFixed(1)}" y="${ty0}" font-family="${SANS}" font-size="10.5">${done}</text>` : '') +
+    (time ? `<text class="m" x="${W - 12}" y="${ty0}" text-anchor="end" font-family="${MONO}" font-size="10.5">${time}</text>` : '')
+  if (race.fails) head += `<text class="c-alert" x="${+(W - 12 - (time ? monoWidth(time, 10.5) + 10 : 0)).toFixed(1)}" y="${ty0}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✗ ${race.fails}</text>`
+  const x = 14
+  const nameX = x + 24
+  // What each row says after its name, in its ink.
+  const said = (l: Lane): [string, string] =>
+    l.quietMs !== undefined ? ['c-warn', `quiet ${Math.floor(l.quietMs / 1000)}s`] :
+    l.state === 'out' || l.state === 'tripped' ? ['c-alert', l.step] :
+    l.state === 'finished' ? ['c-ok', l.fresh ? 'Done! 🎉' : 'Done'] : ['m', l.step]
+  const rows = race.lanes.map((l, i) => {
+    const y = top + RACE_HEAD + i * RACE_ROW
+    const mid = y + RACE_ROW / 2
+    const ty = mid + 3.5
+    const main = l.id === 'main'
+    const color = main || !l.mood ? look.clawd : l.state === 'tripped' ? look.bar('tasks', 'alert') : moodColor(look, l.mood)
+    const stripe = `<rect x="4" y="${y + 3}" width="3" height="${RACE_ROW - 6}" rx="1.5" fill="${color}"${l.state === 'waiting' ? ' opacity=".35"' : ''}/>`
+    // The right side from the edge: the time, the failed calls, a plan's done/total and bar.
+    let edge = W - 12
+    let right = ''
+    const lt = l.timeMs === undefined ? '' : mmss(l.timeMs)
+    if (lt) {
+      right += `<text class="m" x="${edge}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9.5">${lt}</text>`
+      edge -= monoWidth(lt, 9.5) + 6
     }
-    return { svg: marks.join(''), room: (stepX: number) => Math.max(20, edge - stepX - 6) }
-  }
-  const lanes = race.lanes.map((l, i) => {
-    const y = next
-    const laneTime = l.timeMs === undefined ? '' : mmss(l.timeMs)
-    if (l.state === 'waiting' || l.state === 'finished') {
-      next += SLIM_H
-      const done = l.state === 'finished'
-      const cy = y + 8
-      const mark = done ? statusMark(look, 'done', laneX + 4, cy, look.clawd, false) : `<path class="m" opacity=".7" fill-rule="evenodd" d="M${laneX + 1} ${cy}a3 3 0 1 0 6 0a3 3 0 1 0-6 0zM${laneX + 2.4} ${cy}a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0z"/>`
-      const slimName = fit(l.who, 10.5, 150)
-      const slimStepX = laneX + 16 + textWidth(slimName, 10.5) + 8
-      const slimTally = tally(l, laneTime, cy + 3.5)
-      return (
-        mark +
-        `<text class="${done ? 'c-ok' : 'm'}" x="${laneX + 16}" y="${cy + 3.5}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(slimName)}</text>` +
-        `<text class="m" x="${slimStepX}" y="${cy + 3.5}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, slimTally.room(slimStepX)))}</text>` +
-        slimTally.svg +
-        (laneTime ? `<text class="m" x="${W - 12}" y="${cy + 3.5}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
-      )
+    if (l.fails) {
+      right += `<text class="c-alert" x="${+edge.toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9.5" font-weight="700">✗${l.fails}</text>`
+      edge -= monoWidth(`✗${l.fails}`, 9.5) + 6
     }
-    next += LANE_H
-    const ground = y + LANE_H - 8
-    const moving = l.state === 'running' || l.state === 'scored'
-    const rx = laneX + Math.min(laneW - 22, laneW * (l.progress ?? paceOf(l.count ?? l.calls.length)))
-    // Footprints: the newest right behind the (back) runner, older ones leftward, as many as fit.
-    const back = rx - (l.many ? 14 : 0)
-    const room = Math.max(0, Math.floor((back - laneX) / 10))
-    const tiles = (room ? l.calls.slice(-room) : [])
-      .reverse()
-      .map((c, j) => {
-        const shape = c.ok ? c.kind : 'fail'
-        used.add(shape)
-        return `<use href="#sabai-tr-${shape}" x="${+(back - (j + 1) * 10 + 1.5).toFixed(1)}" y="${ground - 3}" ${kindFill(c.kind, c.ok)}/>`
-      })
-      .join('')
-    const mode = l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' ? 'hop' : l.state === 'out' ? 'out' : 'idle'
-    const hat = l.type ? hatOf(look, l.type) : undefined
-    const body = l.state === 'out' ? RACE_BODY : look.clawd
-    const one = (dx: number) => `<g transform="translate(${rx + dx},${ground - 16}) scale(.8)">${sprite('tasks', 0, 4, mode, body, hat ? { kind: hat.hat, color: hat.hatColor } : undefined, undefined, l.state === 'running' || l.state === 'thinking' ? l.doing : undefined)}</g>`
-    // A merged lane's two ghosts are the runner again, by reference.
-    const runners = l.many ? `<use href="#sabai-run-${i}" x="-14" opacity=".45"/><use href="#sabai-run-${i}" x="-7" opacity=".7"/><g id="sabai-run-${i}">${one(0)}</g>` : one(0)
-    const glow = l.doing && l.state !== 'out' ? `<ellipse cx="${rx + 10}" cy="${ground}" rx="11" ry="2.5" ${kindFill(l.doing, true, 'glow')}/>` : ''
-    const flagX = laneX + laneW + 6
-    const flag = `<rect class="m" x="${flagX}" y="${ground - 15}" width="1.2" height="16"/><path class="flag m" opacity=".7" d="M${flagX + 1.2} ${ground - 15}h8l-2.5 3.5 2.5 3.5h-8z"/>`
-    // Marks sit beside the runner, clear of the line above.
-    const marks =
-      l.state === 'tripped' ? `<path d="M${rx + 22} ${ground + 1}l3-6 3 6z" fill="${look.bar('tasks', 'alert')}"/><text class="c-alert" x="${rx + 30}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUCH</text>` :
-      l.state === 'scored' ? `<circle class="rise coin" cx="${rx + 26}" cy="${ground - 10}" r="3" fill="#e0a030"/>` :
-      l.state === 'out' ? `<text class="c-alert" x="${rx + 26}" y="${ground - 2}" font-family="${MONO}" font-size="8" font-weight="800">OUT</text>` : ''
-    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : 't'
-    const name = fit(l.who, 10.5, 150)
+    if (l.steps) {
+      const frac = `${l.steps.done}/${l.steps.total}`
+      const bx = edge - 30
+      right +=
+        `<rect class="k" x="${+bx.toFixed(1)}" y="${mid - 2}" width="30" height="4" rx="2"/>` +
+        `<rect x="${+bx.toFixed(1)}" y="${mid - 2}" width="${+((30 * l.steps.done) / l.steps.total).toFixed(1)}" height="4" rx="2" fill="${look.clawd}"/>` +
+        `<text class="m" x="${+(bx - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9">${frac}</text>`
+      edge = bx - 4 - monoWidth(frac, 9) - 6
+    }
+    const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.fresh ? 'hop' : l.state === 'out' ? 'out' : 'idle'
+    const style = l.type ? hatOf(look, l.type) : undefined
+    // Main wears the captain's cap; a finished agent holds its report.
+    const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'finished' ? ('scroll' as const) : true } : undefined
+    const tool = l.state === 'running' && l.quietMs === undefined ? l.doing : undefined
+    const figure =
+      l.state === 'finished' && !l.fresh
+        ? statusMark(look, 'done', x + 8, mid, look.clawd, false)
+        : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'out' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
+    const party = l.fresh
+      ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${look.bar('context')}" opacity=".14"/>`
+      : ''
+    const confetti = l.fresh
+      ? RACE_CONFETTI.map(([dx, dy, k], j) => `<rect class="cf" style="animation-delay:-${j * 0.2}s" x="${x + 8 + dx}" y="${y + 10 + dy}" width="2" height="2" fill="${look.bar(k)}"/>`).join('')
+      : ''
+    const name = fit(l.who, 10.5, 130)
     const nameW = textWidth(name, 10.5)
-    const badge = l.many ? `<rect class="k" x="${laneX + nameW + 4}" y="${y + 1.5}" width="20" height="11" rx="5.5"/><text class="t" x="${laneX + nameW + 14}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>` : ''
-    const stepX = laneX + nameW + (l.many ? 30 : 8)
-    const laneTally = tally(l, laneTime, y + 10)
-    const line =
-      `<text class="${nameClass}" x="${laneX}" y="${y + 10}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` +
-      badge +
-      `<text class="m" x="${stepX}" y="${y + 10}" font-family="${SANS}" font-size="10">${xml(fit(`· ${l.step}`, 10, laneTally.room(stepX)))}</text>` +
-      laneTally.svg +
-      (laneTime ? `<text class="m" x="${W - 12}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9.5">${laneTime}</text>` : '')
-    // While the lane moves its ground is dashes in Clawd's colour scrolling left; a 10 px period loops
-    // without a seam. At rest it is a faint line. Both in inks that show on every card.
-    const clip = `sabai-race-${l.id.replace(/\W/g, '_')}`
-    const groundLine = moving
-      ? `<clipPath id="${clip}"><rect x="${laneX}" y="${ground + 3}" width="${laneW}" height="3"/></clipPath><g clip-path="url(#${clip})"><g class="scroll"><path fill="${look.clawd}" opacity=".7" d="M${laneX} ${ground + 4.5}${'h6v1h-6zm10 0'.repeat(Math.ceil(laneW / 10) + 1)}"/></g></g>`
-      : `<rect class="m" opacity=".4" x="${laneX}" y="${ground + 4.5}" width="${laneW}" height="1"/>`
-    return line + groundLine + tiles + flag + glow + runners + marks
+    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : 't'
+    const badge = l.many
+      ? `<rect class="k" x="${+(nameX + nameW + 4).toFixed(1)}" y="${mid - 5.5}" width="20" height="11" rx="5.5"/><text class="t" x="${+(nameX + nameW + 14).toFixed(1)}" y="${mid + 3}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>`
+      : ''
+    const stepX = nameX + nameW + (l.many ? 30 : 6)
+    const [ink, words] = said(l)
+    const step = edge - stepX - 6 >= 20 ? `<text class="${ink}" x="${+stepX.toFixed(1)}" y="${ty}" font-family="${SANS}" font-size="10">${xml(fit(`· ${words}`, 10, edge - stepX - 6))}</text>` : ''
+    return party + stripe + figure + confetti + `<text class="${nameClass}" x="${nameX}" y="${ty}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` + badge + step + right
   })
+  let height = RACE_HEAD + race.lanes.length * RACE_ROW
+  const more = race.more ? `<text class="m" x="${x}" y="${top + height + 10}" font-family="${SANS}" font-size="10">+${race.more} more · open Agents for all</text>` : ''
+  if (race.more) height += 16
   const alt = [
-    `Race: ${race.running} running${race.done ? `, ${race.done} done` : ''}, ${race.ok} ok${race.fails ? `, ${race.fails} failed` : ''}${time ? `, ${time}` : ''}`,
-    ...race.lanes.map(l => {
-      const calls = [l.count - (l.fails ?? 0) > 0 ? `${l.count - (l.fails ?? 0)} ok` : '', l.fails ? `${l.fails} failed` : ''].filter(Boolean).join(', ')
-      return `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${l.step}${calls ? ` (${calls})` : ''}`
-    }),
-    ...(race.more ? [`${race.more} more`] : []),
+    `Race: ${[lead, race.done ? `${race.done} done` : '', race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
+    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
+    ...(race.more ? [`${race.more} more in the Agents pane`] : []),
   ].join('; ')
-  const defs = used.size ? `<defs>${[...used].map(k => `<path id="sabai-tr-${k}" d="${TRAIL_ICONS[k as keyof typeof TRAIL_ICONS]}"/>`).join('')}</defs>` : ''
-  return { body: `<style>${RACE_MOTION}</style>` + defs + head + lanes.join(''), height: next - top + 6, alt }
+  return { body: `<style>${RACE_MOTION}</style>` + head + rows.join('') + more, height: height + 6, alt }
 }
 
 export const HERO_MIN_W = 480
