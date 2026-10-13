@@ -138,52 +138,78 @@ const busy = (id: string, extra: Partial<AgentRun> = {}) =>
     ...extra,
   })
 
-test('the overview heads the crew, a Clawd per agent in his mood, and four tiles', () => {
+test('the overview lays the crew on one time axis, a Clawd riding each bar at work, then three tiles', () => {
   const list = [busy('a'), busy('b', { status: 'done', endedAt: 20_000 }), busy('c', { status: 'failed', reason: 'aborted', endedAt: 20_000 })]
   const d = crewSvg(list, 530, 30_000)
-  expect(d.source).toContain('>3 agents<')
-  expect(d.source).toContain('>1 running · 1 done · 1 stopped<')
-  expect(d.source).toContain('>27<')
-  expect(d.source).toContain('>153k<')
-  expect(d.source).not.toContain('>FILES<')
+  // No headline: the box's title says how the crew stands.
+  expect(d.source).not.toContain('agents<')
+  expect([d.source.includes('>task a<'), d.source.includes('>task b<'), d.source.includes('>task c<')]).toEqual([true, true, true])
+  // Ends marked: done, stopped; the one at work rides its bar to now.
+  expect([d.source.includes('>✓<'), d.source.includes('>✋<'), d.source.includes('>now<')]).toEqual([true, true, true])
   expect(d.source).toContain('class="run"')
-  expect(d.source).toContain('.run g.la{')
+  expect(d.alt).toBe('3 members: task a working, task b done, task c stopped; 27 calls, 3 failed; 153k tokens; 29s')
+  expect([d.source.includes('>27<'), d.source.includes('>153k<'), d.source.includes('>FILES<')]).toEqual([true, true, false])
   const all = crewSvg(list.slice(1), 530, 90_000)
-  expect(all.source).toContain('>Crew finished · 19s<')
-  // Nothing moves once the crew has settled.
+  // Settled: the axis ends at the crew's own end, and nothing moves.
+  expect(all.source).not.toContain('>now<')
   expect(all.source).not.toContain('@keyframes')
+  // Past six members the rest are counted.
+  expect(crewSvg(Array.from({ length: 8 }, (_, i) => busy(`m${i}`)), 530, 30_000).source).toContain('>+ 2 more<')
   // A very narrow pane stacks the tiles.
   expect(crewSvg(list, 260, 30_000).height).toBeGreaterThan(d.height)
 })
 
-test('a lane says its Thai line, is marked by a bar and a bold title when viewed, and is still once settled', () => {
+test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main wears its badge and cap; still once settled', () => {
   const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
   expect(lane.source).toContain('กำลังอ่าน svg.ts')
-  expect(lane.source).toContain('<rect width="4" height="42" rx="2"')
+  expect(lane.source).toContain('<rect y="6" width="4" height="30" rx="2" fill="#D97757"/>')
+  expect(lane.source).toContain('stroke="#D97757" stroke-width="1.5"')
+  expect(lane.source).toContain('class="run wave"')
   expect(lane.source).toContain('font-weight="800"')
   expect(lane.source).toContain('>2/3<')
+  expect(laneSvg(busy('a'), 454, 30_000, 'raised').source).not.toContain('wave')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
   expect(quiet.source).toMatch(/class="c-warn"[^>]*>เงียบไป 60 วิ/)
+  expect(quiet.source).toContain(`<rect y="6" width="4" height="30" rx="2" fill="#f08a3c"/>`)
   expect(laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source).not.toContain('@keyframes')
+  const main = laneSvg(busy('main:1', { type: 'main', description: 'Claude' }), 454, 30_000)
+  expect([main.source.includes('>main</text>'), main.source.includes('#3a5899'), main.alt.startsWith('Claude (main):')]).toEqual([true, true, true])
 })
 
-test('the detail draws its head, tools, steps, calls and files', () => {
-  const a = busy('a')
+test('the detail draws its head a line for each thing, then its tools, steps, calls and files', () => {
+  const a = busy('a', { effort: 'high', lastActiveAt: 25_000 })
   const head = agentHeadSvg(a, 530, 30_000, 'raised', 200_000)
   expect(head.source).toContain('>working<')
-  expect(head.source).toContain('▶ Read svg.ts')
-  expect(head.source).toContain('31k / 200k')
-  expect(head.source).toContain('✓8 ✗1')
+  expect(head.source).toContain('>Read svg.ts<')
+  expect(head.source).toContain('31k · 16%')
+  expect(head.source).toContain('>TOKENS<')
+  expect(head.source).toContain('>51k<')
+  expect(head.source).toContain('>Explore · Haiku 4.5 · high effort<')
+  expect(head.source).toContain('>active 5s ago<')
+  // A quiet agent's tag already counts its silence.
+  const quiet = agentHeadSvg(busy('q', { doing: [], lastActiveAt: 0 }), 530, 60_000, 'raised')
+  expect([quiet.source.includes('>quiet 60s<'), quiet.source.includes('active')]).toEqual([true, false])
   const tools = toolsSvg(a, 530)!.source
   expect([tools.includes('>BUILT-IN<'), tools.includes('>SKILLS<'), tools.includes('sabai · step'), tools.includes('>×3<')]).toEqual([true, true, true, true])
   expect(toolsSvg(run('none'), 530)).toBeUndefined()
   const steps = stepsSvg(a, 530)!.source
   expect([steps.includes('>scanning<'), steps.includes('>1 more step planned<')]).toEqual([true, true])
+  // How many calls are left out is the box's title's to say.
   const calls = activitySvg(a, 530)!.source
-  expect([calls.includes('7 earlier calls'), calls.includes('$ ls /nope'), calls.includes('running…')]).toEqual([true, true, true])
+  expect([calls.includes('earlier call'), calls.includes('$ ls /nope'), calls.includes('running…')]).toEqual([false, true, true])
   const files = filesSvg(a, 530)!.source
   expect([files.includes('Changed · 1'), files.includes('>NEW<'), files.includes('Read · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
   expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')
+})
+
+test('an earlier crew crowns its MVP: done without a failed call, the most files changed, then the quickest', () => {
+  const done = (id: string, extra: Partial<AgentRun> = {}) => busy(id, { status: 'done', endedAt: 20_000, callFails: 0, ...extra })
+  const what = (crew: AgentRun[]) => earlierSvg(crew, 600).alt.split('. ')[1]
+  expect(what([done('a', { files: {} }), done('b'), done('c', { callFails: 2 })])).toBe('task a · 👑 task b · task c')
+  expect(what([done('a', { files: {}, endedAt: 9000 }), done('b', { files: {} })])).toBe('👑 task a · task b')
+  // One agent, or none done clean: no crown.
+  expect(what([done('a')])).toBe('task a')
+  expect(what([done('a', { callFails: 1 }), busy('b', { status: 'failed', endedAt: 5000 })])).not.toContain('👑')
 })
 
 test('every pane drawing keeps its words inside a narrow pane and is small', () => {

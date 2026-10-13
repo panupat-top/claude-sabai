@@ -83,15 +83,16 @@ The info row sits above the band on a card of its own, everything from the left 
 ### The agents panel
 
 Press the Agents icon or type `/sabai-agents`. Each of Claude's turns is a **crew**: Claude and the agents that turn started. The panel has three boxes:
-- **Now**, the crew at work:
-  - the overview: who is in it and how they stand, a Clawd for each in his mood (agents in their type's hat), a bar of each one's share done, and three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
-  - a lane for Claude, then one per agent: its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
-- **Earlier**: the last crews before this one that had agents, folded to one line while a crew is at work. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
-- **Detail**, of the lane you viewed. The viewed lane is marked by a bar on its left and its button reads **Viewing**; press it again, or **✕ Close**, to close the view. With none viewed, Detail invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
-  - its head: mood, effort, type and model, its latest call, and steps, context and calls as meters;
+- **Now**, the crew at work, its title saying how many are running, done, failed or stopped:
+  - a timeline: each member a bar from its start to its end on one time axis in its mood's colour, a Clawd riding the end of each bar still at work and ✓, ✗ or ✋ at the end of the others; then three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
+  - a lane for Claude (in his captain's cap, with a **main** badge), then one per agent (in its type's hat): a stripe in its mood's colour, its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
+- **Viewing**, the lane you opened with **View**: the lane is ringed and tinted, its Clawd waves and its button reads **Viewing**. Press it again, or **✕ Close**, to close the view. With none viewed, Viewing invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
+  - its head: its task and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type, model and effort in small print;
+  - **Asked to**: the first line of what it was asked, **▸ More** for the rest;
   - **Summary** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then, for an agent, two to four lines Haiku writes in Thai from its report;
-  - **Plan** (the steps it reported), **Tools used** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
-  - **Report** (Claude's **Answer**, for Claude), with earlier rounds when an agent was sent more work after finishing, and **Task**, what an agent was asked.
+  - **Plan** (the steps it reported), **Tools** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
+  - **Report** (Claude's **Answer**, for Claude), with earlier rounds when an agent was sent more work after finishing.
+- **Earlier**: the last crews before this one that had agents, folded to one line while a crew is at work. Each line crowns its MVP 👑: the agent that finished without a failed call, changed the most files, and was quickest. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
 
 A turn that called nothing and started no agents (a quick reply) is not kept as a crew. An agent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done. Claude is never quiet: writing a long answer is quiet work.
 

@@ -568,9 +568,9 @@ export const register: Register = on => {
     text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
   }))
 
-  // The agents pane in three boxes: Now (the crews at work: an overview, then a lane for Main and
-  // each agent), Earlier (the crews before, a line each) and Detail (the run viewed, or how to
-  // view one). View on a lane opens its detail; pressing it again, or Close, closes it.
+  // The agents pane in three boxes: Now (the crews at work: a timeline, then a lane for Main and
+  // each agent), Viewing (the run viewed, or how to view one) and Earlier (the crews before, a
+  // line each). View on a lane opens its run in Viewing; pressing it again, or Close, closes it.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const subagents = await read($, agents)
@@ -636,9 +636,9 @@ export const register: Register = on => {
         {buttons.filter(b => b !== false && b !== undefined)}
       </Box>
     )
-    // One part of the detail: a small box with its title, its count and its button.
+    // One part of the detail: its title, its count and its button over its body, unboxed.
     const part = (key: string, title: string, note: string, body: RenderNode | null, button?: RenderNode) => (
-      <Box key={`part-${key}`} borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
+      <Box key={`part-${key}`} flexDirection="column" rowGap={1}>
         {boxHead(title, note, button)}
         {body}
       </Box>
@@ -650,7 +650,7 @@ export const register: Register = on => {
     const BOX_INSET = 20
     const inner = W - BOX_INSET
     // A lane and its View button; the lane viewed is ringed and its button reads Viewing, and a
-    // press there closes the view.
+    // press there closes the view. (A Lucide eye as an image link took no presses in the pane.)
     const LANE_BUTTON = 78
     const view = (id: string) => update($, selectedAgent, cur => (cur === id ? null : id))
     const laneOf = (a: AgentRun, inset: number) => {
@@ -683,9 +683,9 @@ export const register: Register = on => {
     const overview = crewSvg(runs, inner, at, skinName, windowOf)
     const top = fits(overview) ? image('crew', overview) : undefined
 
-    // The detail: its head, then its parts, each a small box with its title and count: Summary,
-    // Plan, Tools used, Calls, Files, then its Report (Claude's answer for Main) and its Task, the
-    // long ones folded. Haiku sums up agents only.
+    // The detail: its head, then its parts, each a title with its count over its body: what it
+    // was asked (a line, unfolded on More), Summary, Plan, Tools, Calls, Files, then its Report
+    // (Claude's answer for Main), folded. Haiku sums up agents only.
     const deep = inner - BOX_INSET
     const detail = (a: AgentRun) => {
       const w = windowOf(a)
@@ -700,10 +700,17 @@ export const register: Register = on => {
       const kept = Object.values(a.files ?? {})
       const changed = kept.filter(f => f.edits > 0).length
       const n = a.callCount ?? 0
+      const shownCalls = Math.min(allCalls ? CALLS_KEPT : 8, a.calls?.length ?? 0)
+      const kinds = Object.keys(a.tools ?? {}).length
       const showHide = (key: string) => fold(key, '▾ Hide', '▸ Show')
+      // The brief's first line, cut to about what a line of the pane holds.
+      const firstLine = a.brief?.split('\n')[0] ?? ''
+      const room = Math.floor(inner / 7)
+      const briefLine = firstLine.length > room || firstLine !== a.brief ? `${Array.from(firstLine).slice(0, room).join('').trimEnd()}…` : firstLine
       return (
         <Box key={`detail-${a.id}`} flexDirection="column" rowGap={1}>
           {fits(head) && image(`detail-head-${a.id}`, head)}
+          {a.brief && part('brief', 'Asked to', '', <Text dimColor wrap={folds.includes('brief') ? 'wrap' : 'truncate-end'}>{folds.includes('brief') ? a.brief : briefLine}</Text>, briefLine !== a.brief ? fold('brief', '▾ Less', '▸ More') : undefined)}
           {a.status !== 'running' &&
             part(
               'summary',
@@ -717,8 +724,8 @@ export const register: Register = on => {
               </Box>,
             )}
           {steps && fits(steps) && part('plan', 'Plan', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
-          {tools && fits(tools) && part('tools', 'Tools used', `${n} ${n === 1 ? 'call' : 'calls'}`, image(`detail-tools-${a.id}`, tools))}
-          {calls && fits(calls) && part('calls', 'Calls', n <= 8 ? String(n) : allCalls ? `latest ${Math.min(n, CALLS_KEPT)} of ${n}` : `latest 8 of ${n}`, image(`detail-calls-${a.id}`, calls), n > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
+          {tools && fits(tools) && part('tools', 'Tools', `${kinds} ${kinds === 1 ? 'kind' : 'kinds'}`, image(`detail-tools-${a.id}`, tools))}
+          {calls && fits(calls) && part('calls', 'Calls', shownCalls >= n ? String(n) : `latest ${shownCalls} of ${n}`, image(`detail-calls-${a.id}`, calls), n > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
           {files && fits(files) && part('files', 'Files', `${changed} changed · ${kept.length - changed} read`, image(`detail-files-${a.id}`, files))}
           {a.status !== 'running' &&
             part(
@@ -736,7 +743,6 @@ export const register: Register = on => {
               ) : null,
               showHide('report'),
             )}
-          {a.brief && part('brief', 'Task', 'what it was asked', folds.includes('brief') ? <Text dimColor>{a.brief}</Text> : null, showHide('brief'))}
         </Box>
       )
     }
@@ -757,20 +763,38 @@ export const register: Register = on => {
     const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
     const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
     const tally = [`✓${past.filter(a => a.status === 'done').length}`, stopped ? `✋${stopped}` : '', failed ? `✗${failed}` : ''].filter(Boolean).join(' ')
-    const helpers = runs.filter(a => !isMain(a)).length
+    // How the crew at work stands, for its box's title.
+    const standing = [
+      ['running', runs.filter(a => a.status === 'running').length],
+      ['done', runs.filter(a => a.status === 'done').length],
+      ['failed', runs.filter(a => a.status === 'failed' && a.reason !== 'aborted').length],
+      ['stopped', runs.filter(a => a.reason === 'aborted').length],
+    ] as const
 
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box key="now" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Now', helpers ? `${runs.some(isMain) ? 'Main + ' : ''}${helpers} ${helpers === 1 ? 'agent' : 'agents'}` : 'Claude')}
+          {boxHead('Now', standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`).join(' · '))}
           {top}
           {laneList}
+        </Box>
+        <Box key="detail" borderStyle="round" borderColor={selected ? look.clawd : 'subtle'} paddingX={1} flexDirection="column" rowGap={1}>
+          {boxHead('Viewing', selected ? (isMain(selected) ? 'Claude' : selected.description || selected.type) : '', selected && <Button key="close-detail" label="✕ Close" onPress={() => update($, selectedAgent, () => null)} />)}
+          {shown ?? image('detail-empty', empty)}
+          {stuck && (
+            <Box flexDirection="row" alignItems="center" columnGap={1}>
+              <Box flexGrow={1}>
+                <Text>{`⚠ ${stuck.description || stuck.type}: ${moodLabel(stuck, at, windowOf(stuck))}`}</Text>
+              </Box>
+              <Button key="view-needs-look" label="View it" onPress={() => update($, selectedAgent, () => stuck.id)} />
+            </Box>
+          )}
         </Box>
         {earlier.length > 0 && (
           <Box key="earlier" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
             {boxHead(
               'Earlier',
-              `${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${past.length} ${past.length === 1 ? 'agent' : 'agents'}${isFolded ? ` · ${tally}` : ''}`,
+              `${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${tally}`,
               !isFolded && (
                 <Button
                   key="clear-earlier"
@@ -809,18 +833,6 @@ export const register: Register = on => {
             })}
           </Box>
         )}
-        <Box key="detail" borderStyle="round" borderColor={selected ? look.clawd : 'subtle'} paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Detail', selected ? (isMain(selected) ? 'Claude (main)' : selected.description || selected.type) : '', selected && <Button key="close-detail" label="✕ Close" onPress={() => update($, selectedAgent, () => null)} />)}
-          {shown ?? image('detail-empty', empty)}
-          {stuck && (
-            <Box flexDirection="row" alignItems="center" columnGap={1}>
-              <Box flexGrow={1}>
-                <Text>{`⚠ ${stuck.description || stuck.type}: ${moodLabel(stuck, at, windowOf(stuck))}`}</Text>
-              </Box>
-              <Button key="view-needs-look" label="View it" onPress={() => update($, selectedAgent, () => stuck.id)} />
-            </Box>
-          )}
-        </Box>
       </Box>
     )
   })
