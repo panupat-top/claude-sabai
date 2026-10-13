@@ -1,5 +1,5 @@
 // What the mod adds to the conversation, as plain values: a summary line under a tool row,
-// test results, callouts, the spinner's words and a turn's receipt. register.tsx draws them per surface.
+// test results, callouts and a turn's receipt. register.tsx draws them per surface.
 
 import type { ActKind, TurnLog } from '../types'
 
@@ -129,30 +129,12 @@ export function splitCallouts(md: string): Segment[] {
 export const CALLOUT_HINT =
   'When an aside deserves a box (a caveat, a tip, a warning), write it as a GitHub alert: `> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]` or `> [!CAUTION]`. Use them sparingly.'
 
-export type SpinnerMode = 'requesting' | 'responding' | 'thinking' | 'tool-input' | 'tool-use'
-
-// Plain Thai, read at a glance; the engine adds its own ellipsis after the word.
-export const SPINNER_WORDS: Record<SpinnerMode, readonly string[]> = {
-  thinking: ['กำลังคิด', 'ขอคิดแป๊บนึงนะ', 'กำลังเรียบเรียง', 'กำลังวางแผน'],
-  requesting: ['กำลังส่งคำขอ', 'รอคำตอบสักครู่'],
-  'tool-input': ['กำลังเตรียมคำสั่ง'],
-  'tool-use': ['กำลังลงมือทำ', 'กำลังจัดการให้', 'กำลังทำงาน'],
-  responding: ['กำลังเขียนคำตอบ', 'กำลังสรุปให้', 'กำลังพิมพ์คำตอบ'],
-}
-
 export function seedOf(id: string): number {
   let h = 0
   for (const c of id) h = (h * 31 + c.codePointAt(0)!) >>> 0
   return h
 }
 
-export function spinnerWord(mode: SpinnerMode, seed: number): string {
-  const words = SPINNER_WORDS[mode]
-  return words[seed % words.length]!
-}
-
-// The desktop says `Working` while its row names no step; a word naming a step is kept.
-export const isGenericWord = (word: string) => word.trim() === '' || word.trim() === 'Working'
 
 // Text as a person reads it: no colour codes, no carriage-return redraws, no control characters.
 export function clean(text: string): string {
@@ -287,36 +269,53 @@ export function stepOf(c: Call): Step | undefined {
   return { icon, tone, title: `Read ${name}`, ...where, result: [{ text: range, tone: 'muted' }] }
 }
 
-// A subagent's call as the agents pane lists it: its kind, a one-line title, what it is about
-// (a file, a command, a pattern) and the key its tool is counted under: a skill by its name, an
-// MCP tool as `mcp__server__tool`, as the engine names it.
-export type Act = { kind: ActKind; title: string; target: string; key: string }
+export type Act = { kind: ActKind; title: string; target: string; key: string; now: string }
+
+// An MCP tool by its server's own name and the tool's, without the ids around them:
+// `mcp__plugin_context-mode_context-mode__ctx_search` is `context-mode · ctx search`.
+export const mcpName = (tool: string): string | undefined => {
+  const m = tool.match(/^mcp__(.+?)__(.+)$/)
+  return m ? `${m[1]!.split('_').pop()} · ${m[2]!.replace(/_/g, ' ')}` : undefined
+}
+
+// A call as the pane and the race name it: its kind, a one-line title, what it is about (a file, a
+// command, a pattern), the key its tool is counted under (a skill by its name, an MCP tool as the
+// engine names it) and what it is doing while it runs, in the same words everywhere.
 export function actOf(tool: string, input: unknown): Act {
-  const i = (input ?? {}) as { command?: unknown; file_path?: unknown; pattern?: unknown; path?: unknown; url?: unknown; query?: unknown; skill?: unknown; notebook_path?: unknown }
+  const i = (input ?? {}) as { command?: unknown; description?: unknown; file_path?: unknown; pattern?: unknown; path?: unknown; url?: unknown; query?: unknown; skill?: unknown; notebook_path?: unknown }
   const str = (v: unknown) => (typeof v === 'string' ? v : '')
   const file = basename(clean(str(i.file_path) || str(i.notebook_path)))
-  const act = (kind: ActKind, verb: string, target: string, key = tool): Act => ({ kind, title: target ? `${verb} ${target}` : verb, target, key })
-  if (tool === 'Read') return act('read', 'Read', file)
-  if (tool === 'Edit' || tool === 'NotebookEdit') return act('edit', 'Edit', file)
-  if (tool === 'Write') return act('edit', 'Write', file)
+  const act = (kind: ActKind, verb: string, target: string, now: string, key = tool): Act => ({ kind, title: target ? `${verb} ${target}` : verb, target, key, now })
+  if (tool === 'Read') return act('read', 'Read', file, `Reading ${file}`)
+  if (tool === 'Edit' || tool === 'NotebookEdit') return act('edit', 'Edit', file, `Editing ${file}`)
+  if (tool === 'Write') return act('edit', 'Write', file, `Writing ${file}`)
   if (tool === 'Bash') {
     const command = bare(firstLine(str(i.command)))
-    return act(isTestCommand(command) ? 'test' : 'command', '$', command)
+    const said = sentence(firstLine(str(i.description)))
+    const test = isTestCommand(command)
+    return act(test ? 'test' : 'command', '$', command, said || (test ? 'Running tests' : `Running ${command}`))
   }
   if (tool === 'Grep' || tool === 'Glob') {
     const where = basename(clean(str(i.path)))
-    return act('search', tool, `${firstLine(str(i.pattern))}${where ? ` · ${where}` : ''}`)
+    const pattern = firstLine(str(i.pattern))
+    return act('search', tool, `${pattern}${where ? ` · ${where}` : ''}`, `Searching ${pattern}`)
   }
-  if (tool === 'WebFetch') return act('web', 'Fetch', str(i.url).replace(/^https?:\/\//, '').split('/')[0] ?? '')
-  if (tool === 'WebSearch') return act('web', 'Search', firstLine(str(i.query)))
+  if (tool === 'WebFetch') {
+    const host = str(i.url).replace(/^https?:\/\//, '').split('/')[0] ?? ''
+    return act('web', 'Fetch', host, `Fetching ${host}`)
+  }
+  if (tool === 'WebSearch') return act('web', 'Search', firstLine(str(i.query)), `Searching ${firstLine(str(i.query))}`)
   if (tool === 'Skill') {
     const name = firstLine(str(i.skill))
-    return act('skill', 'Skill', name, name ? `skill:${name}` : tool)
+    return act('skill', 'Skill', name, `Using ${name}`, name ? `skill:${name}` : tool)
   }
-  if (tool === 'Agent' || tool === 'Task') return act('other', 'Agent', firstLine(str((i as { description?: unknown }).description)))
-  const mcp = tool.match(/^mcp__(.+?)__(.+)$/)
-  if (mcp) return act('mcp', `${mcp[1]} ·`, mcp[2]!)
-  return act('other', tool, '')
+  if (tool === 'Agent' || tool === 'Task') {
+    const what = firstLine(str(i.description))
+    return act('other', 'Agent', what, `Waiting on subagent "${what}"`)
+  }
+  const mcp = mcpName(tool)
+  if (mcp) return { kind: 'mcp', title: mcp, target: mcp, key: tool, now: `Using ${mcp}` }
+  return act('other', tool, '', `Using ${tool}`)
 }
 
 // A step in words, without its marks: a drawing's alt text, for a reader that cannot see it.

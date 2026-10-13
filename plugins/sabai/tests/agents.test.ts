@@ -13,7 +13,7 @@ const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   status: 'running',
   startedAt: 1000,
   contextTokens: 0,
-  steps: 0,
+  requests: 0,
   ...extra,
 })
 const USAGE = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 900 }
@@ -30,7 +30,7 @@ test('a run is added once, steps count up with the latest context, and it ends d
   expect(list.map(a => a.description)).toEqual(['again'])
   list = stepped(list, 'a', 'claude-opus-5-5', USAGE)
   list = stepped(list, 'a', '', USAGE)
-  expect([list[0]?.steps, list[0]?.contextTokens, list[0]?.model]).toEqual([2, 42_100, 'claude-opus-5-5'])
+  expect([list[0]?.requests, list[0]?.contextTokens, list[0]?.model]).toEqual([2, 42_100, 'claude-opus-5-5'])
   expect(stepped(list, 'nobody', 'x', USAGE)).toEqual(list)
   expect(finished(list, 'a', 'answer', 5000)[0]).toMatchObject({ status: 'done', endedAt: 5000 })
   expect(finished(list, 'a', 'error', 5000)[0]?.status).toBe('failed')
@@ -98,7 +98,7 @@ test('a finished run keeps its reason and a cut answer; Result text never comes 
   expect(finished([run('b')], 'b', 'refusal', 9000)[0]?.status).toBe('failed')
   expect(resultText(run('c', { status: 'done', reason: 'answer' }))).toBe('No report.')
   expect(resultText(run('d', { status: 'failed', reason: 'aborted' }))).toBe('Stopped before it finished.')
-  expect(resultText(run('e', { status: 'failed', reason: 'refusal' }))).toBe('Declined the task.')
+  expect(resultText(run('e', { status: 'failed', reason: 'refusal' }))).toBe('Declined the work.')
   expect(resultText(run('f', { status: 'failed', reason: 'error' }))).toBe('Ended with an error.')
   expect(resultText(run('g', { status: 'done', reason: 'answer', result: 'Found 3.' }))).toBe('Found 3.')
 })
@@ -132,7 +132,7 @@ test('the empty drawing invites a first agent', () => {
 
 test('a step note and a report are cut between code points, never inside an emoji', () => {
   const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/
-  const run: AgentRun = { id: 'a', agentId: 'a', type: 'Plan', description: 'a', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 0 }
+  const run: AgentRun = { id: 'a', agentId: 'a', type: 'Plan', description: 'a', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 0 }
   const note = reported([run], 'a', { done: 1, total: 2, note: `${'x'.repeat(79)}🐢🐢` })[0]!.progress!.note!
   expect([lone.test(note), Array.from(note).length, note.endsWith('🐢')]).toEqual([false, 80, true])
   const result = finished([run], 'a', 'answer', 1, `${'x'.repeat(RESULT_MAX - 2)}🐢🐢🐢`)[0]!.result!

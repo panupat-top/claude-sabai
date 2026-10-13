@@ -3,25 +3,32 @@ import { expect, test } from 'claude-code/testing'
 import type { AgentRun } from '../types'
 import {
   CALLS_KEPT, CREWS_KEPT, QUIET_MS, agentMood, dayOf, needsLook, called, calling, clearEarlier, crewsOf, factsLine, filesOf, openCrews, reported, spawned, stepped,
-  summaryOf, summaryPrompt, thaiLine, toolsOf, touched,
+  summaryOf, summaryPrompt, laneLine, toolsOf, touched,
 } from '../hooks/agents'
 import { actOf } from '../hooks/chat'
 import { activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, lookOf, stepsSvg, toolsSvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
-  id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, steps: 0, lastActiveAt: 1000, ...extra,
+  id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, requests: 0, lastActiveAt: 1000, ...extra,
 })
 const USAGE = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 900 }
 const READ = actOf('Read', { file_path: '/p/hooks/svg.ts' })
 const GREP = actOf('Grep', { pattern: 'on\\(', path: '/p/hooks' })
 
 test('a call is named for the pane by its tool: files, commands, patterns, skills and MCP tools', () => {
-  expect(READ).toEqual({ kind: 'read', title: 'Read svg.ts', target: 'svg.ts', key: 'Read' })
+  expect(READ).toEqual({ kind: 'read', title: 'Read svg.ts', target: 'svg.ts', key: 'Read', now: 'Reading svg.ts' })
   expect(GREP).toMatchObject({ kind: 'search', title: 'Grep on\\( · hooks', key: 'Grep' })
   expect(actOf('Bash', { command: 'cd /p && bun test' })).toMatchObject({ kind: 'test', title: '$ bun test' })
   expect(actOf('Bash', { command: 'ls -la' })).toMatchObject({ kind: 'command', target: 'ls -la' })
   expect(actOf('Skill', { skill: 'superpowers:brainstorming' })).toMatchObject({ kind: 'skill', key: 'skill:superpowers:brainstorming' })
   expect(actOf('mcp__context7__query-docs', {})).toMatchObject({ kind: 'mcp', title: 'context7 · query-docs', key: 'mcp__context7__query-docs' })
+  // An MCP tool by its server's own name, without the ids around it, the same in every place.
+  expect(actOf('mcp__Claude_Browser__computer', {})).toMatchObject({ title: 'Browser · computer', now: 'Using Browser · computer' })
+  expect(actOf('mcp__plugin_context-mode_context-mode__ctx_search', {}).title).toBe('context-mode · ctx search')
+  // While it runs a call says what it is doing; a command by its description when it has one.
+  expect(actOf('Bash', { command: 'python3 -m http.server', description: 'serve the preview' }).now).toBe('Serve the preview')
+  expect(actOf('Bash', { command: 'ls -la' }).now).toBe('Running ls -la')
+  expect(actOf('Bash', { command: 'bun test' }).now).toBe('Running tests')
   expect(actOf('WebFetch', { url: 'https://example.com/a/b' })).toMatchObject({ kind: 'web', title: 'Fetch example.com' })
   expect(actOf('ToolSearch', {})).toMatchObject({ kind: 'other', title: 'ToolSearch' })
 })
@@ -78,7 +85,7 @@ test('crews: the newest five are kept with any still at work, the newest and tho
   // turn:0 still runs, so it stays though older than the five newest.
   expect(crewsOf(list).map(c => c.id)).toEqual(['turn:6', 'turn:5', 'turn:4', 'turn:3', 'turn:2', 'turn:0'])
   expect(crewsOf(list).length).toBe(CREWS_KEPT + 1)
-  const { now, earlier } = openCrews(crewsOf(list))
+  const { atWork: now, earlier } = openCrews(crewsOf(list))
   expect([now.map(c => c.id), earlier.length]).toEqual([['turn:6', 'turn:0'], CREWS_KEPT - 2])
   expect(clearEarlier(list, new Set(now.map(c => c.id))).map(a => a.id)).toEqual(['a0', 'a6'])
 })
@@ -97,20 +104,27 @@ test('moods: at work, thinking, quiet, context nearly full, failed, stopped and 
   // Main whose turn ended while its crew's agents run waits on them, as the band says.
   const waits = run('m', { type: 'main', waitingOn: 2, lastActiveAt: at - QUIET_MS })
   expect(agentMood(waits, at)).toBe('waiting')
-  expect(thaiLine(waits, at)).toBe('รอ agent อีก 2 ตัว ⏳')
+  expect(laneLine(waits, at)).toBe('Waiting on 2 subagents')
 })
 
-test('Thai lines carry the real numbers, stay put between redraws, and name a round', () => {
+test('a lane line says its state once, in the band’s words, with its real numbers and its round', () => {
   const at = 100_000
-  expect(thaiLine(run('a', { doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts' }] }), at)).toBe('กำลังอ่าน svg.ts 📖')
-  expect(thaiLine(run('a', { lastActiveAt: at - 45_000 }), at)).toContain('45 วิ')
-  expect(thaiLine(run('a', { contextTokens: 172_000, lastActiveAt: at }), at, 200_000)).toContain('86%')
-  expect(thaiLine(run('a', { status: 'failed', reason: 'aborted', progress: { done: 2, total: 3 } }), at)).toBe('หยุดตามที่สั่ง ✋ ทำไป 2/3 ขั้น')
-  expect(thaiLine(run('a', { status: 'done', startedAt: 0, endedAt: 16_000 }), at)).toContain('16s')
-  expect(thaiLine(run('a', { status: 'done', summary: 'pending', endedAt: 9000 }), at)).toContain('กำลังสรุป')
-  expect(thaiLine(run('a', { rounds: [{}], doing: [{ kind: 'edit', title: 'Edit x', target: 'x' }] }), at)).toBe('รอบ 2 · กำลังแก้ x ✍️')
-  const quiet = run('q', { lastActiveAt: at - 40_000 })
-  expect(thaiLine(quiet, at)).toBe(thaiLine(quiet, at + 1000).replace('41', '40'))
+  expect(laneLine(run('a', { doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts', now: 'Reading svg.ts' }] }), at)).toBe('Reading svg.ts')
+  // A call kept from before the calls said their words names itself by its title.
+  expect(laneLine(run('a', { doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts' }] }), at)).toBe('Read svg.ts')
+  // Between calls: how long it has thought, and the call it made last.
+  expect(laneLine(run('a', { lastActiveAt: at - 5000, calls: [{ title: 'Read crew.ts', kind: 'read', ms: 1, ok: true }] }), at)).toBe('Thinking 5s · last: Read crew.ts')
+  expect(laneLine(run('a', { lastActiveAt: at - 5000 }), at)).toBe('Thinking 5s')
+  expect(laneLine(run('a', { lastActiveAt: at + 900 }), at)).toBe('Thinking 0s')
+  expect(laneLine(run('a', { lastActiveAt: at - 45_000 }), at)).toBe('Quiet 45s')
+  expect(laneLine(run('a', { contextTokens: 172_000, lastActiveAt: at }), at, 200_000)).toBe('Context 86%')
+  expect(laneLine(run('a', { status: 'failed', reason: 'error', callFails: 2 }), at)).toBe('Failed · 2 failed calls')
+  expect(laneLine(run('a', { status: 'failed', reason: 'aborted', progress: { done: 2, total: 3 } }), at)).toBe('Stopped at step 2/3')
+  expect(laneLine(run('a', { status: 'done', startedAt: 0, endedAt: 16_000 }), at)).toBe('Done in 16s')
+  expect(laneLine(run('a', { status: 'done', summary: 'pending', startedAt: 0, endedAt: 9000 }), at)).toBe('Done in 9s · summing up')
+  expect(laneLine(run('a', { rounds: [{}], doing: [{ kind: 'edit', title: 'Edit x', target: 'x', now: 'Editing x' }] }), at)).toBe('Round 2 · Editing x')
+  // One line per state, the same for every run: no word is picked at random.
+  expect(laneLine(run('x', { lastActiveAt: at - 5000 }), at)).toBe(laneLine(run('y', { lastActiveAt: at - 5000 }), at))
 })
 
 test('an agent needs a look when quiet, then when its context is nearly full; Main is never quiet', () => {
@@ -129,14 +143,14 @@ test('the summary asks Haiku with the report and files, and reads its bullets ba
   expect(prompt).toContain('hooks/x.ts (+3 −1)')
   expect(summaryOf('Here:\n- นับ hook ได้ 30 จุด\n• แก้ `x.ts`\nend')).toEqual(['นับ hook ได้ 30 จุด', 'แก้ `x.ts`'])
   expect(summaryOf('no bullets')).toBeUndefined()
-  expect(factsLine({ ...a, startedAt: 0, endedAt: 27_000, spent: 49_400 }, 0)).toBe('อ่าน 0 ไฟล์ · แก้ 1 ไฟล์ · 4 calls (พลาด 1) · 27s · 49.4k tokens')
+  expect(factsLine({ ...a, startedAt: 0, endedAt: 27_000, spent: 49_400 }, 0)).toBe('Read 0 files · changed 1 file · 4 calls (1 failed) · 27s · 49.4k tokens')
 })
 
 const busy = (id: string, extra: Partial<AgentRun> = {}) =>
   run(id, {
     callCount: 9, callFails: 1, spent: 51_000, contextTokens: 31_000, progress: { done: 2, total: 3, note: 'reading bandSvg' }, notes: ['scanning', 'reading bandSvg'],
     calls: [{ kind: 'search', title: 'Grep x', ok: true, ms: 300 }, { kind: 'command', title: '$ ls /nope', ok: false, ms: 20 }],
-    doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts' }],
+    doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts', now: 'Reading svg.ts' }],
     tools: { Grep: 1, Bash: 1, Read: 1, 'skill:superpowers:brainstorming': 1, mcp__sabai__step: 3 },
     files: { 'hooks/svg.ts': { reads: 2, edits: 0, added: 0, removed: 0 }, 'tests/n.test.ts': { reads: 0, edits: 1, added: 38, removed: 0, created: true } },
     ...extra,
@@ -149,9 +163,9 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
   expect(d.source).not.toContain('agents<')
   expect([d.source.includes('>task a<'), d.source.includes('>task b<'), d.source.includes('>task c<')]).toEqual([true, true, true])
   // Ends marked: done, stopped; the one at work rides its bar to now.
-  expect([d.source.includes('>✓<'), d.source.includes('>✋<'), d.source.includes('>now<')]).toEqual([true, true, true])
+  expect([d.source.includes('#sabai-du-circle-check'), d.source.includes('#sabai-du-circle-stop'), d.source.includes('>now<')]).toEqual([true, true, true])
   expect(d.source).toContain('class="run"')
-  expect(d.alt).toBe('3 members: task a working, task b done, task c stopped; 27 calls, 3 failed; 153k tokens; 29s')
+  expect(d.alt).toBe('3 subagents on the timeline: task a working, task b done, task c stopped; 27 calls, 3 failed; 153k tokens; 29s')
   expect([d.source.includes('>27<'), d.source.includes('>153k<'), d.source.includes('>FILES<')]).toEqual([true, true, false])
   const all = crewSvg(list.slice(1), 530, 90_000)
   // Settled: the axis ends at the crew's own end, and nothing moves.
@@ -165,7 +179,7 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
 
 test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main is named so and wears its cap; still once settled', () => {
   const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
-  expect(lane.source).toContain('กำลังอ่าน svg.ts')
+  expect(lane.source).toContain('Reading svg.ts')
   expect(lane.source).toContain('<rect y="6" width="4" height="30" rx="2" fill="var(--kl-skill)"/>')
   expect(lane.source).toContain('stroke="#D97757" stroke-width="1.5"')
   expect(lane.source).toContain('class="run wave"')
@@ -173,22 +187,36 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
   expect(lane.source).toContain('>2/3<')
   expect(laneSvg(busy('a'), 454, 30_000, 'raised').source).not.toContain('wave')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
-  expect(quiet.source).toMatch(/class="c-warn"[^>]*>เงียบไป 60 วิ/)
+  expect(quiet.source).toMatch(/class="c-warn"[^>]*>Quiet 60s/)
   expect(quiet.source).toContain(`<rect y="6" width="4" height="30" rx="2" fill="var(--kl-warn)"/>`)
   expect(laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source).not.toContain('@keyframes')
   const main = laneSvg(busy('main:1', { type: 'main', description: 'Main' }), 454, 30_000)
   expect([main.source.includes('>Main<'), main.source.includes('#3a5899'), main.alt.startsWith('Main:')]).toEqual([true, true, true])
+  // Its line leads with its state's tile, moving while it works: the call's, the quiet moon, Main's hourglass.
+  expect(lane.source).toMatch(/<g class="st-pulse"><use href="#sabai-du-book-open"/)
+  expect(lane.source).toContain('@keyframes stp')
+  expect(quiet.source).toMatch(/<g class="st-fade"><use href="#sabai-du-moon"/)
+  const waits = laneSvg(busy('main:2', { type: 'main', description: 'Main', doing: [], waitingOn: 2 }), 454, 30_000)
+  expect(waits.source).toMatch(/<g class="st-flip"><use href="#sabai-du-hourglass"/)
+  expect(waits.source).toContain('@keyframes stf')
+  // An ended run's tile stays still, with no motion carried.
+  const done = laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source
+  expect(done).toMatch(/<use href="#sabai-du-circle-check"/)
+  // The head's mood tag carries the same tile.
+  expect(agentHeadSvg(busy('h', { doing: [], lastActiveAt: 29_000 }), 530, 30_000).source).toContain('class="st-b1"')
 })
 
-test('an ended lane wears a badge on its Clawd: a check, a cross or a hand; just ended, its lane is tinted', () => {
+test('an ended lane says how it ended by its line’s icon alone: a check, a cross or a stop, no badge on its Clawd; just ended, its lane is tinted', () => {
   const ended = (status: AgentRun['status'], reason?: AgentRun['reason']) => run('e', { status, endedAt: 10_000, ...(reason ? { reason } : {}) })
   const later = 60_000
   expect(laneSvg(run('r'), 400, later, 'raised').source).not.toContain('<circle cx="')
   const done = laneSvg(ended('done'), 400, later, 'raised').source
-  expect(done).toContain('r="6.5" fill="var(--kb-ok)"')
+  expect(done).toContain('href="#sabai-du-circle-check"')
   const failed = laneSvg(ended('failed', 'error'), 400, later, 'raised').source
-  expect(failed).toContain('r="6.5" fill="var(--kb-fail)"')
-  expect(laneSvg(ended('failed', 'aborted'), 400, later, 'raised').source).toContain('>✋</text>')
+  expect(failed).toContain('href="#sabai-du-circle-x"')
+  expect(laneSvg(ended('failed', 'aborted'), 400, later, 'raised').source).toContain('href="#sabai-du-circle-stop"')
+  // The tile is the one mark: no disc on Clawd's corner to run into it.
+  expect([done, failed].some(s => s.includes('r="6.5"'))).toBe(false)
   // Settled, no tint; in its first seconds a failed lane is tinted red and its Clawd falls.
   expect(failed).not.toContain('class="flash"')
   const fresh = laneSvg(ended('failed', 'error'), 400, 11_000, 'raised').source
@@ -202,7 +230,7 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   const a = busy('a', { effort: 'high', lastActiveAt: 25_000 })
   const head = agentHeadSvg(a, 530, 30_000, 'raised', 200_000)
   expect(head.source).toContain('>Working<')
-  expect(head.source).toContain('>Read svg.ts<')
+  expect(head.source).toContain('>Reading svg.ts<')
   expect(head.source).toContain('31k · 16%')
   expect(head.source).toContain('>TOKENS<')
   expect(head.source).toContain('>51k<')
@@ -221,7 +249,20 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   expect([calls.includes('earlier call'), calls.includes('$ ls /nope'), calls.includes('Running…')]).toEqual([false, true, true])
   const files = filesSvg(a, 530)!.source
   expect([files.includes('Changed · 1'), files.includes('>NEW<'), files.includes('Read · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
-  expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')
+  // How it ended in the timeline's tiles, each with its count; its alt says it in words.
+  const one = earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454)
+  expect([one.source.includes('href="#sabai-du-circle-check"'), one.source.includes('>27s · 51k<'), one.source.includes('✓')]).toEqual([true, true, false])
+  expect(one.alt).toContain(': 1 done · 27s · 51k.')
+  const ended = earlierSvg([busy('d', { status: 'done', endedAt: 9000 }), busy('f', { status: 'failed', reason: 'error', endedAt: 9000 }), busy('s', { status: 'failed', reason: 'aborted', endedAt: 9000 })], 600).source
+  for (const g of ['circle-check', 'circle-x', 'circle-stop']) expect([g, ended.includes(`href="#sabai-du-${g}"`)]).toEqual([g, true])
+  expect(ended).not.toContain('✋')
+  // A dynamic workflow's run is named so; a turn's group needs no name.
+  expect(earlierSvg([busy('w', { status: 'done', endedAt: 28_000, crew: 'wf:r1' })], 454).alt).toMatch(/^\d\d:\d\d · workflow run · 1 subagent:/)
+  // A tally that would run into the longer title is left out.
+  const narrow = earlierSvg([1, 2, 3].map(i => busy(`w${i}`, { status: i === 2 ? 'failed' : 'done', reason: i === 2 ? 'error' : 'answer', endedAt: 240_000, crew: 'wf:r1' })), 362).source
+  expect(narrow).not.toContain('sabai-du-')
+  // A title too long for a narrow row is cut, never drawn past its card.
+  expect(earlierSvg(Array.from({ length: 12 }, (_, i) => busy(`n${i}`, { status: 'done', endedAt: 9000, crew: 'wf:r1' })), 200).source).toMatch(/>[^<]*…</)
 })
 
 test('an earlier crew crowns its MVP: done without a failed call, the most files changed, then the quickest', () => {
@@ -248,7 +289,7 @@ test('runs from before crews are one crew, and the pane shows no more than five 
   const old = [run('x', { status: 'done' }), run('y', { status: 'done' })]
   expect(crewsOf(old).map(c => c.runs.length)).toEqual([2])
   const many = Array.from({ length: 8 }, (_, i) => run(`c${i}`, { crew: `turn:${i}`, status: 'done' }))
-  const { now, earlier } = openCrews(crewsOf(many))
+  const { atWork: now, earlier } = openCrews(crewsOf(many))
   expect([now.length, earlier.length]).toEqual([1, CREWS_KEPT - 1])
 })
 

@@ -255,12 +255,12 @@ test('Clawd counts the background work the main conversation starts, until it en
   await call({ tool: 'Bash', command: 'sub', description: '', run_in_background: true, agentId: 'agent-x' })
   await call({ tool: 'Monitor', description: 'watch', timeout_ms: 60_000, command: 'tail -f log' })
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 3 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 3 background/)
   const notify = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } } as never)
   await notify('<task-notification><task-id>m1</task-id><event>line</event></task-notification>')
   await notify('<task-notification><task-id>b1</task-id><status>completed</status></task-notification>')
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 2 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 2 background/)
   await call({ tool: 'TaskStop', task_id: 'b2' })
   await notify('<task-notification><task-id>m1</task-id><status>killed</status></task-notification>')
   await settle()
@@ -284,7 +284,7 @@ test('before the session has read anything, the band stands as a still skeleton 
   engine(on)
   const desktop = (await shown($, 'desktop')).words
   expect(desktop).toContain('Reading the project')
-  expect(desktop).toContain('Context loading; 5H Limit loading; 7D All loading')
+  expect(desktop).toContain('Context loading; Session limit loading; Weekly limit loading')
   expect(desktop).not.toMatch(/\d%/)
 })
 
@@ -310,28 +310,28 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
   const desktop = await shown($, 'desktop')
   expect(desktop.svgs).toBe(2)
   expect(desktop.words).toContain(
-    'Context 24.5k / 200k (12%); 5H Limit 7%, resets in 2h 49m; 7D All 3%, resets in 6d 2h',
+    'Context 24.5k / 200k (12%); Session limit 7%, resets in 2h 49m; Weekly limit 3%, resets in 6d 2h',
   )
   expect(desktop.words).toContain('stock row')
   // The desktop's toolbar is icons, not Buttons: compact (the one command it keeps), agents, settings.
   expect(desktop.buttons).toBe(0)
-  expect(desktop.tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect(desktop.tools).toEqual(['Compact', 'Subagents', 'Settings'])
 })
 
-test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
+test('before the engine has a plan reading, the session and weekly limits stay hidden', async ($, on) => {
   engine(on, { hasLimits: false })
   await start($)
   const words = (await shown($, 'desktop')).words
   expect(words).toContain('Context 24.5k / 200k (12%)')
-  expect(words).not.toContain('5H')
-  expect(words).not.toContain('7D')
+  expect(words).not.toContain('Session limit')
+  expect(words).not.toContain('Weekly limit')
 })
 
 test('countdowns tick between responses', async ($, on) => {
   const { clock } = engine(on)
   await start($)
   await clock.advance(30 * 60_000)
-  expect((await shown($, 'desktop')).words).toContain('5H Limit 7%, resets in 2h 19m')
+  expect((await shown($, 'desktop')).words).toContain('Session limit 7%, resets in 2h 19m')
 })
 
 test('measurements update the context as tokens over the window', async ($, on) => {
@@ -455,9 +455,9 @@ test('/sabai-agents opens the panel and closes it again', async ($, on) => {
   engine(on)
   const open = panes(on)
   await start($)
-  expect((await agentsCommand($)).text).toBe('Agents panel opened.')
+  expect((await agentsCommand($)).text).toBe('Subagents pane opened.')
   expect([...open]).toEqual(['sabai-agents'])
-  expect((await agentsCommand($)).text).toBe('Agents panel closed.')
+  expect((await agentsCommand($)).text).toBe('Subagents pane closed.')
   expect([...open]).toEqual([])
 })
 
@@ -526,7 +526,7 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   await spawn($, 'read')
   // While agents work the icon counts them in Clawd's clay.
   const agents = (await toolsOf(ui)).find(t => t.key === 'tool-agents')
-  expect(agents?.alt).toBe('Agents, 2 working')
+  expect(agents?.alt).toBe('Subagents, 2 running')
   expect(agents?.icon).toContain('>2</text>')
   expect(agents?.icon).toContain('<rect class="c-tasks"')
 })
@@ -657,7 +657,7 @@ test('a subagent runs in its lane with its clock and Thai line, then is done whe
   await spawn($, 'api routes')
   await clock.advance(64_000)
   let ui = await mountPane($, 'desktop')
-  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: Quiet 64s, 1m 4s\. .*64 วิ/)
+  expect((await laneOf(ui, 'api routes'))?.props.alt).toBe('api routes: Quiet 64s, 1m 4s. Quiet 64s')
   expect((await headOf(await viewed(ui, 'api routes')))?.props.alt).toContain('Explore · Sonnet 5.5')
   await ui.unmount()
   await finish($, 'api routes')
@@ -709,6 +709,73 @@ test('every call of a subagent lands in its detail: tools by group, the activity
   expect((await altsOf(await viewed(await mountPane($, 'desktop'), 'worker'))).find(a => a.startsWith('Tools:'))).toContain('Grep 1×')
 })
 
+test('Main’s MCP call runs in its race lane in the pane’s words; after it, the lane says how long Main has thought', async ($, on) => {
+  let finishCall = () => {}
+  on('tool.call', { tool: 'mcp__Claude_Browser__computer' } as never, () => new Promise(done => (finishCall = () => done({ result: {} } as never))) as never)
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'work' } as never)
+  await spawn($, 'scout')
+  const call = $.tool.call({ tool: 'mcp__Claude_Browser__computer', action: 'screenshot' } as never)
+  await settle()
+  expect((await shown($, 'desktop', true)).words).toContain('Main running: Using Browser · computer')
+  finishCall()
+  await call
+  await clock.advance(3000)
+  expect((await shown($, 'desktop', true)).words).toContain('Main thinking: Thinking 3s')
+  expect((await laneOf(await mountPane($, 'desktop'), 'Main'))?.props.alt).toContain('Thinking 3s · last: Browser · computer')
+})
+
+test('the race follows the Subagents switch, not Activity', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { live: false } } } })
+  panes(on)
+  await start($)
+  await spawn($, 'scout')
+  expect((await shown($, 'desktop')).words).toContain('Race: 1 running')
+})
+
+test('Settings says what Activity shows: the line of what Main is doing, not the race', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const ui = await mountPane($, 'desktop', 'sabai-skins')
+  expect(await ui.find({ type: 'Text', text: /Activity is the line of what Main is doing; the race follows Subagents/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /race on a wide window/ })).toBeUndefined()
+})
+
+test('a workflow agent started from inside a turn’s subagent still counts as its workflow run', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'lead')
+  await $.agent.spawn({ tool_use_id: 'tu-wfc', prompt: 'go', description: 'wf child', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false, parentAgentId: 'agent-lead', workflow: { runId: 'wf_7', agentIndex: 1 } } as never)
+  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · 2 running' })).toBeDefined()
+})
+
+test('Earlier counts its groups by origin: turns and workflow runs', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'one' } as never)
+  await $.agent.spawn({ tool_use_id: 'tu-wfa', prompt: 'go', description: 'wfa', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_9', agentIndex: 1 } })
+  await finish($, 'wfa')
+  await clock.advance(60_000)
+  await $.turn.start({ turnId: 'two' } as never)
+  await spawn($, 'live')
+  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · ✓ 1' })).toBeDefined()
+})
+
+test('a teammate of an agent team says so in its head: it is no subagent', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await $.agent.spawn({ tool_use_id: 'tu-mate', prompt: 'go', description: 'mate', subagentType: 'researcher', isTeammate: true, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  expect((await headOf(await viewed(await mountPane($, 'desktop'), 'mate')))?.props.alt).toContain('researcher · teammate')
+})
+
 test('a subagent’s test run that fails on stderr fails in its detail too, as the race counts it', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: 'bun test v1\n\n 8 pass\n 1 fail\nRan 9 tests across 1 file. [1s]', interrupted: false } }))
   engine(on)
@@ -738,6 +805,24 @@ test('a summary Haiku was writing when the mod reloaded is asked for again, not 
   await settle()
   const ui = await viewed(await mountPane($, 'desktop'), 'slow')
   expect((await markdownsOf(ui))[0]?.props.text).toBe('- สรุปใหม่')
+})
+
+test('at most two Haiku summaries are asked at once; the rest wait their turn', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  const answers: ((text: string) => void)[] = []
+  on('model.complete', () => new Promise(done => answers.push(text => done({ value: { isAnswered: true, text, usage: {} } } as never))) as never)
+  await start($)
+  for (const name of ['one', 'two', 'three']) {
+    await spawn($, name)
+    await finish($, name, `${name} report`)
+  }
+  await clock.advance(1)
+  await settle()
+  expect(answers.length).toBe(2)
+  answers[0]!('- เสร็จ')
+  await settle()
+  expect(answers.length).toBe(3)
 })
 
 test('a summary lands on the round it read, though more work ended a round before Haiku answered', async ($, on) => {
@@ -775,7 +860,7 @@ test('a finished agent’s report is summed up in Thai by Haiku; with the toggle
   await spawn($, 'count')
   await finish($, 'count', 'Found 30 hooks.')
   let ui = await viewed(await mountPane($, 'desktop'), 'count')
-  expect(await ui.find({ type: 'Text', text: 'Haiku กำลังสรุป…' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Haiku is summing up…' })).toBeDefined()
   await ui.unmount()
   await clock.advance(5)
   await settle()
@@ -783,7 +868,7 @@ test('a finished agent’s report is summed up in Thai by Haiku; with the toggle
   expect(asked[0]?.model).toBe('haiku')
   expect(asked[0]?.prompt).toContain('Found 30 hooks.')
   expect((await markdownsOf(ui))[0]?.props.text).toBe('- นับ hook ได้ 30 จุด\n- ไม่ได้แก้ไฟล์')
-  expect(await ui.find({ type: 'Text', text: /^อ่าน 0 ไฟล์ · แก้ 0 ไฟล์ · 0 calls · / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Read 0 files · changed 0 files · 0 calls · / })).toBeDefined()
   await ui.unmount()
   await spawn($, 'quiet')
   await finish($, 'quiet', 'silent')
@@ -791,7 +876,7 @@ test('a finished agent’s report is summed up in Thai by Haiku; with the toggle
   await settle()
   ui = await mountPane($, 'desktop')
   await viewed(ui, 'quiet')
-  expect(await ui.find({ type: 'Text', text: 'Haiku กำลังสรุป…' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Haiku is summing up…' })).toBeUndefined()
   expect(await markdownsOf(ui)).toEqual([])
   await ui.unmount()
   // The toggle off: no call at all.
@@ -822,11 +907,11 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await laneOf(ui, 'old')).toBeUndefined()
   // While a crew works the earlier ones fold to one line in their own box; Show opens it.
-  expect(await ui.find({ type: 'Text', text: ' · 1 crew · ✓ 1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 turn · ✓ 1' })).toBeDefined()
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
-  expect((await altsOf(ui)).find(a => /^\d\d:\d\d · 1 agent: ✓ 1/.test(a))).toContain('old')
+  expect((await altsOf(ui)).find(a => /^\d\d:\d\d · 1 subagent: 1 done/.test(a))).toContain('old')
   // One day's crews carry no day label.
   expect(await ui.find({ type: 'Text', text: 'TODAY' })).toBeUndefined()
   const show = (await ui.findAll({ type: 'Button' })).find(b => String(b.props.key).startsWith('show-'))!
@@ -849,7 +934,7 @@ test('View opens an agent in Viewing and a second press or Close shuts it; with 
   await finish($, 'b')
   const ui = await mountPane($, 'desktop')
   // Nothing viewed: the invitation, and nobody needs a look yet.
-  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Pick an agent'))).toBe(true)
+  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Pick one to view'))).toBe(true)
   expect(await headOf(ui)).toBeUndefined()
   await ui.press({ key: 'view-agent-b' })
   expect((await headOf(ui))?.props.alt).toMatch(/^b:/)
@@ -876,7 +961,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'solo' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
   let ui = await mountPane($, 'desktop')
-  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('1 member: Main thinking'))).toBeDefined()
+  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('Main on the timeline: Main thinking'))).toBeDefined()
   expect(await laneOf(ui, 'Main')).toBeDefined()
   await ui.unmount()
   await $.turn.complete({ turnId: 'solo', answer: 'All done.', durationMs: 10, isAborted: false, reason: 'answer' })
@@ -896,6 +981,8 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   const key = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).find(k => k.startsWith('view-main:'))!
   await ui.press({ key })
   expect((await altsOf(ui)).find(a => a.startsWith('Tools:'))).toBe('Tools: Grep 1×')
+  // Main's head names what Main is: the main conversation.
+  expect((await headOf(ui))?.props.alt).toContain('main conversation')
   await ui.unmount()
   // A turn that ends calling nothing (a notification's) does not push the crew down.
   await $.turn.complete({ turnId: 'crew', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
@@ -906,7 +993,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   expect(await laneOf(ui, 'helper')).toBeDefined()
   // Its turn over while its agent runs, Main waits on it, as the band says; no check yet.
-  expect((await laneOf(ui, 'Main'))?.props.alt).toMatch(/^Main: Waiting on 1, .*รอ agent อีก 1 ตัว/)
+  expect((await laneOf(ui, 'Main'))?.props.alt).toMatch(/^Main: Waiting on 1, .*Waiting on 1 subagent$/)
   await ui.unmount()
   // A turn of Main's alone puts the crew in Earlier, and Clear drops it.
   await finish($, 'helper')
@@ -985,7 +1072,9 @@ test('a workflow agent says so in its detail, and its brief shows a line that Mo
     parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
   })
   const ui = await viewed(await mountPane($, 'desktop'), 'fan out')
-  expect((await headOf(ui))?.props.alt).toContain('general · Sonnet 5.5 · background · workflow')
+  expect((await headOf(ui))?.props.alt).toContain('general-purpose · Sonnet 5.5 · background · workflow')
+  // The box names the group by its origin: a workflow run, not a turn.
+  expect(await ui.find({ type: 'Text', text: ' · 1 workflow run · 1 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Count the hooks.…' })).toBeDefined()
   expect((await ui.find({ key: 'fold-brief' }))?.props.label).toBe('▸ More')
   await ui.press({ key: 'fold-brief' })
@@ -1006,7 +1095,7 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   await $.turn.start({ turnId: 'two' } as never)
   await step($, 'agent-scout')
   const ui = await mountPane($, 'desktop')
-  expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
+  expect((await laneOf(ui, 'scout'))?.props.alt).toContain('Round 2 · ')
   // The first turn's Main, its agent gone to the turn at work, is no crew of its own.
   expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Main:')).length).toBe(1)
   expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
@@ -1111,7 +1200,7 @@ test('the crew row leaves the band a minute after the last agent ends', async ($
   await start($)
   await spawn($, 'quick job')
   await $.turn.complete({ turnId: 't', agentId: 'agent-quick job', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'desktop')).words).toContain('Agents: 1 done')
+  expect((await shown($, 'desktop')).words).toContain('Subagents: 1 done')
   await clock.advance(90_000)
   expect((await shown($, 'desktop')).words).not.toContain('Agents:')
   expect((await shown($, 'terminal')).words).not.toMatch(/All 1 done/)
@@ -1161,7 +1250,7 @@ test('a long turn and a failed agent send a notification; a plan limit past 90% 
   await at(92)
   await at(95)
   await settle()
-  expect(toasts).toEqual(['5H limit at 92% — resets in 5h 0m'])
+  expect(toasts).toEqual(['Session limit at 92% — resets in 5h 0m'])
 })
 
 test('the guard, once turned on, refuses a risky command and says why', async ($, on) => {
@@ -1254,7 +1343,7 @@ test('the guard’s shield counts what the guard caught this session', async ($,
 })
 
 test('prefs saved by 2.0.0 load with each guard rule at its default', async ($, on) => {
-  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true }, notify: true, limits: true, guard: true, steps: true, chat: { spinner: true, tools: true, tests: true, callouts: true } } } })
+  engine(on, { store: { prefs: { rows: { info: true, tasks: true, crew: true, usage: true, toolbar: true }, notify: true, limits: true, guard: true, steps: true, chat: { tools: true, tests: true, callouts: true } } } })
   panes(on)
   allowBeneath(on)
   on('ui.toast', () => ({ value: undefined }))
@@ -1346,7 +1435,7 @@ test('settings choose the band’s chips, cards, thresholds and Clawd; old prefs
   await pane.press({ key: 'warn-60' })
   const after = (await shown($, 'desktop')).words
   expect(after).not.toContain('Git user')
-  expect(after).not.toContain('7D All')
+  expect(after).not.toContain('Weekly limit')
   for (const key of ['pref-show-folder', 'pref-show-node', 'pref-show-context', 'pref-show-session', 'pref-show-clawd', 'alert-95']) expect([key, await pane.find({ key })]).not.toEqual([key, undefined])
 })
 
@@ -1372,7 +1461,7 @@ test('the density setting switches the band to compact', async ($, on) => {
   expect(await height()).toBeLessThan(roomy)
 })
 
-test('a rising 5H limit shows no forecast on either surface', async ($, on) => {
+test('a rising session limit shows no forecast on either surface', async ($, on) => {
   const { clock } = engine(on)
   await start($)
   for (let i = 0; i <= 20; i++) {
@@ -1396,6 +1485,8 @@ test('while the main turn works the band shows the live strip with the step in f
   expect((await shown($, 'desktop', true)).words).toContain('Build it')
   release()
   await running
+  // Between calls the strip times its thought, as the race does.
+  expect((await shown($, 'desktop', true)).words).toMatch(/Thinking \d+s/)
   await $.tool.call({ tool: 'Read', file_path: '/w/a.ts', agentId: 'agent-x' } as Parameters<typeof $.tool.call>[0])
   expect((await shown($, 'desktop', true)).words).not.toContain('Reading a.ts')
   await $.turn.complete({ turnId: 'live', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
@@ -1418,6 +1509,30 @@ test('stored styles named after Object’s own keys fall back to the defaults', 
   expect(source).not.toContain('[object')
 })
 
+test('the second clock runs only while work does: an idle session reads no subagents each second', async ($, on) => {
+  const { clock } = engine(on)
+  turnStarts(on)
+  let reads = 0
+  on('state.get', async (_$, e, next) => {
+    if (e.key === 'agents') reads++
+    return next(e)
+  })
+  await start($)
+  // Set up, it looks once for work that outlived a reload, then stops.
+  await clock.advance(1000)
+  reads = 0
+  await clock.advance(10_000)
+  expect(reads).toBe(0)
+  await $.turn.start({ turnId: 'work' } as never)
+  await clock.advance(3000)
+  expect(reads).toBeGreaterThan(0)
+  await $.turn.complete({ turnId: 'work', answer: 'ok', durationMs: 3000, isAborted: false, reason: 'answer' })
+  await clock.advance(2000)
+  reads = 0
+  await clock.advance(10_000)
+  expect(reads).toBe(0)
+})
+
 test('a turn that outlived a reload still counts by the second: its state, not the module, says it works', async ($, on) => {
   const { clock } = engine(on)
   // State survives a hot reload; the module starts over and never saw this turn start.
@@ -1428,7 +1543,7 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   await start($)
   await clock.advance(3000)
   // With no agents the live strip carries the turn's time.
-  expect((await shown($, 'desktop', true)).words).toContain('Clawd: Working, 3s; Working;')
+  expect((await shown($, 'desktop', true)).words).toContain('Clawd: Working, 3s; Working: Thinking 3s;')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
@@ -1518,7 +1633,8 @@ test('each member’s calls land in its own lane; the header counts the turn’s
   expect(words).toMatch(/Race: 1 running, 1 failed call/)
   expect(words).toMatch(/Main (tripped|running|thinking)/)
   // The agent's lane names its latest call; Main's counts its failure.
-  expect(words).toContain('x running: Read a.ts |')
+  // Between calls its lane says how long it has thought since.
+  expect(words).toContain('x running: Thinking 0s |')
   expect(words).toMatch(/Main \w+: [^;]*, 1 failed/)
 })
 
@@ -1597,7 +1713,7 @@ test('a Bash row is drawn as a step in place of the engine’s row, with its mea
 })
 
 test('an untimed quick Bash row, another tool, or the toggle off pass straight through', async ($, on) => {
-  engine(on, { store: { prefs: { chat: { spinner: true, tools: false, tests: true, callouts: true, label: true } } } })
+  engine(on, { store: { prefs: { chat: { tools: false, tests: true, callouts: true, label: true } } } })
   await start($)
   const off = await mountTool($, 'desktop', { tool_use_id: 'x', tool: 'Bash', input: { command: 'ls' }, isErrored: true, output: {} })
   expect(await off.findAll({ type: 'Svg' })).toEqual([])
@@ -1638,7 +1754,7 @@ test('a Bash row whose output is a test summary becomes a test line', async ($, 
 })
 
 test('with Test results off, a test run is a plain failed Bash line', async ($, on) => {
-  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: false, callouts: true, label: true } } } })
+  engine(on, { store: { prefs: { chat: { tools: true, tests: false, callouts: true, label: true } } } })
   await start($)
   const ui = await mountTool($, 'desktop', TEST_ROW)
   expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['bun test, 9 pass, failed, exit 1'])
@@ -1672,30 +1788,11 @@ test('Claude is told about callouts only while Callouts is on', async ($, on) =>
 })
 
 test('with Callouts off, replies and the prompt are left alone', async ($, on) => {
-  engine(on, { store: { prefs: { chat: { spinner: true, tools: true, tests: true, callouts: false, label: true } } } })
+  engine(on, { store: { prefs: { chat: { tools: true, tests: true, callouts: false, label: true } } } })
   on('prompt.compose', () => ({ sections: [{ id: 'core', text: 'base', scope: 'shared' as const }] }))
   await start($)
   expect((await $.prompt.compose(FACTS)).sections.map(s => s.id)).toEqual(['core'])
   expect(await isStock(await mountReply($, 'desktop', '> [!TIP]\n> x'))).toBe(true)
-})
-
-test('the spinner speaks Thai only in place of the desktop’s Working; the terminal keeps its own word', async ($, on) => {
-  const seen: string[] = []
-  on('ui.render', { component: 'Spinner' }, ($, e) => {
-    seen.push((e.props as { word: string }).word)
-    return STOCK
-  })
-  on('turn.start', ($, e) => ({ turnId: e.turnId }))
-  engine(on)
-  await start($)
-  await $.turn.start({ text: 'hi', turnId: 'turn-1' })
-  const spin = (surface: Surface, word: string, n: number) =>
-    $.ui.mount({ plugin: 'sabai', surface, component: 'Spinner', requestId: `s${n}`, viewport: { columns: 120, rows: 30 }, props: { word, message: null, suffix: '…', mode: 'thinking' } })
-  await spin('terminal', 'Sauteing', 1)
-  await spin('desktop', 'Creating notes.md', 2)
-  await spin('desktop', 'Working', 3)
-  expect(seen.slice(0, 2)).toEqual(['Sauteing', 'Creating notes.md'])
-  expect(seen[2]).toMatch(/[฀-๿]/)
 })
 
 test('settings: each chat feature has its own toggle, kept for new sessions', async ($, on) => {
@@ -1703,7 +1800,7 @@ test('settings: each chat feature has its own toggle, kept for new sessions', as
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
-  for (const k of ['spinner', 'tools', 'tests', 'callouts']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
+  for (const k of ['tools', 'tests', 'callouts']) expect([k, (await pane.find({ key: `pref-chat-${k}` }))?.props.label]).toEqual([k, '● On'])
   expect(await pane.find({ key: 'pref-chat-label' })).toBeUndefined()
   await pane.press({ key: 'pref-chat-tools' })
   expect((await pane.find({ key: 'pref-chat-tools' }))?.props.label).toBe('○ Off')
@@ -1813,7 +1910,7 @@ test('the guard chip follows the guard alone: off, no chip; an old Guard label s
 })
 
 test('a guard turned on shows its chip even where an older version saved Guard label off', async ($, on) => {
-  engine(on, { store: { prefs: { guard: true, chat: { spinner: true, tools: true, tests: true, callouts: true, label: false } } } })
+  engine(on, { store: { prefs: { guard: true, chat: { tools: true, tests: true, callouts: true, label: false } } } })
   await start($)
   expect((await shown($, 'desktop')).words).toContain('Guard on')
 })
@@ -1873,7 +1970,7 @@ test('settings are eight bordered groups in order: look, usage, info row, Clawd,
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications']
+  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications']
   expect(cards.length).toBe(titles.length)
   const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
   const order = titles.map(t => words.indexOf(`  ${t}`))
@@ -2007,7 +2104,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   const all = await labels()
   for (const l of ['● Tasks', '● Activity', '● Toolbar', '● Folder', '● Context', '● Hats and props', '● Tricks', 'Dither', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
   const text = JSON.stringify(await pane.drawn())
-  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
+  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
   expect(order.every(i => i >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
   await pane.press({ key: 'pref-show-folder' })
@@ -2086,7 +2183,7 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
 test('a new session shows the engine\'s estimate of its context until a response measures it', async ($, on) => {
   engine(on, { percents: [undefined, 7, 3], estimate: 18_000 })
   await start($)
-  expect((await shown($, 'desktop')).words).toContain('Context ~18k / 200k (9%); 5H Limit 7%')
+  expect((await shown($, 'desktop')).words).toContain('Context ~18k / 200k (9%); Session limit 7%')
   await $.session.measure({ context: { window: 200000, tokens: 24_500, percent: 12 }, rateLimits: [], changed: ['context'] })
   expect((await shown($, 'desktop')).words).toContain('Context 24.5k / 200k (12%)')
 })
@@ -2112,7 +2209,7 @@ test('/clear drops the old context reading; with no estimate the context waits f
   await clock.advance(1)
   const words = (await shown($, 'desktop')).words
   expect(words).not.toContain('Context')
-  expect(words).toContain('5H Limit 7%')
+  expect(words).toContain('Session limit 7%')
 })
 
 test('/clear with no reading to give drops the old context too, rather than keep its percent', async ($, on) => {
@@ -2124,7 +2221,7 @@ test('/clear with no reading to give drops the old context too, rather than keep
   await clock.advance(1)
   const words = (await shown($, 'desktop')).words
   expect(words).not.toContain('82%')
-  expect(words).toContain('5H Limit 7%')
+  expect(words).toContain('Session limit 7%')
 })
 
 test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {
@@ -2180,7 +2277,7 @@ test('a Write over an existing file counts its diff in the receipt, a new file e
 test('with every row but the toolbar hidden, the toolbar stays', async ($, on) => {
   engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: true } } } })
   await start($)
-  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Subagents', 'Settings'])
 })
 
 test('the desktop shows the guard while it is on, with the info row hidden too', async ($, on) => {
@@ -2199,7 +2296,7 @@ test('a limit notification fires at the red mark the person set', async ($, on) 
   await start($)
   await $.session.measure({ context: { window: 1_000_000, tokens: 1000, percent: 1 }, rateLimits: [{ kind: 'five_hour', percentUsed: 87, resetsAt: '2026-10-10T05:00:00Z' }], changed: ['rateLimits'] })
   await settle()
-  expect(toasts).toEqual(['5H limit at 87% — resets in 5h 0m'])
+  expect(toasts).toEqual(['Session limit at 87% — resets in 5h 0m'])
 })
 
 test('beside the race, Clawd says his mood rather than the turn time the race already shows', async ($, on) => {

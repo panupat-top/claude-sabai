@@ -7,7 +7,7 @@ import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf,
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
+import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isReadOnly, isTestCommand, logged, plural, receiptOf, receiptText, seedOf, splitCallouts, stepOf, testResult } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
@@ -27,7 +27,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
+  chat: { tools: true, tests: true, callouts: true, receipt: true },
   guardRules: DEFAULT_GUARD_RULES,
   show: { folder: true, gitUser: true, branch: true, node: true, context: true, session: true, week: true, clawd: true },
   warnAt: 70,
@@ -70,7 +70,7 @@ const receiptKey = (answer: string) => `${seedOf(answer)}:${answer.length}`
 const RECEIPTS_KEPT = 40
 // The main turn as it runs, for the live strip: when it began, and the step in flight.
 const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
-const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string; at?: number } | null)
+const liveCall = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string; at?: number } | null)
 // Each member's calls for the race: its tiles, its call in flight, its last fall and score.
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // The tools a row draws as a one-line step.
@@ -139,6 +139,11 @@ let canCompact = false
 // The mod works only in a session the desktop draws on; a terminal or -p session is left alone:
 // no band, panes, chat rows, commands, tool, prompt section, guard or notifications.
 let desktop = false
+// The second clock while it runs: it starts with work and stops itself once nothing works.
+let ticking: { cancel: () => void } | undefined
+// Haiku summaries asking now, and those waiting their turn: at most SUMMARIES_AT_ONCE ask at once.
+let asking = 0
+const waiting: (() => void)[] = []
 
 // One line of a command's output, or nothing when it fails or is missing: a chip without a
 // value is simply not drawn.
@@ -194,6 +199,22 @@ async function checkBranch($: EngineInterface) {
   if ((await line($, ['git', 'branch', '--show-current'])) !== lastBranch) await readRepo($)
 }
 
+// The main turn's and the subagents' clocks count by the second only while one works: an idle
+// session reads nothing each second. Work starting starts it (turn.start, agent.spawn, a finished
+// subagent sent more work); it stops itself once nothing works.
+function tickWhileWorking($: EngineInterface) {
+  if (ticking) return
+  ticking = $.clock.every(1000, () => {
+    void (async () => {
+      // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
+      const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
+      if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) return tick($)
+      ticking?.cancel()
+      ticking = undefined
+    })()
+  })
+}
+
 async function tick($: EngineInterface) {
   const t = await $.clock.now()
   await update($, now, () => t)
@@ -213,7 +234,7 @@ async function togglePane($: EngineInterface, id: string, title: string, focus =
 
 async function toggleAgents($: EngineInterface): Promise<boolean> {
   await tick($)
-  return togglePane($, PANE, 'Agents')
+  return togglePane($, PANE, 'Subagents')
 }
 
 async function setBar($: EngineInterface, style: string) {
@@ -268,15 +289,17 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
-// The main turn's step in flight, for the live strip: the step's running title; a subagent's
-// calls leave it alone. Every member's race lane keeps the call's name as it reads once done.
-async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
-  const said = stepOf({ tool, input, isRunning: false, isErrored: false, isInterrupted: false })?.title
-  if (said) await update($, race, r => ({ ...r, said: { ...r.said, [agentId ?? 'main']: said } }))
+// A call starts: in the member's race lane its kind is in flight and what it is doing said in the
+// pane's words (actOf), in one write; the main turn's call in flight goes to the live strip (a
+// subagent's calls leave it alone), one with no row of its own (an MCP tool) by those words.
+async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown, kind: CallKind) {
+  const member = agentId ?? 'main'
+  const said = actOf(tool, input).now
+  await update($, race, r => ({ ...r, said: { ...r.said, [member]: said }, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   const at = await $.clock.now()
-  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title, at } : null))
+  await update($, liveCall, () => (s ? { icon: s.icon, title: s.title, at } : { icon: 'terminal', title: said, at }))
 }
 
 // A call that never came back (it threw): only its in-flight mark is cleared.
@@ -325,12 +348,14 @@ const updateRuns = ($: EngineInterface, main: boolean, fn: (l: AgentRun[]) => Ag
 async function logAgentCall<R extends { deny?: string; isError?: boolean; result?: unknown }>($: EngineInterface, main: boolean, agentId: string, tool: string, input: unknown, run: () => Promise<R>): Promise<R> {
   if (UNLOGGED.has(tool)) return run()
   const act = actOf(tool, input)
-  // Main's own calls run in its lane through the race's hooks alone, as before.
-  const raced = RACED.has(tool) || main
+  // The race's own hooks run the raced tools; any other runs in its member's lane from here,
+  // Main's included, so the band and the pane count the same calls.
+  const raced = RACED.has(tool)
+  const member = main ? undefined : agentId
   const kind: CallKind = act.kind === 'read' || act.kind === 'edit' || act.kind === 'command' || act.kind === 'test' ? act.kind : act.kind === 'search' || act.kind === 'web' ? 'read' : 'command'
   const start = await $.clock.now()
   await updateRuns($, main, l => calling(l, agentId, act, start))
-  if (!raced) await racing($, agentId, kind)
+  if (!raced) await stepping($, member, tool, input, kind)
   let result: R | undefined
   try {
     result = await run()
@@ -342,18 +367,39 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
     const out = result?.result as { stdout?: string; stderr?: string } | undefined
     const output = typeof result?.result === 'string' ? result.result : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
     const ok = result === undefined || result.deny !== undefined ? undefined : !result.isError && (act.kind !== 'test' || (testResult(output)?.failed ?? 0) === 0)
-    await updateRuns($, main, l => called(l, agentId, act, end, end - start, ok))
+    // The file it read or changed, with the call, in one write: each write sends the whole list.
+    let file: { path: string; change: Parameters<typeof touched>[3] } | undefined
     if (ok && typeof i.file_path === 'string') {
       const path = inProject(i.file_path)
-      if (tool === 'Read') await updateRuns($, main, l => touched(l, agentId, path, { read: true }))
+      if (tool === 'Read') file = { path, change: { read: true } }
       else if (tool === 'Edit' || tool === 'Write') {
         const r = result!.result as { structuredPatch?: BuiltinToolResults['Edit']['structuredPatch']; type?: string } | undefined
         const c: Logged = tool === 'Edit' ? { tool, path, oldText: i.old_string ?? '', newText: i.new_string ?? '', ...(r?.structuredPatch ? { patch: r.structuredPatch } : {}) } : { tool, path, content: i.content ?? '', ...(r?.type === 'update' && r.structuredPatch ? { patch: r.structuredPatch } : {}) }
         const delta = logged(EMPTY_LOG, c).files[path] ?? { added: 0, removed: 0 }
-        await updateRuns($, main, l => touched(l, agentId, path, { ...delta, ...(r?.type === 'create' ? { created: true } : {}) }))
+        file = { path, change: { ...delta, ...(r?.type === 'create' ? { created: true } : {}) } }
       }
     }
-    if (!raced) await racing($, agentId, kind, result ?? UNFINISHED, ok)
+    await updateRuns($, main, l => {
+      const next = called(l, agentId, act, end, end - start, ok)
+      return file ? touched(next, agentId, file.path, file.change) : next
+    })
+    if (!raced) {
+      await unstep($, member)
+      await racing($, member, kind, result ?? UNFINISHED, ok)
+    }
+  }
+}
+
+// Many subagents ending together would ask Haiku all at once; the rest wait for a turn.
+const SUMMARIES_AT_ONCE = 2
+async function inTurn<T>(ask: () => Promise<T>): Promise<T> {
+  if (asking >= SUMMARIES_AT_ONCE) await new Promise<void>(go => waiting.push(go))
+  asking++
+  try {
+    return await ask()
+  } finally {
+    asking--
+    waiting.shift()?.()
   }
 }
 
@@ -362,7 +408,7 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
 async function summarize($: EngineInterface, agentId: string) {
   const run = (await read($, agents)).find(a => a.agentId === agentId)
   if (!run || run.summary !== 'pending') return
-  const r = await $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS }).catch(() => undefined)
+  const r = await inTurn(() => $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS })).catch(() => undefined)
   const bullets = r?.isAnswered ? summaryOf(r.text) : undefined
   // Only on the round it read: more work and a quicker end meanwhile wait for their own. An answer
   // that comes after a reload has no module left to write to; the new one asks again.
@@ -373,7 +419,7 @@ async function summarize($: EngineInterface, agentId: string) {
 }
 
 async function unstep($: EngineInterface, agentId: string | undefined) {
-  if (agentId === undefined) await update($, liveStep, () => null)
+  if (agentId === undefined) await update($, liveCall, () => null)
 }
 
 async function setSkin($: EngineInterface, name: string) {
@@ -411,7 +457,7 @@ async function setUp($: EngineInterface) {
       .register({
         name: 'step',
         description:
-          'For subagents: report progress on your own task to the agents panel. Right after reading your brief, call it with `total` ' +
+          'For subagents: report progress on your own work to the Subagents pane. Right after reading your brief, call it with `total` ' +
           '(your plan in 3-8 steps) and `done: 0`; call it again as each step finishes, with `note` naming the step in progress. Silent and cheap.',
         inputSchema: {
           type: 'object',
@@ -425,7 +471,7 @@ async function setUp($: EngineInterface) {
         isDeferred: false,
       })
       .catch(() => undefined)
-  await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
+  await $.command.register({ name: 'sabai-agents', description: 'Show or hide the Subagents pane' })
   canCompact = (await $.command.list().catch(() => [])).some(c => c.name === 'compact')
   // The clock first, so no countdown is ever measured from zero.
   await tick($)
@@ -435,14 +481,8 @@ async function setUp($: EngineInterface) {
   for (const { agentId, summary } of await read($, agents)) if (agentId && summary === 'pending') $.clock.after(1, () => void summarize($, agentId))
   // Keeps the reset countdowns and the branch fresh between responses.
   $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
-  // Running subagents' clocks count by the second; quiet when none runs.
-  $.clock.every(1000, () => {
-    void (async () => {
-      // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
-      const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
-      if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
-    })()
-  })
+  // Work that outlived a reload keeps its clocks counting.
+  tickWhileWorking($)
   // git and node last, and not waited on: a slow repository must not hold the session. Each read
   // lands on its own, so a slow one (a version manager's `node` shim) holds back only itself. One
   // that ends after a reload has no module left to write to.
@@ -493,7 +533,7 @@ export const register: Register = on => {
     await update($, race, () => EMPTY_RACE)
     await update($, guardCaught, () => 0)
     await update($, receipts, () => ({}))
-    await update($, liveStep, () => null)
+    await update($, liveCall, () => null)
     const ended = await next(e)
     // The new conversation is read once this one has gone.
     $.clock.after(0, () => void readUsage($, true))
@@ -506,9 +546,9 @@ export const register: Register = on => {
     // A remote workflow agent has no local loop: nothing would ever step or end its run.
     if (started.deny !== undefined || started.agentId === undefined) return started
     const at = await $.clock.now()
-    // Its crew: its parent agent's, else its workflow run, else the main turn that started it.
+    // Its crew: its workflow run, else its parent agent's, else the main turn that started it.
     const parent = e.parentAgentId === undefined ? undefined : (await read($, agents)).find(a => a.agentId === e.parentAgentId)
-    const crew = parent ? crewOf(parent) : e.workflow?.runId ? `wf:${e.workflow.runId}` : `turn:${await read($, turnStartedAt)}`
+    const crew = e.workflow?.runId ? `wf:${e.workflow.runId}` : parent ? crewOf(parent) : `turn:${await read($, turnStartedAt)}`
     const run: AgentRun = {
       id: started.agentId,
       agentId: started.agentId,
@@ -518,15 +558,17 @@ export const register: Register = on => {
       status: 'running',
       startedAt: at,
       contextTokens: 0,
-      steps: 0,
+      requests: 0,
       tasks: [],
       ...(e.workflow ? { workflow: true } : {}),
       crew,
       brief: briefOf(e.prompt),
       ...(e.background ? { background: true } : {}),
+      ...(e.isTeammate ? { teammate: true } : {}),
       lastActiveAt: at,
     }
     await update($, agents, list => spawned(list, run))
+    tickWhileWorking($)
     await update($, now, () => at)
     return started
   })
@@ -538,7 +580,9 @@ export const register: Register = on => {
     const { agentId } = e
     const { usage: used } = result
     if (!agentId) {
-      if (used?.model || e.model) await update($, mainModel, () => used?.model || e.model)
+      // Written only when it changes: every write redraws what reads it.
+      const model = used?.model || e.model
+      if (model && model !== (await read($, mainModel))) await update($, mainModel, () => model)
       if (used) {
         const key = mainKey(await read($, turnStartedAt))
         const at = await $.clock.now()
@@ -550,6 +594,8 @@ export const register: Register = on => {
       const at = await $.clock.now()
       const crew = `turn:${await read($, turnStartedAt)}`
       await update($, agents, list => stepped(list, agentId, used.model || e.model, used, e.effort, at, crew))
+      // A finished subagent sent more work runs again.
+      tickWhileWorking($)
     }
     return result
   })
@@ -559,7 +605,7 @@ export const register: Register = on => {
     if (!desktop) return next(e)
     const completed = await next(e)
     const { agentId } = e
-    const { notify } = await read($, prefs)
+    const { notify, agentSummary } = await read($, prefs)
     if (agentId === undefined) {
       const key = mainKey(await read($, turnStartedAt))
       const endedAt = await $.clock.now()
@@ -571,7 +617,7 @@ export const register: Register = on => {
       await update($, lastTurnAt, () => ended)
       // Clawd waves for WAVE_MS; redraw when the wave ends.
       $.clock.after(WAVE_MS + 100, () => void tick($))
-      await update($, liveStep, () => null)
+      await update($, liveCall, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
       // gets it as the notice under it instead.
       const log = await read($, turnLog)
@@ -585,13 +631,15 @@ export const register: Register = on => {
       }
     } else {
       const at = await $.clock.now()
-      const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
+      // Ended, and marked for its summary, in one write.
+      const list = await update($, agents, l => {
+        const ended = finished(l, agentId, e.reason, at, e.answer)
+        const run = ended.find(a => a.agentId === agentId)
+        return agentSummary && run?.status === 'done' && run.result ? summarized(ended, agentId, 'pending') : ended
+      })
       const run = list.find(a => a.agentId === agentId)
-      if (run?.status === 'done' && run.result && (await read($, prefs)).agentSummary) {
-        await update($, agents, l => summarized(l, agentId, 'pending'))
-        $.clock.after(1, () => void summarize($, agentId))
-      }
-      if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Agent' }).catch(() => undefined)
+      if (run?.summary === 'pending') $.clock.after(1, () => void summarize($, agentId))
+      if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Subagent' }).catch(() => undefined)
       // The hop and confetti last a few seconds; with nothing left running, nothing else would
       // tick the clock to end them.
       $.clock.after(3100, () => void tick($))
@@ -601,7 +649,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sabai-agents' }, async $ => ({
-    text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
+    text: (await toggleAgents($)) ? 'Subagents pane opened.' : 'Subagents pane closed.',
   }))
 
   // The agents pane in three boxes: Now (the crews at work: a timeline, then a lane for Main and
@@ -656,7 +704,7 @@ export const register: Register = on => {
 
     // A run on the main loop's model has its context window; on another model it is unknown.
     const windowOf = (a: AgentRun) => (main && a.model === main ? window : undefined)
-    const { now: current, earlier } = openCrews(crewsOf(list))
+    const { atWork: current, earlier } = openCrews(crewsOf(list))
     const currentIds = new Set(current.map(c => c.id))
     const runs = list.filter(a => currentIds.has(crewOf(a))).map(withTasks)
     const selected = list.map(withTasks).find(a => a.id === picked)
@@ -764,12 +812,12 @@ export const register: Register = on => {
               summary === undefined ? '' : 'by Haiku',
               <Box flexDirection="column">
                 <Text dimColor>{factsLine(a, at)}</Text>
-                {summary === 'pending' && <Text dimColor>Haiku กำลังสรุป…</Text>}
+                {summary === 'pending' && <Text dimColor>Haiku is summing up…</Text>}
                 {Array.isArray(summary) && <Markdown text={summary.map(l => `- ${l}`).join('\n')} />}
                 {a.status === 'failed' && <Text>{resultText(a)}</Text>}
               </Box>,
             )}
-          {steps && fits(steps) && part('plan', 'Plan', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
+          {steps && fits(steps) && part('plan', 'Progress', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
           {tools && fits(tools) && part('tools', 'Tools', `${kinds} ${kinds === 1 ? 'kind' : 'kinds'}`, image(`detail-tools-${a.id}`, tools))}
           {calls && fits(calls) && part('calls', 'Calls', shownCalls >= n ? String(n) : `latest ${shownCalls} of ${n}`, image(`detail-calls-${a.id}`, calls), n > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
           {files && fits(files) && part('files', 'Files', `${changed} changed · ${kept.length - changed} read`, image(`detail-files-${a.id}`, files))}
@@ -822,7 +870,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box key="now" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Now', standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`).join(' · '))}
+          {boxHead('Now', [plural(current.filter(c => c.id.startsWith('wf:')).length, 'workflow run'), ...standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`)].filter(w => w && !w.startsWith('0 ')).join(' · '))}
           {top}
           {laneList}
         </Box>
@@ -842,7 +890,8 @@ export const register: Register = on => {
           <Box key="earlier" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
             {boxHead(
               'Earlier',
-              `${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${tally}`,
+              // Counted by origin: the docs have no word for a group of subagents.
+              [plural(earlier.filter(c => !c.id.startsWith('wf:')).length, 'turn'), plural(earlier.filter(c => c.id.startsWith('wf:')).length, 'workflow run'), tally].filter(w => !w.startsWith('0 ')).join(' · '),
               !isFolded && (
                 <Button
                   key="clear-earlier"
@@ -893,7 +942,7 @@ export const register: Register = on => {
     if (p.limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
-        const label = l.kind === 'five_hour' ? '5H' : l.kind === 'seven_day' ? '7D' : undefined
+        const label = l.kind === 'five_hour' ? 'Session' : l.kind === 'seven_day' ? 'Weekly' : undefined
         const key = `${l.kind}:${l.resetsAt ?? ''}`
         if (!label || l.percentUsed < p.alertAt || (await read($, warned)).includes(key)) continue
         await update($, warned, keys => [...keys, key].slice(-20))
@@ -930,8 +979,7 @@ export const register: Register = on => {
   }).catch(() => ({ decision: 'deny' as const, reason: GUARD_FAILED }))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Read', e)
-    await racing($, e.agentId, 'read')
+    await stepping($, e.agentId, 'Read', e, 'read')
     let called: { deny?: string; isError?: boolean } | undefined
     try {
       called = await next(e)
@@ -943,8 +991,7 @@ export const register: Register = on => {
   })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Edit', e)
-    await racing($, e.agentId, 'edit')
+    await stepping($, e.agentId, 'Edit', e, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
     try {
       called = await next(e)
@@ -957,8 +1004,7 @@ export const register: Register = on => {
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Write', e)
-    await racing($, e.agentId, 'edit')
+    await stepping($, e.agentId, 'Write', e, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
     try {
       called = await next(e)
@@ -977,9 +1023,8 @@ export const register: Register = on => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
-    await stepping($, e.agentId, 'Bash', e)
     const kind: CallKind = isTestCommand(e.command) ? 'test' : 'command'
-    await racing($, e.agentId, kind)
+    await stepping($, e.agentId, 'Bash', e, kind)
     let raceDone = false
     try {
       const called = await next(e)
@@ -1215,7 +1260,7 @@ export const register: Register = on => {
               'Also show',
               'Tap to show or hide',
               pills([rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('toolbar', 'Toolbar')]),
-              <Text key="rows-note" dimColor>Activity is the race on a wide window, else a one-line strip of what Claude is doing. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
+              <Text key="rows-note" dimColor>Activity is the line of what Main is doing; the race follows Subagents. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
             )}
           </Box>,
         )}
@@ -1226,7 +1271,7 @@ export const register: Register = on => {
           'Context, 5H and 7D',
           <Box flexDirection="column" rowGap={2}>
             {part('style', 'Style', '', picks('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => usageSketch(u, current, USAGE_PICK_W, u === p.usageStyle), u => setPrefs($, x => ({ ...x, usageStyle: u }))))}
-            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
+            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', 'Session'), showPill('week', 'Weekly')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
           </Box>,
           rowPower('usage'),
         )}
@@ -1255,11 +1300,11 @@ export const register: Register = on => {
         {group(
           'agents',
           '✻',
-          'Agents',
+          'Subagents',
           'Race lanes, or a row of small Clawds',
           <Box flexDirection="column" rowGap={1}>
-            {flag('steps', 'Step reports', 'Agents report their progress to their lane and the agents panel; from the next session')}
-            {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished agent’s report in Thai, in the agents panel')}
+            {flag('steps', 'Step reports', 'Subagents report their progress to their lane and the Subagents pane; from the next session')}
+            {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished subagent’s report in Thai, in the Subagents pane')}
           </Box>,
           rowPower('crew'),
           true,
@@ -1277,7 +1322,6 @@ export const register: Register = on => {
             {chatToggle('tests', 'Test results', 'Pass and fail counts on test runs (with Tool summaries)')}
             {chatToggle('callouts', 'Callouts', 'Notes and warnings as coloured boxes; Claude is told it may use them')}
             {chatToggle('receipt', 'Turn receipt', 'A line under each working turn: files, tests, commands')}
-            {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </Box>,
         )}
         {group(
@@ -1311,7 +1355,7 @@ export const register: Register = on => {
           'Notifications',
           'Outside the band',
           <>
-            {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or an agent fails')}
+            {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or a subagent fails')}
             {flag('limits', 'Limit warnings', 'Once per window, when 5H or 7D passes red')}
           </>,
         )}
@@ -1412,20 +1456,14 @@ export const register: Register = on => {
     const shown = (await read($, agents)).filter(a => a.status === 'running' || began - (a.endedAt ?? 0) < RACE_LINGER_MS)
     await update($, race, r => nextTurnRace(r, new Set(shown.map(a => a.agentId ?? a.id))))
     await update($, turnStartedAt, () => began)
+    tickWhileWorking($)
     // The turn's own run for the pane; earlier turns stay only where their crew had agents.
     const withAgents = new Set((await read($, agents)).map(crewOf))
-    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, steps: 0, crew: `turn:${began}`, lastActiveAt: began }
+    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, requests: 0, crew: `turn:${began}`, lastActiveAt: began }
     // A turn starting means the one before has ended, whether or not its end was seen.
     const ended = (m: AgentRun): AgentRun => (m.status === 'running' ? { ...m, status: 'done', reason: 'answer', endedAt: began } : m)
     await update($, mains, l => [...l.filter(m => withAgents.has(crewOf(m))).slice(1 - CREWS_KEPT).map(ended), main])
     return next(e)
-  })
-
-  // Thai words in the spinner, in place of the desktop's generic word; one that names the step stays.
-  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (e.surface !== 'desktop' || !isGenericWord(e.props.word) || !(await read($, prefs)).chat.spinner) return next(e)
-    // The spinner's word is picked once per turn, from its start, so redraws and reloads keep it.
-    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, seedOf(String(await read($, turnStartedAt)))) } })
   })
 
   on('prompt.compose', async ($, e, next) => {
@@ -1464,7 +1502,7 @@ export const register: Register = on => {
     // the lines its edits changed and its tests, while it works.
     const turn = await read($, turnLog)
     // The contract types the icon as a string; the hooks only ever write a StepIcon.
-    const stepped = (await read($, liveStep)) as { icon: StepIcon; title: string; at?: number } | null
+    const stepped = (await read($, liveCall)) as { icon: StepIcon; title: string; at?: number } | null
     const step = stepped ? { icon: stepped.icon, title: stepped.title } : null
     const began = await read($, turnStartedAt)
     const raceLog = await read($, race)
@@ -1474,6 +1512,8 @@ export const register: Register = on => {
           ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}),
           ...(step ? { step } : {}),
           ...(stepped?.at !== undefined ? { stepMs: Math.max(0, at - stepped.at) } : {}),
+          // Between calls, timed as the race times Main; a turn of unknown start with no call yet has none.
+          ...(!step && (began !== 0 || raceLog.lastAt?.main) ? { thinkingMs: Math.max(0, at - Math.max(raceLog.lastAt?.main ?? 0, began)) } : {}),
           trail: raceLog.calls.main ?? [],
           calls: countOf(raceLog, 'main'),
           lines: { added: edits.reduce((n, f) => n + f.added, 0), removed: edits.reduce((n, f) => n + f.removed, 0) },
@@ -1483,7 +1523,8 @@ export const register: Register = on => {
         }
       : undefined
     // The race: Main and the agents at work, while any work runs.
-    const raceNow = rows.live ? raceOf(raceLog, rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
+    // It is the Subagents switch's: Activity is the line of what Main is doing.
+    const raceNow = rows.crew ? raceOf(raceLog, everyone, p, at, e.props.isWorking, began, step?.title) : undefined
     // The toolbar and the guard's shield keep the band even with nothing else to show.
     if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !shownPrefs.guard) return next(e)
     const last = await read($, lastTurnAt)
@@ -1528,7 +1569,7 @@ export const register: Register = on => {
       if (canCompact)
         tools.push({ kind: 'compact', label: lvl ? `Compact, context at ${Math.round(ctx!)}%` : 'Compact', count: lvl && roomy ? `${Math.round(ctx!)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
       tools.push(
-        { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+        { kind: 'agents', label: working > 0 ? `Subagents, ${working} running` : 'Subagents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
         { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
       )
     }

@@ -31,7 +31,8 @@ export type AgentRun = {
   startedAt: number
   endedAt?: number
   contextTokens: number
-  steps: number
+  // Model requests it has made; a run kept from before 2.21.0 has none.
+  requests?: number
   effort?: string
   tasks?: Task[]
   result?: string
@@ -46,6 +47,8 @@ export type AgentRun = {
   // The task as the Agent call gave it, cut short.
   brief?: string
   background?: boolean
+  // A teammate of an agent team, which the docs keep apart from subagents.
+  teammate?: true
   // Its latest calls, oldest first, with every call and failure counted past them.
   calls?: AgentCall[]
   callCount?: number
@@ -53,7 +56,7 @@ export type AgentRun = {
   waitingOn?: number
   callFails?: number
   // Calls in flight, oldest first: parallel calls each hold their own.
-  doing?: { kind: ActKind; title: string; target: string }[]
+  doing?: { kind: ActKind; title: string; target: string; now?: string }[]
   // How often each tool was called; a skill as `skill:<name>`.
   tools?: Record<string, number>
   files?: Record<string, AgentFile>
@@ -82,7 +85,7 @@ export type Prefs = {
   limits: boolean
   guard: boolean
   steps: boolean
-  chat: { spinner: boolean; tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
+  chat: { tools: boolean; tests: boolean; callouts: boolean; receipt: boolean }
   guardRules: Record<GuardRule, GuardAction>
   show: Show
   warnAt: number
@@ -106,8 +109,10 @@ export type RaceLog = {
   count: Record<string, number>
   // Each member's calls in flight, oldest first: parallel calls each hold their own.
   doing: Record<string, CallKind[]>
-  // Each member's latest call as its step line names it, and how many of its calls failed.
+  // Each member's latest call in its words while it runs, and how many of its calls failed.
   said: Record<string, string>
+  // When each member's latest call ended, for how long it has thought since; absent in a log kept from before.
+  lastAt?: Record<string, number>
   failed: Record<string, number>
   fellAt: Record<string, number>
   scoredAt: Record<string, number>

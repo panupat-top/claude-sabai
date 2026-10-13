@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { TurnLog } from '../types'
-import { EMPTY_LOG, SPINNER_WORDS, clean, endedTasks, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { EMPTY_LOG, clean, endedTasks, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -45,20 +45,6 @@ test('a marker inside a code fence, a plain quote and an unknown kind stay text'
   expect(splitCallouts(fenced)).toEqual([{ kind: 'md', text: fenced }])
   expect(splitCallouts('> just a quote')).toEqual([{ kind: 'md', text: '> just a quote' }])
   expect(splitCallouts('> [!FOO]\n> x')).toEqual([{ kind: 'md', text: '> [!FOO]\n> x' }])
-})
-
-test('every spinner mode has Thai words, picked steadily for a seed', () => {
-  for (const [mode, words] of Object.entries(SPINNER_WORDS)) {
-    expect([mode, words.length > 0, words.every(w => /[\u0E00-\u0E7F]/.test(w) && !w.endsWith('…'))]).toEqual([mode, true, true])
-  }
-  const seed = seedOf('turn-42')
-  expect(spinnerWord('thinking', seed)).toBe(spinnerWord('thinking', seed))
-  expect(SPINNER_WORDS.thinking).toContain(spinnerWord('thinking', seed))
-  expect(spinnerWord('tool-input', 7)).toBe('กำลังเตรียมคำสั่ง')
-})
-
-test('only the desktop’s generic word is replaced there', () => {
-  expect([isGenericWord('Working'), isGenericWord('Creating notes.md'), isGenericWord('')]).toEqual([true, false, true])
 })
 
 test('output is cleaned of terminal colour codes and carriage-return redraws', () => {

@@ -2,7 +2,7 @@ import type { ActKind, AgentCall, AgentFile, AgentRound, AgentRun, CallKind, Rac
 import type { Progress } from './model'
 import { FINISH_MS, RACE_LANES, RACE_LINGER_MS, SCORE_MS, TRIP_MS, countOf, doingOf, failsOf, tokens } from './model'
 import type { HatKind } from './sprites'
-import { plural } from './chat'
+import { mcpName, plural } from './chat'
 
 // The pane keeps the newest runs; older ones fall off.
 const KEEP = 40
@@ -53,7 +53,7 @@ export function stepped(list: AgentRun[], agentId: string, model: string, u: Usa
   const next: AgentRun = {
     ...run,
     model: model || run.model,
-    steps: run.steps + 1,
+    requests: (run.requests ?? 0) + 1,
     contextTokens: total,
     spent: (run.spent ?? 0) + total - u.cache_read_input_tokens,
     effort: effort === undefined ? run.effort : String(effort),
@@ -162,13 +162,14 @@ export function summary(list: AgentRun[], now: number): { running: number; done:
   return { running, done: list.length - running - failed, failed, context: list.reduce((n, a) => n + a.contextTokens, 0), ms: Math.max(0, end - start) }
 }
 
-const FAILURE: Record<string, string> = { aborted: 'Stopped before it finished.', refusal: 'Declined the task.', error: 'Ended with an error.' }
+const FAILURE: Record<string, string> = { aborted: 'Stopped before it finished.', refusal: 'Declined the work.', error: 'Ended with an error.' }
 export const resultText = (a: AgentRun): string => a.result ?? (a.status === 'failed' ? (FAILURE[a.reason ?? 'error'] ?? 'Ended with an error.') : 'No report.')
 
 export const elapsed = (a: AgentRun, now: number): number => Math.max(0, (a.endedAt ?? now) - a.startedAt)
 
 // How long a run has gone without a call.
-export const quietFor = (a: AgentRun, now: number) => now - (a.lastActiveAt ?? a.startedAt)
+// Never below zero: a call can end a moment after the clock the band last wrote.
+export const quietFor = (a: AgentRun, now: number) => Math.max(0, now - (a.lastActiveAt ?? a.startedAt))
 
 // 4s, 1m 4s, 1h 2m.
 export function clock(ms: number): string {
@@ -178,17 +179,20 @@ export function clock(ms: number): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export type LaneState = 'out' | 'stopped' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
+export type LaneState = 'failed' | 'stopped' | 'done' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
 // agent in the seconds after it finished or failed.
-export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
+export type Lane = { id: string; who: string; type?: string; many?: number; line: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
 export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
-const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
+const laneName = (type: string) => (type.includes(':') ? type.split(':').pop()! : type)
+
+// Between calls a lane says how long it has thought since its last call, as the pane's line does.
+const thinking = (ms: number) => `Thinking ${clock(Math.max(0, ms))}`
 
 // The race as drawn: Main and the newest agents, each in its state, with the header's counts;
 // nothing without agents (the live strip tells the main turn alone) or while nothing works.
-export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainStep?: string): Race | undefined {
+export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainCall?: string): Race | undefined {
   // Agents are kept oldest first; the race runs the newest.
   const running = agents.filter(a => a.status === 'running').reverse()
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
@@ -204,7 +208,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     id: 'main',
     who: 'Main',
     // Between calls, the latest one; a log kept from before calls were named has none.
-    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : `Waiting on ${running.length}`),
+    line: mainCall ?? (mainWorking ? (doingOf(log, 'main').length ? (log.said?.main ?? 'Working') : thinking(now - Math.max(log.lastAt?.main ?? 0, turnStartedAt))) : `Waiting on ${running.length}`),
     // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { steps: { done: tasks.done, total: tasks.total } } : {}),
@@ -239,7 +243,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         who: laneName(a.type),
         type: a.type,
         many: u.length,
-        step: `${u.length} running`,
+        line: `${u.length} running`,
         timeMs: Math.max(...u.map(time)),
         count: ids.reduce((n, i) => n + countOf(log, i), 0),
         fails: ids.reduce((n, i) => n + failsOf(log, i), 0),
@@ -249,22 +253,22 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     }
     const p = progressOf(a)
     // A stop is the person's choice, not a failure.
-    const state: LaneState = a.status === 'failed' ? (a.reason === 'aborted' ? 'stopped' : 'out') : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
+    const state: LaneState = a.status === 'failed' ? (a.reason === 'aborted' ? 'stopped' : 'failed') : a.status === 'done' ? 'done' : (timed(id) ?? 'running')
     const mood = agentMood(a, now)
     return {
       id,
       who: a.description || laneName(a.type),
       type: a.type,
       // A plan's step by its title: the lane draws its done and total.
-      step: state === 'out' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'finished' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
+      line: state === 'failed' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'done' ? 'Done' : p ? p.title : doingOf(log, id).length ? (log.said?.[id] ?? 'Working') : thinking(quietFor(a, now)),
       timeMs: time(a),
-      ...(p && state !== 'finished' ? { steps: { done: p.done, total: p.total } } : {}),
+      ...(p && state !== 'done' ? { steps: { done: p.done, total: p.total } } : {}),
       count: countOf(log, id),
       fails: failsOf(log, id),
       ...doingFor([id]),
       mood,
       ...(mood === 'quiet' ? { quietMs: quietFor(a, now) } : {}),
-      ...((state === 'finished' || state === 'out') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
+      ...((state === 'done' || state === 'failed') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
       state,
     }
   }
@@ -293,10 +297,10 @@ export const briefOf = (prompt: string): string => (Array.from(prompt).length > 
 const withRun = (list: AgentRun[], agentId: string, fn: (a: AgentRun) => AgentRun): AgentRun[] => list.map(a => (runKey(a) === agentId ? fn(a) : a))
 
 // A call starts: it is in flight, and its tool is counted.
-export const calling = (list: AgentRun[], agentId: string, act: { kind: ActKind; title: string; target: string; key: string }, at: number): AgentRun[] =>
+export const calling = (list: AgentRun[], agentId: string, act: { kind: ActKind; title: string; target: string; key: string; now: string }, at: number): AgentRun[] =>
   withRun(list, agentId, a => ({
     ...a,
-    doing: [...(a.doing ?? []), { kind: act.kind, title: act.title, target: act.target }],
+    doing: [...(a.doing ?? []), { kind: act.kind, title: act.title, target: act.target, now: act.now }],
     tools: { ...a.tools, [act.key]: (a.tools?.[act.key] ?? 0) + 1 },
     lastActiveAt: at,
   }))
@@ -348,7 +352,7 @@ export function toolsOf(a: AgentRun): { builtin: [string, number][]; skills: [st
   return {
     builtin: all.filter(([k]) => !k.startsWith('skill:') && !k.startsWith('mcp__')),
     skills: all.filter(([k]) => k.startsWith('skill:')).map(([k, n]) => [k.slice(6), n]),
-    mcp: all.filter(([k]) => k.startsWith('mcp__')).map(([k, n]) => [k.replace(/^mcp__(.+?)__/, '$1 · '), n]),
+    mcp: all.filter(([k]) => k.startsWith('mcp__')).map(([k, n]) => [mcpName(k) ?? k, n]),
   }
 }
 
@@ -366,9 +370,9 @@ export function crewsOf(list: readonly AgentRun[]): Crew[] {
 }
 
 // The crews the pane shows in full: the newest, and any still at work; the rest are earlier.
-export function openCrews(crews: readonly Crew[]): { now: Crew[]; earlier: Crew[] } {
-  const now = crews.filter((c, i) => i === 0 || c.running > 0)
-  return { now, earlier: crews.filter(c => !now.includes(c)).slice(0, Math.max(0, CREWS_KEPT - now.length)) }
+export function openCrews(crews: readonly Crew[]): { atWork: Crew[]; earlier: Crew[] } {
+  const atWork = crews.filter((c, i) => i === 0 || c.running > 0)
+  return { atWork, earlier: crews.filter(c => !atWork.includes(c)).slice(0, Math.max(0, CREWS_KEPT - atWork.length)) }
 }
 
 // Every earlier crew dropped: what is left is the crews shown in full, and any run at work.
@@ -395,58 +399,35 @@ export function agentMood(a: AgentRun, now: number, window?: number): AgentMood 
   return !isMain(a) && quietFor(a, now) >= QUIET_MS ? 'quiet' : 'thinking'
 }
 
-// m:ss, for the Thai lines.
-// Under this a finished run was quick.
-const FAST_MS = 30_000
-
-// Each mood's lines; one is picked by the run's id, so a run keeps its line between redraws.
-const LINES: Record<'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'done' | 'fast' | 'waiting', ((f: Record<string, string>) => string)[]> = {
-  thinking: [() => 'ขอคิดแป๊บ… 🤔', () => 'กำลังเรียบเรียงความคิด 💭', () => 'คิดก่อนลงมือ 🤔'],
-  quiet: [f => `เงียบไป ${f.quiet} วิ… หลับอยู่หรือเปล่า 😴`, f => `${f.quiet} วิแล้วยังเงียบ ลองเข้าไปดูหน่อย 👀`],
-  context: [f => `หัวจะระเบิดแล้ว 🤯 ctx ${f.ctx}%`, f => `ความจำใกล้เต็ม ctx ${f.ctx}% 🧠`],
-  failed: [f => `งานนี้พัง 🩹 ดู report ก่อนนะ`, f => `สะดุดล้ม ${f.fails} ครั้ง 🩹`],
-  stopped: [f => `หยุดตามที่สั่ง ✋${f.steps ? ` ทำไป ${f.steps} ขั้น` : ''}`],
-  done: [f => `เสร็จใน ${f.time} เรียบร้อย ✨`, f => `งานเสร็จ ส่งรายงานแล้ว 📬 (${f.time})`],
-  fast: [f => `เสร็จใน ${f.time} ไวเหมือนโกหก ⚡`, f => `${f.time} เสร็จแล้ว ไวมาก ⚡`],
-  waiting: [f => `รอ agent อีก ${f.waiting} ตัว ⏳`],
-}
-// What the working Clawd says he is doing, by his call's kind.
-const DOING: Record<ActKind, (target: string) => string> = {
-  read: t => `กำลังอ่าน ${t} 📖`,
-  edit: t => `กำลังแก้ ${t} ✍️`,
-  command: t => `กำลังรัน ${t} ⚙️`,
-  test: () => 'กำลังรัน test 🧪',
-  search: t => `กำลังค้น ${t} 🔍`,
-  web: t => `กำลังเปิดเว็บ ${t} 🌐`,
-  skill: t => `กำลังใช้ skill ${t} 🧠`,
-  mcp: t => `กำลังเรียก ${t} 🔌`,
-  other: () => 'กำลังลุย 💪',
-}
-const pick = <T>(id: string, list: readonly T[]): T => list[[...id].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7) % list.length]!
-
-// The run's line in Thai for its mood, with its real numbers in it. A run in its second round
-// says so first; a finished run whose summary is being written says that.
-export function thaiLine(a: AgentRun, now: number, window?: number): string {
+// The run's line under its name: one line per state, with its real numbers, in the same words as
+// the band and its head's tag. A run in its second round says so first.
+export function laneLine(a: AgentRun, now: number, window?: number): string {
   const mood = agentMood(a, now, window)
-  const round = a.rounds?.length && a.status === 'running' ? `รอบ ${a.rounds.length + 1} · ` : ''
+  const round = a.rounds?.length && a.status === 'running' ? `Round ${a.rounds.length + 1} · ` : ''
   const p = progressOf(a)
-  const f: Record<string, string> = {
-    quiet: String(Math.floor(quietFor(a, now) / 1000)),
-    ctx: String(contextPercent(a, window) ?? ''),
-    fails: String(a.callFails ?? 0),
-    steps: p ? `${p.done}/${p.total}` : '',
-    time: clock(elapsed(a, now)),
-    waiting: String(a.waitingOn ?? 0),
+  const last = a.calls?.at(-1)?.title
+  const time = clock(elapsed(a, now))
+  switch (mood) {
+    case 'working': {
+      // A call kept from before the calls said their words names itself by its title.
+      const d = a.doing!.at(-1)!
+      return round + (d.now ?? d.title)
+    }
+    case 'thinking':
+      return round + `Thinking ${clock(quietFor(a, now))}${last ? ` · last: ${last}` : ''}`
+    case 'quiet':
+      return round + `Quiet ${Math.floor(quietFor(a, now) / 1000)}s`
+    case 'context':
+      return round + `Context ${contextPercent(a, window)}%`
+    case 'waiting':
+      return `Waiting on ${plural(a.waitingOn ?? 0, 'subagent')}`
+    case 'failed':
+      return `Failed${a.callFails ? ` · ${plural(a.callFails, 'failed call')}` : ''}`
+    case 'stopped':
+      return `Stopped${p ? ` at step ${p.done}/${p.total}` : ''}`
+    case 'done':
+      return `Done in ${time}${a.summary === 'pending' ? ' · summing up' : ''}`
   }
-  if (mood === 'working') {
-    const d = a.doing!.at(-1)!
-    return round + (d.title.startsWith('Agent') ? `รอ agent "${d.target}" อยู่ 🤝` : DOING[d.kind](d.target))
-  }
-  if (mood === 'done') {
-    if (a.summary === 'pending') return 'เสร็จแล้ว! กำลังสรุปให้อ่าน… 📝'
-    return pick(a.id, elapsed(a, now) < FAST_MS ? LINES.fast : LINES.done)(f)
-  }
-  return round + pick(a.id, LINES[mood])(f)
 }
 
 // An agent at work that needs a look, quiet ones first, then those with their context nearly
@@ -468,8 +449,8 @@ export function summaryPrompt(a: AgentRun): string {
   const files = filesOf(a).slice(0, 12).map(({ path, file }) => (file.edits ? `${path} (+${file.added} −${file.removed}${file.created ? ', new' : ''})` : `${path} (read)`))
   const failed = (a.calls ?? []).filter(c => !c.ok).slice(-5).map(c => c.title)
   return [
-    `Task: ${a.description}`,
-    a.brief ? `Brief: ${a.brief}` : '',
+    `Description: ${a.description}`,
+    a.brief ? `Prompt: ${a.brief}` : '',
     `Calls: ${a.callCount ?? 0}, failed: ${a.callFails ?? 0}${failed.length ? ` (${failed.join('; ')})` : ''}`,
     files.length ? `Files: ${files.join(', ')}` : 'Files: none',
     `Report:\n${a.result ?? '(none)'}`,
@@ -500,9 +481,9 @@ export function factsLine(a: AgentRun, now: number): string {
   const files = Object.values(a.files ?? {})
   const fails = a.callFails ?? 0
   return [
-    `อ่าน ${files.filter(f => f.edits === 0).length} ไฟล์`,
-    `แก้ ${files.filter(f => f.edits > 0).length} ไฟล์`,
-    `${plural(a.callCount ?? 0, 'call')}${fails ? ` (พลาด ${fails})` : ''}`,
+    `Read ${plural(files.filter(f => f.edits === 0).length, 'file')}`,
+    `changed ${plural(files.filter(f => f.edits > 0).length, 'file')}`,
+    `${plural(a.callCount ?? 0, 'call')}${fails ? ` (${fails} failed)` : ''}`,
     clock(elapsed(a, now)),
     `${tokens(a.spent ?? a.contextTokens)} tokens`,
   ].join(' · ')
