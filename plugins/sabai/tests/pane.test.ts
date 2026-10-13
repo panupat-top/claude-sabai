@@ -113,7 +113,12 @@ test('a lane line says its state once, in the band’s words, with its real numb
   // A call kept from before the calls said their words names itself by its title.
   expect(laneLine(run('a', { doing: [{ kind: 'read', title: 'Read svg.ts', target: 'svg.ts' }] }), at)).toBe('Read svg.ts')
   // Between calls: how long it has thought, and the call it made last.
-  expect(laneLine(run('a', { lastActiveAt: at - 5000, calls: [{ title: 'Read crew.ts', kind: 'read', ms: 1, ok: true }] }), at)).toBe('Thinking 5s · last: Read crew.ts')
+  // Between calls: the files it touched last, newest first, by what it did to the newest; a call
+  // that touched no file says nothing more.
+  const file = (reads: number, edits: number) => ({ reads, edits, added: edits, removed: 0 })
+  expect(laneLine(run('a', { lastActiveAt: at - 5000, calls: [{ title: 'Read crew.ts', kind: 'read', ms: 1, ok: true }] }), at)).toBe('Thinking 5s')
+  expect(laneLine(run('a', { lastActiveAt: at - 5000, files: { 'hooks/a.ts': file(1, 0), 'hooks/svg.ts': file(1, 2), 'tests/crew.ts': file(1, 0) } }), at)).toBe('Thinking 5s · reading crew.ts, svg.ts')
+  expect(laneLine(run('a', { lastActiveAt: at - 5000, files: { 'hooks/a.ts': file(1, 0), 'hooks/svg.ts': file(0, 1) } }), at)).toBe('Thinking 5s · editing svg.ts, a.ts')
   expect(laneLine(run('a', { lastActiveAt: at - 5000 }), at)).toBe('Thinking 5s')
   expect(laneLine(run('a', { lastActiveAt: at + 900 }), at)).toBe('Thinking 0s')
   expect(laneLine(run('a', { lastActiveAt: at - 45_000 }), at)).toBe('Quiet 45s')
@@ -231,11 +236,17 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   const a = busy('a', { effort: 'high', lastActiveAt: 25_000 })
   const head = agentHeadSvg(a, 530, 30_000, 'raised', 200_000)
   expect(head.source).toContain('>Working<')
-  expect(head.source).toContain('>Reading svg.ts<')
+  // Beside the tag, what it runs on: its model after a robot, its effort after a gauge, in the
+  // family's hue; its calls are the Calls box's, not the head's.
+  expect(head.source).toMatch(/href="#sabai-du-bot" fill="var\(--kb-ok\)"[^>]*\/><text class="m"[^>]*>Haiku 4\.5</)
+  expect(head.source).toMatch(/href="#sabai-du-gauge"[^>]*\/><text class="m"[^>]*>high effort</)
+  expect(head.source).not.toContain('Reading svg.ts')
   expect(head.source).toContain('31k · 16%')
   expect(head.source).toContain('>TOKENS<')
   expect(head.source).toContain('>51k<')
-  expect(head.source).toContain('>Explore · Haiku 4.5 · high effort<')
+  // The small print keeps its type alone.
+  expect(head.source).toContain('>Explore<')
+  expect(head.alt).toContain('Explore · Haiku 4.5 · high effort')
   expect(head.source).toContain('>active 5s ago<')
   // A quiet agent's tag already counts its silence.
   const quiet = agentHeadSvg(busy('q', { doing: [], lastActiveAt: 0 }), 530, 60_000, 'raised')
@@ -315,4 +326,11 @@ test('a lane names the skills and MCP servers it called as chips: the one in use
   expect(lane.alt).toContain('. Used pdf, Slack, context7')
   // A narrow lane keeps what fits and counts the rest.
   expect(at({ 'skill:frontend-design': 1, 'skill:superpowers:brainstorming': 1, mcp__claude_ai_Notion__fetch: 1, mcp__claude_ai_Slack__search: 1 }, {}, 280).source).toMatch(/>\+\d</)
+})
+
+test('a run keeps its files newest last: touching one again moves it to the end', () => {
+  let l = [{ id: 'a', agentId: 'a', type: 'Explore', description: 'a', model: 'm', status: 'running', startedAt: 0, contextTokens: 0 } as AgentRun]
+  for (const p of ['x.ts', 'y.ts', 'x.ts']) l = touched(l, 'a', p, { read: true })
+  expect(Object.keys(l[0]!.files!)).toEqual(['y.ts', 'x.ts'])
+  expect(l[0]!.files!['x.ts']!.reads).toBe(2)
 })

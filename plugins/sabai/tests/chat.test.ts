@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { TurnLog } from '../types'
-import { EMPTY_LOG, clean, endedTasks, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { EMPTY_LOG, actOf, clean, endedTasks, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -55,7 +55,7 @@ const call = (tool: string, input: Record<string, unknown>, output: unknown, mor
   stepOf({ tool, input, output, isRunning: false, isErrored: false, isInterrupted: false, tests: true, ...more })
 
 test('a command is a step titled by what it was for, with the command as its detail', () => {
-  const s = call('Bash', { command: 'npm run build\nnpm test', description: 'build the app' }, { stdout: '', stderr: '' }, { durationMs: 4210 })
+  const s = call('Bash', { command: 'npm run build\nnpm run lint', description: 'build the app' }, { stdout: '', stderr: '' }, { durationMs: 4210 })
   expect(s).toEqual({ icon: 'terminal', tone: 'muted', title: 'Build the app', detail: '$ npm run build', time: '4.2s', result: [{ text: '✓ Done', tone: 'ok' }] })
   expect(call('Bash', { command: 'x' }, {}, { durationMs: 45_000 })?.time).toBe('🐢 45s')
   expect(call('Bash', { command: 'ls -la' }, {})?.title).toBe('ls -la')
@@ -77,7 +77,13 @@ test('a test run is a flask step with its counts', () => {
   expect(fail).toMatchObject({ icon: 'flask', tone: 'bad', result: [{ text: '✗ 1 of 9 failed', tone: 'bad' }] })
   const later = call('Bash', { command: 'bun test && tsc' }, 'Exit code 2\n 3 pass\n 0 fail\nRan 3 tests across 1 files.\nerror TS1', { isErrored: true })
   expect(later?.result).toEqual([{ text: '✗ exit 2', tone: 'bad' }])
-  expect(call('Bash', { command: 'bun test' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' }, { tests: false })?.icon).toBe('terminal')
+  // Test results off: still a test, so its flask, but no counts.
+  const plain = call('Bash', { command: 'bun test' }, { stdout: ' 9 pass\n 0 fail\nRan 9 tests across 1 files.' }, { tests: false })
+  expect([plain?.icon, plain?.meter]).toEqual(['flask', undefined])
+  // A test command wears its flask while it runs, as the race and the pane name it from its start;
+  // a test on a later line of the command counts, for the chat row and actOf alike.
+  expect(call('Bash', { command: 'git status && claude plugin test plugins/sabai' }, undefined, { isRunning: true })?.icon).toBe('flask')
+  expect(actOf('Bash', { command: 'npm run build\nnpm test' }).kind).toBe('test')
 })
 
 test('edits, writes and reads are steps named by their file, with the path as the detail', () => {

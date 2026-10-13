@@ -330,7 +330,6 @@ async function racing($: EngineInterface, agentId: string | undefined, kind: Cal
 }
 
 // The Task tools are an agent's own bookkeeping, shown as its progress: not calls in its log.
-const RACE_KINDS = new Set<string>(['read', 'edit', 'command', 'test'])
 const UNLOGGED = new Set(['TaskCreate', 'TaskUpdate', 'TaskGet', 'TaskList', 'TodoWrite'])
 // The tools whose own hooks run the race; any other a subagent calls runs in its lane from here,
 // so the lane and the pane count the same calls.
@@ -863,7 +862,8 @@ export const register: Register = on => {
     // Crews under their day's label, shown only when the earlier crews span more than one day.
     const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
     const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
-    const tally = [`✓ ${past.filter(a => a.status === 'done').length}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : ''].filter(Boolean).join(' · ')
+    // In words, as the Now box's title counts: a native title holds no icon.
+    const tally = [`${past.filter(a => a.status === 'done').length} done`, failed ? `${failed} failed` : '', stopped ? `${stopped} stopped` : ''].filter(Boolean).join(' · ')
     // How the crew at work's agents stand, for its box's title, as the race counts them; Main's
     // lane tells its own.
     const crewAgents = runs.filter(a => !isMain(a))
@@ -1517,8 +1517,9 @@ export const register: Register = on => {
     const live = rows.live && e.props.isWorking
       ? {
           ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}),
-          // An MCP or skill call wears its own icon, which the race's four kinds have none of.
-          ...(step ? { step: { ...step, ...(raceLog.acting?.main && !RACE_KINDS.has(raceLog.acting.main) ? { kind: raceLog.acting.main } : {}) } } : {}),
+          // The call's kind as the race and the pane name it (a test from its command, an MCP call's
+          // plug), where the step's own icon knows a test only once its results are read.
+          ...(step ? { step: { ...step, ...(raceLog.acting?.main ? { kind: raceLog.acting.main } : {}) } } : {}),
           ...(stepped?.at !== undefined ? { stepMs: Math.max(0, at - stepped.at) } : {}),
           // Between calls, timed as the race times Main; a turn of unknown start with no call yet has none.
           ...(!step && (began !== 0 || raceLog.lastAt?.main) ? { thinkingMs: Math.max(0, at - Math.max(raceLog.lastAt?.main ?? 0, began)) } : {}),

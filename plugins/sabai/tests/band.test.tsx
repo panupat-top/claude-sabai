@@ -731,7 +731,8 @@ test('Main’s MCP call runs in its race lane in the pane’s words; after it, t
   await clock.advance(3000)
   expect((await shown($, 'desktop', true)).words).toContain('Main thinking: Thinking 3s, 1 MCP server')
   const lane = await laneOf(await mountPane($, 'desktop'), 'Main')
-  expect(lane?.props.alt).toContain('Thinking 3s · last: Browser · computer. Used Browser')
+  // Between calls it says how long it has thought; an MCP call touches no file, so no focus.
+  expect(lane?.props.alt).toContain('Thinking 3s. Used Browser')
 })
 
 test('the race follows the Subagents switch, not Activity', async ($, on) => {
@@ -771,7 +772,7 @@ test('Earlier counts its groups by origin: turns and workflow runs', async ($, o
   await clock.advance(60_000)
   await $.turn.start({ turnId: 'two' } as never)
   await spawn($, 'live')
-  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · ✓ 1' })).toBeDefined()
+  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · 1 done' })).toBeDefined()
 })
 
 test('a teammate of an agent team says so in its head: it is no subagent', async ($, on) => {
@@ -913,7 +914,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await laneOf(ui, 'old')).toBeUndefined()
   // While a crew works the earlier ones fold to one line in their own box; Show opens it.
-  expect(await ui.find({ type: 'Text', text: ' · 1 turn · ✓ 1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 turn · 1 done' })).toBeDefined()
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
@@ -2360,4 +2361,20 @@ test('Main alone on an MCP call: the live strip leads with the plug, and a skill
   expect((await shown($, 'desktop', true)).sources).toMatch(/<g class="st-pulse"><use href="#sabai-du-lightbulb"/)
   finish()
   await skill
+})
+
+test('a test command running alone wears the flask in the live strip from its start, as the race and the pane name it', async ($, on) => {
+  let release: () => void = () => undefined
+  on('tool.call', { tool: 'Bash' }, () => new Promise(r => (release = () => r({ result: { stdout: '', stderr: '', interrupted: false } }))))
+  engine(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'tests' } as never)
+  const running = $.tool.call({ tool: 'Bash', command: 'git status && claude plugin test plugins/sabai', description: 'Run checks' } as Parameters<typeof $.tool.call>[0])
+  await settle()
+  const band = await shown($, 'desktop', true)
+  expect(band.sources).toMatch(/<g class="st-pulse"><use href="#sabai-du-flask-conical"/)
+  expect(band.sources).not.toContain('#sabai-du-terminal')
+  release()
+  await running
 })

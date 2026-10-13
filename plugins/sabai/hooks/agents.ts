@@ -343,11 +343,20 @@ export const touched = (list: AgentRun[], agentId: string, path: string, change:
       'read' in change
         ? { ...was, reads: was.reads + 1 }
         : { ...was, edits: was.edits + 1, added: was.added + change.added, removed: was.removed + change.removed, ...(change.created || was.created ? { created: true } : {}) }
-    const files = Object.entries({ ...a.files, [path]: now })
-    // Over the cap the oldest file only read goes first: a change is what the detail is for.
+    // The file touched last goes last, so the run's files read newest last (its lane's focus).
+    const { [path]: _, ...rest } = a.files ?? {}
+    const files = Object.entries({ ...rest, [path]: now })
+    // Over the cap the file only read longest ago goes first: a change is what the detail is for.
     while (files.length > FILES_KEPT) files.splice(Math.max(0, files.findIndex(([, f]) => f.edits === 0)), 1)
     return { ...a, files: Object.fromEntries(files) }
   })
+
+// The files a run touched last, newest first, for its lane between calls: `editing svg.ts, chat.ts`
+// (by the newest), `reading …`; nothing for a run that touched no file.
+export function focusOf(a: AgentRun): string {
+  const recent = Object.entries(a.files ?? {}).slice(-2).reverse()
+  return recent.length ? `${recent[0]![1].edits ? 'editing' : 'reading'} ${recent.map(([p]) => p.split('/').pop()).join(', ')}` : ''
+}
 
 // The run's files: those it changed first (most lines first), then those it only read.
 export function filesOf(a: AgentRun): { path: string; file: AgentFile }[] {
@@ -431,7 +440,7 @@ export function laneLine(a: AgentRun, now: number, window?: number): string {
   const mood = agentMood(a, now, window)
   const round = a.rounds?.length && a.status === 'running' ? `Round ${a.rounds.length + 1} · ` : ''
   const p = progressOf(a)
-  const last = a.calls?.at(-1)?.title
+  const focus = focusOf(a)
   const time = clock(elapsed(a, now))
   switch (mood) {
     case 'working': {
@@ -440,7 +449,7 @@ export function laneLine(a: AgentRun, now: number, window?: number): string {
       return round + (d.now ?? d.title)
     }
     case 'thinking':
-      return round + `Thinking ${clock(quietFor(a, now))}${last ? ` · last: ${last}` : ''}`
+      return round + `Thinking ${clock(quietFor(a, now))}${focus ? ` · ${focus}` : ''}`
     case 'quiet':
       return round + `Quiet ${Math.floor(quietFor(a, now) / 1000)}s`
     case 'context':

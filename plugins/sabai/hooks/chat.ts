@@ -213,8 +213,10 @@ export function stepOf(c: Call): Step | undefined {
     const title = description ? sentence(description) : command
     const detail = description ? `$ ${command}` : ''
     const said = typeof c.output === 'string' ? c.output : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
-    const tests = c.tests && !c.isRunning && TEST_COMMAND.test(input.command ?? '') ? testResult(said) : undefined
-    const icon: StepIcon = tests ? 'flask' : 'terminal'
+    const isTest = TEST_COMMAND.test(input.command ?? '')
+    const tests = c.tests && !c.isRunning && isTest ? testResult(said) : undefined
+    // A test command wears the flask from its start, as the race and the pane name it.
+    const icon: StepIcon = isTest ? 'flask' : 'terminal'
     const base = { icon, title, detail, ...timed }
     if (c.isRunning) return { ...base, tone: 'muted', result: running }
     if (c.isInterrupted) return { ...base, icon: 'stop', tone: 'muted', result: [{ text: 'interrupted', tone: 'muted' }] }
@@ -292,7 +294,8 @@ export function actOf(tool: string, input: unknown): Act {
   if (tool === 'Bash') {
     const command = bare(firstLine(str(i.command)))
     const said = sentence(firstLine(str(i.description)))
-    const test = isTestCommand(command)
+    // The whole command, as the race's Bash hook and the chat row read it: a test on a later line counts.
+    const test = isTestCommand(str(i.command))
     return act(test ? 'test' : 'command', '$', command, said || (test ? 'Running tests' : `Running ${command}`))
   }
   if (tool === 'Grep' || tool === 'Glob') {
