@@ -1,48 +1,59 @@
 import { expect, test } from 'claude-code/testing'
 
-import { PALETTE, TEXT, lookOf } from '../hooks/svg'
-import { SKINS, SKIN_NAMES, contrast } from '../hooks/themes'
+import { TEXT, bandSvg, lookOf } from '../hooks/svg'
+import { DARK_THEMES, DEFAULT_THEME, LIGHT_THEMES, contrast, themeOf } from '../hooks/themes'
+import type { Colors } from '../hooks/themes'
 
-// A look's stylesheet in light and dark: its card and every other fill, the track and Clawd's wink aside.
-function modes(skin: string) {
-  const css = lookOf(skin).css.replace(/@keyframes wink\{.*\}\}/, '')
-  const at = css.indexOf('@media (prefers-color-scheme: dark){')
-  return [css.slice(0, at), css.slice(at)].map(part => {
-    const card = part.match(/\.p\{fill:(#[0-9a-f]{6})\}/)![1]!
-    const track = part.match(/\.k\{fill:(#[0-9a-f]{6})\}/)![1]!
-    const inks = [...part.matchAll(/fill:(#[0-9a-f]{6})/g)].map(m => m[1]!).filter(c => c !== card && c !== track)
-    return { card, inks }
-  })
-}
+// Every theme with its mode and the desktop's surface in that mode.
+const ALL: [string, Colors, string][] = [
+  ...Object.values(LIGHT_THEMES).map(c => ['light', c, '#f2f2f0'] as [string, Colors, string]),
+  ...Object.values(DARK_THEMES).map(c => ['dark', c, '#222222'] as [string, Colors, string]),
+]
+const hex = (c: string) => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
+const mix = (a: string, b: string, t: number) => '#' + hex(a).map((v, i) => Math.round(v * t + hex(b)[i]! * (1 - t)).toString(16).padStart(2, '0')).join('')
 
-test('every look paints text that reads at 4.5:1 on its cards, light and dark, and white on its pill', () => {
-  for (const skin of SKINS) {
-    for (const [i, { card, inks }] of modes(skin).entries())
-      for (const ink of inks) expect([skin, i ? 'dark' : 'light', ink, contrast(ink, card) >= 4.5]).toEqual([skin, i ? 'dark' : 'light', ink, true])
-    expect([skin, contrast('#ffffff', lookOf(skin).pill) >= 4.5]).toEqual([skin, true])
+test('three themes for each mode, Mono and Ink first; a stored pair keeps only what names a theme of its mode', () => {
+  expect(Object.values(LIGHT_THEMES).map(c => c.name)).toEqual(['Mono', 'Pastel', 'Matcha'])
+  expect(Object.values(DARK_THEMES).map(c => c.name)).toEqual(['Ink', 'Forest', 'Synthwave'])
+  expect(DEFAULT_THEME).toEqual({ light: 'mono', dark: 'ink' })
+  expect(themeOf({ light: 'pastel', dark: 'synthwave' })).toEqual({ light: 'pastel', dark: 'synthwave' })
+  // An older version's skin, a theme of the other mode, or an inherited name start from the default.
+  expect(themeOf('raised')).toEqual(DEFAULT_THEME)
+  expect(themeOf({ light: 'ink', dark: 'toString' })).toEqual(DEFAULT_THEME)
+  expect(themeOf(undefined)).toEqual(DEFAULT_THEME)
+})
+
+test('every theme’s words read at 4.5:1 on its card and white at 4.5:1 on its pill; its card and track stand apart', () => {
+  for (const [mode, c, surface] of ALL) {
+    for (const [ink, color] of Object.entries(c.text)) expect([c.name, ink, contrast(color, c.card) >= 4.5]).toEqual([c.name, ink, true])
+    expect([c.name, contrast('#ffffff', c.pill) >= 4.5]).toEqual([c.name, true])
+    expect([c.name, contrast(c.track, c.card) >= 1.35]).toEqual([c.name, true])
+    expect([c.name, mode, contrast(c.card, surface) >= 1.03]).toEqual([c.name, mode, true])
   }
 })
 
-test('two looks, raised first: raised cards stand off the desktop’s surface, flat ones sit close to it', () => {
-  expect([...SKINS]).toEqual(['raised', 'auto'])
-  expect(SKINS.map(k => SKIN_NAMES[k])).toEqual(['Raised', 'Flat'])
-  const surface = ['#f2f2f0', '#222222']
-  const lift = (skin: string) => modes(skin).map(({ card }, i) => contrast(card, surface[i]!))
-  for (const [i, raised] of lift('raised').entries()) expect(raised).toBeGreaterThan(lift('auto')[i]!)
-  // Anything else, such as a skin an older version saved, draws flat.
-  expect(lookOf('dracula')).toBe(lookOf('auto'))
+test('every theme’s tile glyphs read at 5:1 on their grounds', () => {
+  for (const [, c] of ALL) for (const [hue, [kb, kf]] of Object.entries(c.tiles)) expect([c.name, hue, contrast(kf, kb) >= 5]).toEqual([c.name, hue, true])
 })
 
-test('the branch tag’s words read over its wash on light and dark surfaces, for every look', () => {
-  const hex = (c: string) => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
-  const mix = (a: string, b: string, t: number) => '#' + hex(a).map((v, i) => Math.round(v * t + hex(b)[i]! * (1 - t)).toString(16).padStart(2, '0')).join('')
-  for (const skin of SKINS)
-    for (const [i, surface] of (['#ffffff', '#1f1f1f'] as const).entries()) {
-      const wash = mix(lookOf(skin).bar('session'), surface, 0.13)
-      expect([skin, surface, contrast(TEXT.session[i]!, wash) >= 4.5]).toEqual([skin, surface, true])
-    }
+test('the branch tag’s words read over its wash, on a theme’s card and on the bare surface', () => {
+  for (const [mode, c] of ALL) {
+    expect([c.name, contrast(c.text.session, mix(c.bar.session, c.card, 0.13)) >= 4.5]).toEqual([c.name, true])
+    const [surface, ink] = mode === 'light' ? ['#ffffff', TEXT.session[0]] : ['#1f1f1f', TEXT.session[1]]
+    expect([c.name, contrast(ink, mix(c.bar.session, surface, 0.13)) >= 4.5]).toEqual([c.name, true])
+  }
 })
 
-test('every pastel hue’s glyph reads at 5:1 on its tile ground, light and dark', () => {
-  for (const [hue, p] of Object.entries(PALETTE)) for (const i of [0, 1]) expect([hue, i, contrast(p.kf[i]!, p.kb[i]!) >= 5]).toEqual([hue, i, true])
+test('a look sets the light theme’s inks, then the dark one’s under the dark query; a drawing declares only the variables it uses', () => {
+  const theme = { light: 'matcha', dark: 'forest' } as const
+  const css = lookOf(theme).css
+  const at = css.indexOf('@media (prefers-color-scheme: dark){')
+  expect(css.slice(0, at)).toContain(`.p{fill:${LIGHT_THEMES.matcha.card}}`)
+  expect(css.slice(at)).toContain(`.p{fill:${DARK_THEMES.forest.card}}`)
+  expect(lookOf(theme)).toBe(lookOf(theme))
+  const d = bandSvg({ done: 1, total: 2, title: 'a' }, [], 600, { theme, style: 'solid' })!.source
+  expect(d).toContain('<rect fill="var(--bar-tasks)"')
+  expect(d).toContain(`--bar-tasks:${LIGHT_THEMES.matcha.bar.tasks}`)
+  expect(d).toContain(`--bar-tasks:${DARK_THEMES.forest.bar.tasks}`)
+  expect(d).not.toContain('--bar-week')
 })

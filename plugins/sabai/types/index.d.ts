@@ -6,6 +6,9 @@ export type Usage = { contextPercent?: number; contextTokens?: number; contextWi
 // answered (or given up); until then the row is a skeleton.
 export type Env = { dir?: string; gitUser?: string; branch?: string; ahead?: number; behind?: number; changes?: number; node?: string; read?: boolean }
 
+// The band's and the panes' colours: the theme used while the OS is light, and the one while it is dark.
+export type Theme = { light: 'mono' | 'pastel' | 'matcha'; dark: 'ink' | 'forest' | 'synthwave' }
+
 export type Task = {
   id: string
   subject: string
@@ -150,7 +153,7 @@ declare module 'claude-code' {
       tasks: Task[]
       now: number
       env: Env
-      skin: string
+      theme: Theme
       bar: BarStyle
       prefs: Prefs
       // Reset was pressed once and waits a few seconds for the second press.

@@ -7,6 +7,7 @@ import {
 } from '../hooks/agents'
 import { actOf } from '../hooks/chat'
 import { activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, lookOf, stepsSvg, toolsSvg } from '../hooks/svg'
+import { DEFAULT_THEME } from '../hooks/themes'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, requests: 0, lastActiveAt: 1000, ...extra,
@@ -183,7 +184,7 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
 })
 
 test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main is named so and wears its cap; still once settled', () => {
-  const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
+  const lane = laneSvg(busy('a'), 454, 30_000, DEFAULT_THEME, undefined, true)
   expect(lane.source).toContain('Reading svg.ts')
   // Its skill and MCP server's row makes it 59 px tall.
   expect(lane.source).toContain('<rect y="6" width="4" height="47" rx="2" fill="var(--kl-skill)"/>')
@@ -191,7 +192,7 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
   expect(lane.source).toContain('class="run wave"')
   expect(lane.source).toContain('font-weight="800"')
   expect(lane.source).toContain('>2/3<')
-  expect(laneSvg(busy('a'), 454, 30_000, 'raised').source).not.toContain('wave')
+  expect(laneSvg(busy('a'), 454, 30_000, DEFAULT_THEME).source).not.toContain('wave')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
   expect(quiet.source).toMatch(/class="c-warn"[^>]*>Quiet 60s/)
   expect(quiet.source).toContain(`<rect y="6" width="4" height="47" rx="2" fill="var(--kl-warn)"/>`)
@@ -215,26 +216,26 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
 test('an ended lane says how it ended by its line’s icon alone: a check, a cross or a stop, no badge on its Clawd; just ended, its lane is tinted', () => {
   const ended = (status: AgentRun['status'], reason?: AgentRun['reason']) => run('e', { status, endedAt: 10_000, ...(reason ? { reason } : {}) })
   const later = 60_000
-  expect(laneSvg(run('r'), 400, later, 'raised').source).not.toContain('<circle cx="')
-  const done = laneSvg(ended('done'), 400, later, 'raised').source
+  expect(laneSvg(run('r'), 400, later, DEFAULT_THEME).source).not.toContain('<circle cx="')
+  const done = laneSvg(ended('done'), 400, later, DEFAULT_THEME).source
   expect(done).toContain('href="#sabai-du-circle-check"')
-  const failed = laneSvg(ended('failed', 'error'), 400, later, 'raised').source
+  const failed = laneSvg(ended('failed', 'error'), 400, later, DEFAULT_THEME).source
   expect(failed).toContain('href="#sabai-du-circle-x"')
-  expect(laneSvg(ended('failed', 'aborted'), 400, later, 'raised').source).toContain('href="#sabai-du-circle-stop"')
+  expect(laneSvg(ended('failed', 'aborted'), 400, later, DEFAULT_THEME).source).toContain('href="#sabai-du-circle-stop"')
   // The tile is the one mark: no disc on Clawd's corner to run into it.
   expect([done, failed].some(s => s.includes('r="6.5"'))).toBe(false)
   // Settled, no tint; in its first seconds a failed lane is tinted red and its Clawd falls.
   expect(failed).not.toContain('class="flash"')
-  const fresh = laneSvg(ended('failed', 'error'), 400, 11_000, 'raised').source
+  const fresh = laneSvg(ended('failed', 'error'), 400, 11_000, DEFAULT_THEME).source
   expect(fresh).toContain('class="flash" x="5" y="2"')
   expect(fresh).toContain('fill="var(--kl-fail)" opacity=".35"')
   expect(fresh).toContain('class="out')
-  expect(laneSvg(ended('done'), 400, 11_000, 'raised').source).toContain('fill="var(--kl-ok)" opacity=".35"')
+  expect(laneSvg(ended('done'), 400, 11_000, DEFAULT_THEME).source).toContain('fill="var(--kl-ok)" opacity=".35"')
 })
 
 test('the detail draws its head a line for each thing, then its tools, steps, calls and files', () => {
   const a = busy('a', { effort: 'high', lastActiveAt: 25_000 })
-  const head = agentHeadSvg(a, 530, 30_000, 'raised', 200_000)
+  const head = agentHeadSvg(a, 530, 30_000, DEFAULT_THEME, 200_000)
   expect(head.source).toContain('>Working<')
   // Beside the tag, what it runs on: its model after a robot, its effort after a gauge, in the
   // family's hue; its calls are the Calls box's, not the head's.
@@ -249,7 +250,7 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   expect(head.alt).toContain('Explore · Haiku 4.5 · high effort')
   expect(head.source).toContain('>active 5s ago<')
   // A quiet agent's tag already counts its silence.
-  const quiet = agentHeadSvg(busy('q', { doing: [], lastActiveAt: 0 }), 530, 60_000, 'raised')
+  const quiet = agentHeadSvg(busy('q', { doing: [], lastActiveAt: 0 }), 530, 60_000, DEFAULT_THEME)
   expect([quiet.source.includes('>Quiet 60s<'), quiet.source.includes('active')]).toEqual([true, false])
   const tools = toolsSvg(a, 530)!.source
   expect([tools.includes('>BUILT-IN<'), tools.includes('>SKILLS<'), tools.includes('sabai · step'), tools.includes('>×3<')]).toEqual([true, true, true, true])
@@ -313,7 +314,7 @@ test('an earlier crew’s day reads today, yesterday, else its date', () => {
 })
 
 test('a lane names the skills and MCP servers it called as chips: the one in use first and pulsing, then the most called, +N past the room', () => {
-  const at = (tools: Record<string, number>, over: object = {}, W = 454) => laneSvg(busy('u', { tools, ...over }), W, 30_000, 'raised')
+  const at = (tools: Record<string, number>, over: object = {}, W = 454) => laneSvg(busy('u', { tools, ...over }), W, 30_000, DEFAULT_THEME)
   // None called: no row, the lane keeps its height.
   expect(at({ Read: 4 }).height).toBe(42)
   const lane = at({ Read: 4, 'skill:pdf': 1, mcp__claude_ai_Slack__search: 2, mcp__claude_ai_Slack__fetch: 1, 'mcp__plugin_context7_context7__query-docs': 1 }, { doing: [{ kind: 'skill', title: 'Skill pdf', target: 'pdf', now: 'Using pdf' }] })

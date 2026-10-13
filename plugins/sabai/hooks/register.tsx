@@ -1,22 +1,21 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
+import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, Theme, TurnLog, Usage, UsageStyle } from '../types'
 import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf, usedBy } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, estimated, updated, usageNote } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, themePreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isReadOnly, isTestCommand, logged, plural, receiptOf, receiptText, seedOf, splitCallouts, stepOf, testResult } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
-import { SKINS, SKIN_NAMES } from './themes'
-import type { Skin } from './themes'
+import { DARK_THEMES, DEFAULT_THEME, LIGHT_THEMES, themeOf } from './themes'
 
 const usage = atom({ plugin: 'sabai', key: 'usage' } as const, null as Usage | null)
 const tasks = atom({ plugin: 'sabai', key: 'tasks' } as const, [] as Task[])
 const now = atom({ plugin: 'sabai', key: 'now' } as const, 0)
 const env = atom({ plugin: 'sabai', key: 'env' } as const, {} as Env)
-const skin = atom({ plugin: 'sabai', key: 'skin' } as const, 'raised')
+const theme = atom({ plugin: 'sabai', key: 'theme' } as const, DEFAULT_THEME)
 const agents = atom({ plugin: 'sabai', key: 'agents' } as const, [] as AgentRun[])
 const mains = atom({ plugin: 'sabai', key: 'mains' } as const, [] as AgentRun[])
 const bar = atom({ plugin: 'sabai', key: 'bar' } as const, 'dither' as BarStyle)
@@ -110,9 +109,9 @@ const isBarStyle = (v: unknown): v is BarStyle => typeof v === 'string' && Objec
 
 const PANE = 'sabai-agents'
 const SKIN_PANE = 'sabai-skins'
-// The settings' drawn choices: layouts and looks two to a row, the usage styles four.
-const PICK_W = 220
-const USAGE_PICK_W = 132
+// The settings' sketches (the layout, the theme, the usage style): the theme's two halves wide
+// enough for a card's words, tiles and bars.
+const SKETCH_W = 440
 // What the settings show of the chat's touches: an edit, a test run and a turn's receipt.
 const SAMPLE_EDIT: Step = { icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/sabai/hooks/', result: [{ text: '+3', tone: 'ok' }, { text: ' −2', tone: 'bad' }], meter: { good: 3, bad: 2 } }
 const SAMPLE_TEST: Step = { icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 159 passed', tone: 'ok' }], meter: { good: 159, bad: 0 }, time: '5.4s' }
@@ -243,10 +242,10 @@ async function setBar($: EngineInterface, style: string) {
   await $.store.set('bar', style)
 }
 
-// Settings, skin and bar style back to their defaults.
+// Settings, theme and bar style back to their defaults.
 async function resetAll($: EngineInterface) {
   await setPrefs($, () => DEFAULT_PREFS)
-  await setSkin($, 'raised')
+  await setTheme($, () => DEFAULT_THEME)
   await setBar($, 'dither')
 }
 
@@ -428,9 +427,9 @@ async function unstep($: EngineInterface, agentId: string | undefined) {
   if (agentId === undefined) await update($, liveCall, () => null)
 }
 
-async function setSkin($: EngineInterface, name: string) {
-  await update($, skin, () => name)
-  await $.store.set('skin', name)
+async function setTheme($: EngineInterface, fn: (t: Theme) => Theme) {
+  const next = await update($, theme, fn)
+  await $.store.set('theme', next)
 }
 
 // What the engine knows now. Its context reading is the last response's, so before a first response,
@@ -450,8 +449,8 @@ async function readUsage($: EngineInterface, stale = false) {
 async function setUp($: EngineInterface) {
   desktop = true
   // What the person sees first: their saved choices and the commands, before any slow read.
-  const saved = await $.store.get('skin').catch(() => undefined)
-  if (typeof saved === 'string' && (SKINS as readonly string[]).includes(saved)) await update($, skin, () => saved)
+  const saved = themeOf(await $.store.get('theme').catch(() => undefined))
+  await update($, theme, () => saved)
   const savedBar = await $.store.get('bar').catch(() => undefined)
   if (isBarStyle(savedBar)) await update($, bar, () => savedBar)
   const savedPrefs = withDefaults(await $.store.get('prefs').catch(() => undefined))
@@ -679,7 +678,7 @@ export const register: Register = on => {
     const turns = allMains.filter(m => subagents.some(a => crewOf(a) === crewOf(m)) || (m === allMains.at(-1) && (m.status === 'running' || (m.callCount ?? 0) > 0))).map(waitOn)
     const mainTasks = await read($, tasks)
     const at = await read($, now)
-    const skinName = await read($, skin)
+    const themed = await read($, theme)
     const style = await read($, bar)
     const picked = await read($, selectedAgent)
     const folds = await read($, detailOpen)
@@ -689,7 +688,7 @@ export const register: Register = on => {
     const window = (await read($, usage))?.contextWindow
     const { Box, Button, Markdown, Svg, Text } = $.ui.resolve(e)
     const W = widthOf(e.props.bodyColumns, 240, 40)
-    const look = lookOf(skinName)
+    const look = lookOf(themed)
 
     // Each main turn just before its crew's first agent; one with no agents (the turn at work)
     // last. The turn at work carries the main task list as its progress.
@@ -704,7 +703,7 @@ export const register: Register = on => {
     const withTasks = (a: AgentRun) => (a === latest && mainTasks.length ? { ...a, tasks: mainTasks } : a)
 
     if (list.length === 0) {
-      const empty = emptyAgentsSvg(W, skinName)
+      const empty = emptyAgentsSvg(W, themed)
       return <Svg source={empty.source} alt={empty.alt} width={empty.width} height={empty.height} />
     }
 
@@ -754,7 +753,7 @@ export const register: Register = on => {
     const view = (id: string) => update($, selectedAgent, cur => (cur === id ? null : id))
     const laneOf = (a: AgentRun, inset: number) => {
       const viewed = a.id === selected?.id
-      const d = laneSvg(a, W - LANE_BUTTON - inset, at, skinName, windowOf(a), viewed, style)
+      const d = laneSvg(a, W - LANE_BUTTON - inset, at, themed, windowOf(a), viewed, style)
       return fits(d) ? (
         <Box key={`lane-${a.id}`} flexDirection="row" alignItems="center" columnGap={1}>
           {image(`lane-svg-${a.id}`, d)}
@@ -779,7 +778,7 @@ export const register: Register = on => {
       )
     }
 
-    const overview = crewSvg(runs, inner, at, skinName, windowOf)
+    const overview = crewSvg(runs, inner, at, themed, windowOf)
     // Keyed by its crews: the desktop keeps a drawing's old image while its key stays the same.
     const top = fits(overview) ? image(`crew-${current.map(c => c.id).join('+')}`, overview) : undefined
 
@@ -789,12 +788,12 @@ export const register: Register = on => {
     const deep = inner - BOX_INSET
     const detail = (a: AgentRun) => {
       const w = windowOf(a)
-      const head = agentHeadSvg(a, inner, at, skinName, w)
-      const tools = toolsSvg(a, deep, skinName)
-      const steps = stepsSvg(a, deep, skinName)
+      const head = agentHeadSvg(a, inner, at, themed, w)
+      const tools = toolsSvg(a, deep, themed)
+      const steps = stepsSvg(a, deep, themed)
       const allCalls = folds.includes('calls')
-      const calls = activitySvg(a, deep, skinName, allCalls ? CALLS_KEPT : 8)
-      const files = filesSvg(a, deep, skinName)
+      const calls = activitySvg(a, deep, themed, allCalls ? CALLS_KEPT : 8)
+      const files = filesSvg(a, deep, themed)
       const summary = a.status === 'running' ? undefined : a.summary
       const p = progressOf(a)
       const kept = Object.values(a.files ?? {})
@@ -848,13 +847,13 @@ export const register: Register = on => {
     }
     const shown = selected ? detail(selected) : undefined
     // With none viewed: how to view one, and the agent that needs a look, if any.
-    const empty = emptyDetailSvg(inner, skinName)
+    const empty = emptyDetailSvg(inner, themed)
     const stuck = selected ? undefined : needsLook(runs, at, windowOf)
     // The earlier crews in a box of their own, folded to one line at first while a crew is at work.
     // Open, their lines are drawn before any lane, so each keeps its Show however many lanes fill
     // the pane.
     const isFolded = folded ?? runs.some(a => a.status === 'running')
-    const rows = isFolded ? [] : earlier.map(c => ({ crew: c, row: earlierSvg(c.runs, W - LANE_BUTTON - BOX_INSET * 2, skinName) })).filter(r => fits(r.row))
+    const rows = isFolded ? [] : earlier.map(c => ({ crew: c, row: earlierSvg(c.runs, W - LANE_BUTTON - BOX_INSET * 2, themed) })).filter(r => fits(r.row))
     const laneList = lanes('now', runs, BOX_INSET)
     const past = earlier.flatMap(c => c.runs).filter(a => !isMain(a))
     const stopped = past.filter(a => a.reason === 'aborted').length
@@ -1133,7 +1132,7 @@ export const register: Register = on => {
   // and a choice that changes a drawing shows it.
   on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
-    const current = await read($, skin)
+    const themed = await read($, theme)
     const style = await read($, bar)
     const p = await read($, prefs)
     const armed = await read($, resetArmed)
@@ -1213,22 +1212,12 @@ export const register: Register = on => {
     )
     const chatToggle = (key: keyof Prefs['chat'], name: string, note: string) =>
       toggle(`chat-${key}`, name, note, p.chat[key], x => ({ ...x, chat: { ...x.chat, [key]: !x.chat[key] } }))
-    const preview = barPreview(style, current, W)
-    // A row of drawn choices, each its sketch over a Button with its name. The sketch is not the
-    // control: on the desktop a press on a large image link often lands as a drag of the image.
-    const picks = <T extends string>(prefix: string, values: readonly T[], name: (v: T) => string, current: T, draw: (v: T) => Drawing, pick: (v: T) => Promise<void>) => (
-      <Box flexDirection="row" columnGap={1} rowGap={1} flexWrap="wrap">
-        {values.map(v => {
-          const d = draw(v)
-          return (
-            <Box key={`pick-${prefix}-${v}`} flexDirection="column" rowGap={1} alignItems="flex-start">
-              <Svg key={`${prefix}-${v}-sketch`} source={d.source} alt={d.alt} width={d.width} height={d.height} />
-              <Button key={`${prefix}-${v}`} label={name(v)} variant={v === current ? 'primary' : 'secondary'} onPress={() => pick(v)} />
-            </Box>
-          )
-        })}
-      </Box>
-    )
+    const preview = barPreview(style, themed, W)
+    // A drawn choice: the one in use sketched, then a row of Buttons with the names. The sketch is
+    // not the control: on the desktop a press on a large image link often lands as a drag of the
+    // image. Keyed by what it shows, as the desktop keeps an image keyed the same.
+    const sketch = (key: string, d: Drawing) => <Svg key={key} source={d.source} alt={d.alt} width={d.width} height={d.height} />
+    const sketchW = Math.min(W, SKETCH_W)
     // One part of a group: its heading, then what it holds, a row apart.
     const part = (key: string, title: string, note: string, ...rows: RenderNode[]) => (
       <Box key={`part-${key}`} flexDirection="column" rowGap={1}>
@@ -1236,9 +1225,17 @@ export const register: Register = on => {
         {rows}
       </Box>
     )
-    const skinInUse = (SKINS as readonly string[]).includes(current) ? (current as Skin) : 'raised'
+    // A row of each mode's themes, under the sketch of the pair in use.
+    const themeRow = <M extends keyof Theme>(mode: M, label: string, themes: Record<Theme[M], { name: string }>, inUse: Theme[M]) => (
+      <Box key={`row-theme-${mode}`} flexDirection="row" alignItems="center" columnGap={2}>
+        <Box width={6}>
+          <Text dimColor>{label}</Text>
+        </Box>
+        {choice(`theme-${mode}`, Object.keys(themes) as Theme[M][], k => themes[k].name, inUse, k => void setTheme($, t => ({ ...t, [mode]: k })))}
+      </Box>
+    )
     // The info row as it reads.
-    const infoNow = infoSvg({ ...chips(known, p.show), pending: !known.read }, W, { skin: current })
+    const infoNow = infoSvg({ ...chips(known, p.show), pending: !known.read }, W, { theme: themed })
     // A sample of each chat touch that is on.
     const chatSamples = [
       ...(p.chat.tools ? [stepSvg(SAMPLE_EDIT), ...(p.chat.tests ? [stepSvg(SAMPLE_TEST)] : [])] : []),
@@ -1253,8 +1250,21 @@ export const register: Register = on => {
           'Look',
           'How the band is laid out and drawn',
           <Box flexDirection="column" rowGap={2}>
-            {part('layout', 'Layout', 'Side by side, or stacked and shorter', picks('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => densityPreview(d, current, PICK_W, d === p.density), d => setPrefs($, x => ({ ...x, density: d }))))}
-            {part('cards', 'Cards', 'Raised or flat; both follow light and dark', picks('skin', SKINS, k => SKIN_NAMES[k]!, skinInUse, k => skinPreview(k, PICK_W, k === skinInUse), k => setSkin($, k)))}
+            {part(
+              'layout',
+              'Layout',
+              'Side by side, or stacked and shorter',
+              sketch(`layout-${p.density}`, densityPreview(p.density, themed, sketchW)),
+              choice('density', ['comfortable', 'compact'] as const, d => (d === 'comfortable' ? 'Comfortable' : 'Compact'), p.density, d => void setPrefs($, x => ({ ...x, density: d }))),
+            )}
+            {part(
+              'theme',
+              'Theme',
+              'One for light, one for dark; the band follows your Mac',
+              sketch(`theme-${themed.light}-${themed.dark}`, themePreview(themed, sketchW)),
+              themeRow('light', 'Light', LIGHT_THEMES, themed.light),
+              themeRow('dark', 'Dark', DARK_THEMES, themed.dark),
+            )}
             {part(
               'bars',
               'Bars',
@@ -1277,7 +1287,13 @@ export const register: Register = on => {
           'Usage',
           'Context, 5H and 7D',
           <Box flexDirection="column" rowGap={2}>
-            {part('style', 'Style', '', picks('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => usageSketch(u, current, USAGE_PICK_W, u === p.usageStyle), u => setPrefs($, x => ({ ...x, usageStyle: u }))))}
+            {part(
+              'style',
+              'Style',
+              '',
+              sketch(`usage-${p.usageStyle}`, usageSketch(p.usageStyle, themed, sketchW)),
+              choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u }))),
+            )}
             {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', 'Session'), showPill('week', 'Weekly')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
           </Box>,
           rowPower('usage'),
@@ -1552,7 +1568,7 @@ export const register: Register = on => {
     const running = (await read($, background)).length
     const trick = shownPrefs.extras.tricks ? trickOf({ mood, now: at, lastTurnAt: last, isWorking: e.props.isWorking, raceShown, limitHigh: list.some(m => m.level) }) : undefined
 
-    const skinName = await read($, skin)
+    const themed = await read($, theme)
     const style = await read($, bar)
     // The toolbar's count holds whether or not the crew row shows.
     const working = everyone.filter(a => a.status === 'running').length
@@ -1582,7 +1598,7 @@ export const register: Register = on => {
         { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
       )
     }
-    const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone, skinName) }))
+    const icons = tools.map(t => ({ ...t, drawn: toolIconSvg(t.kind, t.count, t.tone, themed) }))
     // Room the icons take with the chip the desktop draws round each image, so the info row's
     // card runs up to the first: the row reads as one strip of the band's card.
     const iconsW = icons.reduce((n, t) => n + t.drawn.width + TOOL_CHIP, 0)
@@ -1590,11 +1606,11 @@ export const register: Register = on => {
     // row or live strip holds him, as he did in the band's own info row.
     const stacked = shownPrefs.density === 'compact' || W < HERO_MIN_W
     const clawdTop = stacked && !p && !live && rows.info && shownPrefs.show.clawd
-    const top = infoSvg(info, Math.max(96, W - iconsW), { skin: skinName, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
+    const top = infoSvg(info, Math.max(96, W - iconsW), { theme: themed, ...(clawdTop ? { clawd: { mood, ...(accessory ? { accessory } : {}), ...(trick ? { trick } : {}) } } : {}) })
     // bodyColumns counts the code font's advance across the band, the collapse mark already
     // left out. Drawn a little wider than that estimate and given no width, the drawing
     // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-    const band = bandSvg(p, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(running ? { running } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
+    const band = bandSvg(p, list, W, { mood: mood, theme: themed, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(running ? { running } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
     return (
       <Box flexDirection="column">
         {(top || icons.length > 0) && (
