@@ -27,6 +27,8 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     'git config user.name': 'Panupat\n',
     'node --version': 'v24.1.0\n',
     'git rev-list --left-right --count @{upstream}...HEAD': '1\t2\n',
+    'git -C <root> branch --show-current': 'sabai-next\n',
+    'git -C <root> rev-parse --short HEAD': 'abc1234\n',
   })
   const inits: ({ timeoutMs?: number } | undefined)[] = []
   on('process.run', ($, e) => {
@@ -35,7 +37,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     inits.push(e.init)
     if (hanging.some(h => cmd.startsWith(h))) return new Promise<never>(() => {})
     const fails = failing.some(f => cmd.startsWith(f))
-    return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd.replace(/^git -C \S+ /, 'git -C <root> ')] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.complete', () => ({ text: completeText }))
   // A test that sets `reads.usage` false finds the engine has no reading to give.
@@ -495,6 +497,19 @@ test('the theme picker shows the pair in use over a row of light themes and a ro
   expect(await variants(ui)).toEqual(['primary', 'secondary', 'secondary', 'secondary', 'secondary', 'primary'])
   expect(await sketch(ui)).toBe('Mono for light, Synthwave for dark')
   expect(await cardThemes($)).toEqual(['Mono', 'Synthwave'])
+})
+
+test('the settings pane ends with the mod\'s version, a dev copy\'s branch and commit, and the engine\'s version', async ($, on) => {
+  const { runs } = engine(on)
+  on('session.version', () => ({ value: { version: '2.1.300', base: '2.1.300' } }))
+  on('fs.read', () => ({ value: '{ "name": "sabai", "version": "9.9.9" }' }))
+  panes(on)
+  await start($)
+  const ui = await mountPane($, 'desktop', 'sabai-skins')
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => JSON.stringify(t.children))
+  // The tests load the mod from its folder, as a dev copy is.
+  expect(texts.some(t => /sabai 9\.9\.9 · Dev · sabai-next@abc1234 · Claude Code 2\.1\.300/.test(t))).toBe(true)
+  expect(runs.filter(r => r.startsWith('git -C '))).toHaveLength(2)
 })
 
 test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {

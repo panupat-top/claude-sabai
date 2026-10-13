@@ -3,7 +3,7 @@ import type { AgentRun } from '../types'
 import { raceOf } from '../hooks/agents'
 
 import type { Task } from '../types'
-import { chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, failsOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
+import { aboutLine, marketplaceOf, chips, countdown, created, fromTodos, level, meters, progress, toUsage, tokens, updated, usageNote, value, CELEBRATE_MS, SLEEP_AFTER_MS, STARTLE_MS, EMPTY_RACE, accessoryOf, countOf, failsOf, moodLine, moodOf, nextTurnRace, paceOf, raced, resetClock, trickOf, WAVE_MS, YAWN_AFTER_MS } from '../hooks/model'
 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
@@ -382,4 +382,18 @@ test('a lane counts the skills and MCP servers its members called, a merged lane
   // Nothing called, nothing drawn; a log from before has none.
   expect(raceOf(EMPTY_RACE, [run('a')], undefined, 1000, true, 1)!.lanes.map(l => l.uses)).toEqual([undefined, undefined])
   expect(nextTurnRace({ ...EMPTY_RACE, used }, new Set(['a'])).used).toEqual({ a: ['mcp:Browser'] })
+})
+
+test('an installed copy runs from the plugin cache, named by its marketplace; any other folder is a dev copy', () => {
+  expect(marketplaceOf('/Users/a/.claude/plugins/cache/claude-sabai/sabai/2.23.0')).toBe('claude-sabai')
+  expect(marketplaceOf('C:\\Users\\a\\.claude\\plugins\\cache\\claude-sabai\\sabai\\2.23.0')).toBe('claude-sabai')
+  expect(marketplaceOf('/Users/a/claude-sabai/plugins/sabai')).toBeUndefined()
+})
+
+test('the about line names the version, the copy and the engine, leaving out what was not read', () => {
+  expect(aboutLine({ version: '2.23.0', marketplace: 'claude-sabai', engine: '2.1.300' })).toBe('sabai 2.23.0 · Release (claude-sabai) · Claude Code 2.1.300')
+  expect(aboutLine({ version: '2.23.0', branch: 'main', sha: 'abc1234', engine: '2.1.300' })).toBe('sabai 2.23.0 · Dev · main@abc1234 · Claude Code 2.1.300')
+  // A detached HEAD has no branch; a folder outside git has neither.
+  expect(aboutLine({ version: '2.23.0', sha: 'abc1234' })).toBe('sabai 2.23.0 · Dev · abc1234')
+  expect(aboutLine({})).toBe('sabai · Dev')
 })

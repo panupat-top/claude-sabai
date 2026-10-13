@@ -1,4 +1,4 @@
-import type { CallKind, Env, RaceLog, Show, Task, TurnLog, Usage } from '../types'
+import type { Build, CallKind, Env, RaceLog, Show, Task, TurnLog, Usage } from '../types'
 import type { IconKind } from './icons'
 
 export const WARN_AT = 70
@@ -273,4 +273,13 @@ export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: 
     scoredAt: call.kind === 'test' && call.ok ? { ...log.scoredAt, [member]: at } : log.scoredAt,
     total: log.total + 1,
   }
+}
+
+// An installed copy runs from Claude Code's plugin cache (`…/plugins/cache/<marketplace>/<plugin>/<version>`);
+// any other folder is one loaded in place, a dev copy.
+export const marketplaceOf = (root: string): string | undefined => /[\\/]plugins[\\/]cache[\\/]([^\\/]+)[\\/]/.exec(root)?.[1]
+
+export function aboutLine(b: Build): string {
+  const copy = b.marketplace ? `Release (${b.marketplace})` : ['Dev', b.branch && b.sha ? `${b.branch}@${b.sha}` : (b.branch ?? b.sha)].filter(Boolean).join(' · ')
+  return [b.version ? `sabai ${b.version}` : 'sabai', copy, b.engine && `Claude Code ${b.engine}`].filter(Boolean).join(' · ')
 }

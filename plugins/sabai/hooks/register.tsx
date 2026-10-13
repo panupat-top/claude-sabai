@@ -1,9 +1,9 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, Theme, TurnLog, Usage, UsageStyle } from '../types'
+import type { AgentRun, BarStyle, Build, CallKind, Env, GuardAction, GuardRule, Prefs, Task, Theme, TurnLog, Usage, UsageStyle } from '../types'
 import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf, usedBy } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, estimated, updated, usageNote } from './model'
+import { aboutLine, marketplaceOf, CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, estimated, updated, usageNote } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, themePreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
@@ -153,6 +153,20 @@ async function line($: EngineInterface, argv: string[]): Promise<string | undefi
   } catch {
     return undefined
   }
+}
+
+// This copy of the mod: its manifest's version, and a dev copy's branch and commit in the mod's own
+// repository (not the project's). A part that cannot be read is left out.
+async function readBuild($: EngineInterface): Promise<Build> {
+  const root = $.plugin.root
+  const marketplace = marketplaceOf(root)
+  const [version, engine, branch, sha] = await Promise.all([
+    (async () => JSON.parse(String(await $.fs.read(`${root}/.claude-plugin/plugin.json`))).version as string | undefined)().catch(() => undefined),
+    (async () => (await $.session.version()).version)().catch(() => undefined),
+    marketplace ? undefined : line($, ['git', '-C', root, 'branch', '--show-current']),
+    marketplace ? undefined : line($, ['git', '-C', root, 'rev-parse', '--short', 'HEAD']),
+  ])
+  return { version, marketplace, branch, sha, engine }
 }
 
 // The branch's state: uncommitted files and commits ahead/behind its upstream. Run when a
@@ -496,6 +510,7 @@ async function setUp($: EngineInterface) {
     if (cwd) await update($, env, e => ({ ...e, dir: cwd.split(/[\\/]/).filter(Boolean).pop() }))
     void line($, ['git', 'config', 'user.name']).then(gitUser => update($, env, e => ({ ...e, gitUser }))).catch(() => undefined)
     void line($, ['node', '--version']).then(node => update($, env, e => ({ ...e, node }))).catch(() => undefined)
+    void readBuild($).then(build => update($, env, e => ({ ...e, build }))).catch(() => undefined)
     await readRepo($)
   })().catch(() => undefined)
 }
@@ -1402,6 +1417,7 @@ export const register: Register = on => {
             }
           />
         </Box>
+        {known.build ? <Text dimColor wrap="truncate-end">{aboutLine(known.build)}</Text> : null}
       </Box>
     )
   })

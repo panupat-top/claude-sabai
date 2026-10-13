@@ -111,6 +111,8 @@ Groups run from what you see most to what you set once. A part of the band with 
 
 **Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the theme (Mono and Ink) and the bar style back.
 
+The last line says which sabai you run: its version, then **Release** with the marketplace it was installed from (`sabai 2.24.0 · Release (claude-sabai) · Claude Code 2.1.300`), or **Dev** for a copy loaded from a folder (`--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS`) with the branch and commit that folder stands at. A dev copy's version is that of the last release, so the branch and commit tell it apart. Include this line when you report a bug.
+
 The guard is a safety net, not a sandbox: it catches common slips, not someone set on getting round it.
 
 ## In a terminal: the hub status line
