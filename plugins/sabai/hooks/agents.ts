@@ -173,11 +173,11 @@ export function clock(ms: number): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export type LaneState = 'out' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
+export type LaneState = 'out' | 'stopped' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
 // agent in the seconds after it finished.
 export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
-export type Race = { agents: number; done: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
+export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
 
@@ -243,14 +243,15 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       }
     }
     const p = progressOf(a)
-    const state: LaneState = a.status === 'failed' ? 'out' : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
+    // A stop is the person's choice, not a failure.
+    const state: LaneState = a.status === 'failed' ? (a.reason === 'aborted' ? 'stopped' : 'out') : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
     const mood = agentMood(a, now)
     return {
       id,
       who: a.description || laneName(a.type),
       type: a.type,
       // A plan's step by its title: the lane draws its done and total.
-      step: state === 'out' ? 'Failed' : state === 'finished' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
+      step: state === 'out' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'finished' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
       timeMs: time(a),
       ...(p && state !== 'finished' ? { steps: { done: p.done, total: p.total } } : {}),
       count: countOf(log, id),
@@ -265,7 +266,9 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
   const since = mainWorking ? turnStartedAt : Math.min(...running.map(a => a.startedAt))
   return {
     agents: running.length,
-    done: ended.length,
+    done: ended.filter(a => a.status === 'done').length,
+    failed: ended.filter(a => a.status === 'failed' && a.reason !== 'aborted').length,
+    stopped: ended.filter(a => a.reason === 'aborted').length,
     fails: log.fails,
     ...(since !== 0 ? { elapsedMs: Math.max(0, now - since) } : {}),
     more: shown.slice(RACE_LANES).reduce((n, u) => n + u.length, 0),

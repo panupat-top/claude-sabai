@@ -488,11 +488,16 @@ const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms 
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const time = race.elapsedMs === undefined ? '' : mmss(race.elapsedMs)
   const lead = race.agents ? `${race.agents} ${race.agents === 1 ? 'agent' : 'agents'}` : ''
-  const done = race.done ? `${lead ? ' · ' : ''}${race.done} done` : ''
+  // The agents that ended, each way apart: a failed or stopped agent is not done.
+  const ended = [race.done && `${race.done} done`, race.failed && `${race.failed} failed`, race.stopped && `${race.stopped} stopped`].filter(Boolean).join(' · ')
+  // Measured a size up for the bold lead; SVG drops the space before its dot.
+  const tallyX = 12 + (lead ? textWidth(lead, 11.5) + 4 : 0)
+  const room = W - 12 - (time ? monoWidth(time, 10.5) + 10 : 0) - (race.fails ? monoWidth(`✗ ${race.fails}`, 10.5) + 10 : 0) - tallyX
+  const tally = ended ? fit(`${lead ? '· ' : ''}${ended}`, 10.5, room) : ''
   const ty0 = top + 16
   let head =
     (lead ? `<text class="t" x="12" y="${ty0}" font-family="${SANS}" font-size="11" font-weight="700">${lead}</text>` : '') +
-    (done ? `<text class="m" x="${+(12 + textWidth(lead, 11)).toFixed(1)}" y="${ty0}" font-family="${SANS}" font-size="10.5">${done}</text>` : '') +
+    (tally ? `<text class="m" x="${+tallyX.toFixed(1)}" y="${ty0}" font-family="${SANS}" font-size="10.5">${xml(tally)}</text>` : '') +
     (time ? `<text class="m" x="${W - 12}" y="${ty0}" text-anchor="end" font-family="${MONO}" font-size="10.5">${time}</text>` : '')
   if (race.fails) head += `<text class="c-alert" x="${+(W - 12 - (time ? monoWidth(time, 10.5) + 10 : 0)).toFixed(1)}" y="${ty0}" text-anchor="end" font-family="${MONO}" font-size="10.5" font-weight="700">✗ ${race.fails}</text>`
   const x = 14
@@ -501,6 +506,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const said = (l: Lane): [string, string] =>
     l.quietMs !== undefined ? ['c-warn', `quiet ${Math.floor(l.quietMs / 1000)}s`] :
     l.state === 'out' || l.state === 'tripped' ? ['c-alert', l.step] :
+    l.state === 'stopped' ? ['m', l.step] :
     l.state === 'finished' ? ['c-ok', l.fresh ? 'Done! 🎉' : 'Done'] : ['m', l.step]
   const rows = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * RACE_ROW
@@ -536,7 +542,9 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'finished' ? ('scroll' as const) : true } : undefined
     const tool = l.state === 'running' && l.quietMs === undefined ? l.doing : undefined
     const figure =
-      l.state === 'finished' && !l.fresh
+      l.state === 'stopped'
+        ? `<g opacity=".55" transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, 'idle', look.clawd, hat && { ...hat, prop: false }))}</g>`
+        : l.state === 'finished' && !l.fresh
         ? statusMark(look, 'done', x + 8, mid, look.clawd, false)
         : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'out' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
     const party = l.fresh
@@ -560,7 +568,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const more = race.more ? `<text class="m" x="${x}" y="${top + height + 10}" font-family="${SANS}" font-size="10">+${race.more} more · open Agents for all</text>` : ''
   if (race.more) height += 16
   const alt = [
-    `Race: ${[lead, race.done ? `${race.done} done` : '', race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
+    `Race: ${[lead, ...ended.split(' · '), race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
     ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
     ...(race.more ? [`${race.more} more in the Agents pane`] : []),
   ].join('; ')

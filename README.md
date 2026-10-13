@@ -55,9 +55,10 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
     - **Columns**: a pixel column filling from the bottom;
     - **Rows**: one card with a row each.
 - **The race**, while subagents work (Claude working alone keeps the line of what he is doing now):
-  - the header counts the agents running and done, the turn's failed calls (`✗`) and the time;
+  - the header counts the agents running, then those done, failed and stopped, the turn's failed calls (`✗`) and the time;
   - a row for `Main` (in his captain's cap; `waiting on 3` while his agents work), then one per subagent, named by its task: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
   - an agent that has said nothing for 30 s dozes and reads `quiet 47s`; a failed call trips it for a moment;
+  - an agent that failed falls and reads `Failed` in red; one you stopped stands faded and reads `Stopped`;
   - an agent that just finished hops among confetti on a flashing row (`Done! 🎉`), then folds to a green check;
   - more agents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Agents for all` counts any left over. The details live in the agents panel.
 
