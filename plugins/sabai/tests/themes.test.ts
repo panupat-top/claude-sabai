@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { TEXT, lookOf } from '../hooks/svg'
+import { PALETTE, TEXT, lookOf } from '../hooks/svg'
 import { SKINS, SKIN_NAMES, contrast } from '../hooks/themes'
 
 // A look's stylesheet in light and dark: its card and every other fill, the track and Clawd's wink aside.
@@ -41,4 +41,8 @@ test('the branch tag’s words read over its wash on light and dark surfaces, fo
       const wash = mix(lookOf(skin).bar('session'), surface, 0.13)
       expect([skin, surface, contrast(TEXT.session[i]!, wash) >= 4.5]).toEqual([skin, surface, true])
     }
+})
+
+test('every pastel hue’s glyph reads at 5:1 on its tile ground, light and dark', () => {
+  for (const [hue, p] of Object.entries(PALETTE)) for (const i of [0, 1]) expect([hue, i, contrast(p.kf[i]!, p.kb[i]!) >= 5]).toEqual([hue, i, true])
 })

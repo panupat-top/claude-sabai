@@ -2,6 +2,7 @@ import type { ActKind, AgentCall, AgentFile, AgentRound, AgentRun, CallKind, Rac
 import type { Progress } from './model'
 import { FINISH_MS, RACE_LANES, RACE_LINGER_MS, SCORE_MS, TRIP_MS, countOf, doingOf, failsOf, tokens } from './model'
 import type { HatKind } from './sprites'
+import { plural } from './chat'
 
 // The pane keeps the newest runs; older ones fall off.
 const KEEP = 40
@@ -165,6 +166,9 @@ export const resultText = (a: AgentRun): string => a.result ?? (a.status === 'fa
 
 export const elapsed = (a: AgentRun, now: number): number => Math.max(0, (a.endedAt ?? now) - a.startedAt)
 
+// How long a run has gone without a call.
+export const quietFor = (a: AgentRun, now: number) => now - (a.lastActiveAt ?? a.startedAt)
+
 // 4s, 1m 4s, 1h 2m.
 export function clock(ms: number): string {
   const s = Math.floor(ms / 1000)
@@ -199,7 +203,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     id: 'main',
     who: 'Main',
     // Between calls, the latest one; a log kept from before calls were named has none.
-    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : `waiting on ${running.length}`),
+    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : `Waiting on ${running.length}`),
     // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { steps: { done: tasks.done, total: tasks.total } } : {}),
@@ -258,7 +262,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       fails: failsOf(log, id),
       ...doingFor([id]),
       mood,
-      ...(mood === 'quiet' ? { quietMs: now - (a.lastActiveAt ?? a.startedAt) } : {}),
+      ...(mood === 'quiet' ? { quietMs: quietFor(a, now) } : {}),
       ...((state === 'finished' || state === 'out') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
       state,
     }
@@ -386,11 +390,10 @@ export function agentMood(a: AgentRun, now: number, window?: number): AgentMood 
   if ((contextPercent(a, window) ?? 0) >= FULL_AT) return 'context'
   if (a.doing?.length) return 'working'
   // Claude writing a long answer is quiet too, and no sign of a stuck main turn.
-  return !isMain(a) && now - (a.lastActiveAt ?? a.startedAt) >= QUIET_MS ? 'quiet' : 'thinking'
+  return !isMain(a) && quietFor(a, now) >= QUIET_MS ? 'quiet' : 'thinking'
 }
 
 // m:ss, for the Thai lines.
-const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 // Under this a finished run was quick.
 const FAST_MS = 30_000
 
@@ -425,11 +428,11 @@ export function thaiLine(a: AgentRun, now: number, window?: number): string {
   const round = a.rounds?.length && a.status === 'running' ? `รอบ ${a.rounds.length + 1} · ` : ''
   const p = progressOf(a)
   const f: Record<string, string> = {
-    quiet: String(Math.floor((now - (a.lastActiveAt ?? a.startedAt)) / 1000)),
+    quiet: String(Math.floor(quietFor(a, now) / 1000)),
     ctx: String(contextPercent(a, window) ?? ''),
     fails: String(a.callFails ?? 0),
     steps: p ? `${p.done}/${p.total}` : '',
-    time: mmss(elapsed(a, now)),
+    time: clock(elapsed(a, now)),
   }
   if (mood === 'working') {
     const d = a.doing!.at(-1)!
@@ -495,7 +498,7 @@ export function factsLine(a: AgentRun, now: number): string {
   return [
     `อ่าน ${files.filter(f => f.edits === 0).length} ไฟล์`,
     `แก้ ${files.filter(f => f.edits > 0).length} ไฟล์`,
-    `${a.callCount ?? 0} calls${fails ? ` (พลาด ${fails})` : ''}`,
+    `${plural(a.callCount ?? 0, 'call')}${fails ? ` (พลาด ${fails})` : ''}`,
     clock(elapsed(a, now)),
     `${tokens(a.spent ?? a.contextTokens)} tokens`,
   ].join(' · ')

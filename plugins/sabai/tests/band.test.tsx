@@ -239,16 +239,16 @@ test('Clawd counts the background work the main conversation starts, until it en
   await call({ tool: 'Bash', command: 'sub', description: '', run_in_background: true, agentId: 'agent-x' })
   await call({ tool: 'Monitor', description: 'watch', timeout_ms: 60_000, command: 'tail -f log' })
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, 3 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 3 running/)
   const notify = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } } as never)
   await notify('<task-notification><task-id>m1</task-id><event>line</event></task-notification>')
   await notify('<task-notification><task-id>b1</task-id><status>completed</status></task-notification>')
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, 2 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 2 running/)
   await call({ tool: 'TaskStop', task_id: 'b2' })
   await notify('<task-notification><task-id>m1</task-id><status>killed</status></task-notification>')
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, your turn/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, Your turn/)
 })
 
 test('the tick re-reads git status only when the branch has changed', async ($, on) => {
@@ -585,7 +585,7 @@ test('an empty panel invites a first agent', async ($, on) => {
   }
 })
 
-test('the crew counts failed agents apart from done ones', async ($, on) => {
+test('the crew counts a stopped agent apart from failed and done ones', async ($, on) => {
   engine(on, { store: { prefs: { density: 'compact' } } })
   panes(on)
   await start($)
@@ -593,7 +593,7 @@ test('the crew counts failed agents apart from done ones', async ($, on) => {
   await spawn($, 'b')
   await $.turn.complete({ turnId: 'a', agentId: 'agent-a', answer: '', durationMs: 10, isAborted: true, reason: 'aborted' })
   await $.turn.complete({ turnId: 'b', agentId: 'agent-b', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'desktop')).words).toMatch(/1 done, 1 failed/)
+  expect((await shown($, 'desktop')).words).toMatch(/1 done, 1 stopped/)
 })
 
 // One model request of a subagent, answered by a stub beneath the plugin as the model would.
@@ -641,12 +641,12 @@ test('a subagent runs in its lane with its clock and Thai line, then is done whe
   await spawn($, 'api routes')
   await clock.advance(64_000)
   let ui = await mountPane($, 'desktop')
-  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: quiet 64s, 1m 4s\. .*64 วิ/)
+  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: Quiet 64s, 1m 4s\. .*64 วิ/)
   expect((await headOf(await viewed(ui, 'api routes')))?.props.alt).toContain('Explore · Sonnet 5.5')
   await ui.unmount()
   await finish($, 'api routes')
   ui = await mountPane($, 'desktop')
-  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: done, 1m 4s\./)
+  expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: Done, 1m 4s\./)
 })
 
 test('a subagent’s own task list shows in its detail, never the band’s row', async ($, on) => {
@@ -775,7 +775,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await laneOf(ui, 'old')).toBeUndefined()
   // While a crew works the earlier ones fold to one line in their own box; Show opens it.
-  expect(await ui.find({ type: 'Text', text: ' · 1 crew · ✓1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 crew · ✓ 1' })).toBeDefined()
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
@@ -816,9 +816,9 @@ test('View opens an agent in Viewing and a second press or Close shuts it; with 
   expect(await headOf(ui)).toBeUndefined()
   // a goes quiet: the empty detail says so, and View it opens it.
   await clock.advance(61_000)
-  expect(await ui.find({ type: 'Text', text: /^⚠ a: quiet \d+s$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⚠ a: Quiet \d+s$/ })).toBeDefined()
   await ui.press({ key: 'view-needs-look' })
-  expect((await headOf(ui))?.props.alt).toMatch(/^a: quiet/)
+  expect((await headOf(ui))?.props.alt).toMatch(/^a: Quiet/)
 })
 
 test('Main has a lane of its own in the crew at work, with its calls in its detail; a turn with no agents is Claude’s alone', async ($, on) => {
@@ -829,8 +829,8 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'solo' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
   let ui = await mountPane($, 'desktop')
-  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('1 member: Claude thinking'))).toBeDefined()
-  expect(await laneOf(ui, 'Claude (main)')).toBeDefined()
+  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('1 member: Main thinking'))).toBeDefined()
+  expect(await laneOf(ui, 'Main')).toBeDefined()
   await ui.unmount()
   await $.turn.complete({ turnId: 'solo', answer: 'All done.', durationMs: 10, isAborted: false, reason: 'answer' })
   await clock.advance(60_000)
@@ -840,9 +840,9 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   ui = await mountPane($, 'desktop')
   expect(await ui.find({ type: 'Text', text: /^Earlier/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
-  // Main's lane carries its badge and its captain's cap.
-  const mainLane = (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude (main):'))
-  expect(mainLane?.props.source).toContain('>main</text>')
+  // Main's lane is named so and wears its captain's cap.
+  const mainLane = (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Main:'))
+  expect(mainLane?.props.source).toContain('>Main<')
   expect(mainLane?.props.source).toContain('#3a5899')
   await $.tool.call({ tool: 'Grep', pattern: 'y' } as unknown as Parameters<typeof $.tool.call>[0])
   const key = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).find(k => k.startsWith('view-main:'))!
@@ -868,7 +868,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await ui.press({ key: 'clear-earlier' })
   await clock.advance(1)
   expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
-  expect(await laneOf(ui, 'Claude (main)')).toBeDefined()
+  expect(await laneOf(ui, 'Main')).toBeDefined()
 })
 test('the report folds open as Markdown once an agent ends, a stop says so, and no colour is forced on native text', async ($, on) => {
   engine(on, { store: { skin: 'raised' } })
@@ -886,7 +886,7 @@ test('the report folds open as Markdown once an agent ends, a stop says so, and 
   expect((await markdownsOf(ui)).map(m => m.props.text)).toContain('## Found\n- three launches')
   expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
   await viewed(ui, 'bad')
-  expect((await headOf(ui))?.props.alt).toMatch(/^bad: stopped/)
+  expect((await headOf(ui))?.props.alt).toMatch(/^bad: Stopped/)
   expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
 })
 
@@ -958,7 +958,7 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   const ui = await mountPane($, 'desktop')
   expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
   // The first turn's Main, its agent gone to the turn at work, is no crew of its own.
-  expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude (main):')).length).toBe(1)
+  expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Main:')).length).toBe(1)
   expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^EARLIER/ })).toBeUndefined()
   await finish($, 'scout', 'second report')
@@ -1027,7 +1027,7 @@ test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide 
   await $.turn.start({ turnId: 'fan' } as never)
   for (let i = 0; i < 20; i++) await spawn($, `fan ${i}`)
   const ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: /^\+ \d+ more$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^\+\d+ more$/ })).toBeDefined()
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
 })
 
@@ -1378,7 +1378,7 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   await start($)
   await clock.advance(3000)
   // With no agents the live strip carries the turn's time.
-  expect((await shown($, 'desktop', true)).words).toContain('Clawd: working, 3s; Working;')
+  expect((await shown($, 'desktop', true)).words).toContain('Clawd: Working, 3s; Working;')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
@@ -1499,10 +1499,10 @@ test('Clawd’s mood shows in the band: sad after failing tests, startled by the
   on('ui.toast', () => ({ value: undefined }))
   await start($)
   await turn($, () => bash($, 'bun test'))
-  expect((await shown($, 'desktop')).words).toContain('Clawd: tests failing')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: Tests failing')
   await guardOn($)
   await bash($, 'rm -rf /')
-  expect((await shown($, 'desktop')).words).toContain('Clawd: blocked, guard stopped 1')
+  expect((await shown($, 'desktop')).words).toContain('Clawd: Blocked, Guard stopped 1')
 })
 
 test('the band with every row, a full crew and Clawd in the info row stays under the tree limit', async ($, on) => {
@@ -1542,7 +1542,7 @@ test('a Bash row is drawn as a step in place of the engine’s row, with its mea
   for (const surface of SURFACES) {
     const ui = await mountTool($, surface, { tool_use_id: 'tu1', tool: 'Bash', input: { command: 'npm run build' }, output: { stdout: '', stderr: '', interrupted: false } })
     expect([surface, (await ui.findAll({ type: 'Text' })).some(t => t.text === 'stock row')]).toEqual([surface, false])
-    expect([surface, await lineWords(ui)]).toEqual([surface, expect.stringMatching(/npm run build.*done.*4\.2s/)])
+    expect([surface, await lineWords(ui)]).toEqual([surface, expect.stringMatching(/npm run build.*Done.*4\.2s/)])
   }
 })
 
@@ -1697,15 +1697,15 @@ test('a Bash call that waited on the permission dialog shows no time; a classifi
   dialog = true
   await $.tool.call({ tool: 'Bash', command: 'rm x', description: '', tool_use_id: 'ask1' } as Parameters<typeof $.tool.call>[0])
   const alt = async (id: string, command: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command }, output: { stdout: '', stderr: '' } })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
-  expect(await alt('auto1', 'make')).toEqual(['make, done, 6.0s'])
-  expect(await alt('ask1', 'rm x')).toEqual(['rm x, done'])
+  expect(await alt('auto1', 'make')).toEqual(['make, Done, 6.0s'])
+  expect(await alt('ask1', 'rm x')).toEqual(['rm x, Done'])
 })
 
 test('a quick command the mod did not time still gets its line', async ($, on) => {
   engine(on)
   await start($)
   const ui = await mountTool($, 'desktop', { tool_use_id: 'q', tool: 'Bash', input: { command: 'ls' }, output: { stdout: '', stderr: '', interrupted: false } })
-  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['ls, done'])
+  expect((await ui.findAll({ type: 'Svg' })).map(s => String(s.props.alt))).toEqual(['ls, Done'])
 })
 
 test('an edit or a write whose row carries no result is read from what was asked of it', async ($, on) => {
@@ -1777,8 +1777,8 @@ test('each Bash duration is kept under its own id, so one call does not redraw e
   await start($)
   await $.tool.call({ tool: 'Bash', command: 'make', description: '', tool_use_id: 'own1' } as Parameters<typeof $.tool.call>[0])
   const alt = async (id: string) => (await (await mountTool($, 'desktop', { tool_use_id: id, tool: 'Bash', input: { command: 'make' }, output: {} })).findAll({ type: 'Svg' })).map(s => String(s.props.alt))
-  expect(await alt('own1')).toEqual(['make, done, 1.5s'])
-  expect(await alt('other')).toEqual(['make, done'])
+  expect(await alt('own1')).toEqual(['make, Done, 1.5s'])
+  expect(await alt('other')).toEqual(['make, Done'])
 })
 
 test('a group of calls drawn as steps unfolds; one with searches stays folded', async ($, on) => {

@@ -163,9 +163,9 @@ const known = (n: number | undefined): n is number => n !== undefined && Number.
 export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
   switch (mood) {
     case 'idle':
-      return 'your turn'
+      return 'Your turn'
     case 'startled':
-      return known(f.caught) && f.caught > 0 ? `guard stopped ${f.caught}` : undefined
+      return known(f.caught) && f.caught > 0 ? `Guard stopped ${f.caught}` : undefined
     case 'sad':
       return known(f.failed) && f.failed > 0 ? `${f.failed} failed` : undefined
     case 'celebrating':
@@ -175,7 +175,7 @@ export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
     case 'sleeping': {
       if (!known(f.idleMs)) return undefined
       const m = Math.floor(f.idleMs / 60_000)
-      return m >= 60 ? `idle ${Math.floor(m / 60)}h` : `idle ${m}m`
+      return m >= 60 ? `Idle ${Math.floor(m / 60)}h` : `Idle ${m}m`
     }
     default:
       return undefined
@@ -183,11 +183,14 @@ export function moodLine(mood: Mood, f: MoodFacts): string | undefined {
 }
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+// A date's local time of day, `09:05`.
+export const hhmm = (at: Date) => `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+
 // A limit's reset as a local clock time: `resets 14:30` today, `resets Thu 09:00` past it.
 export function resetClock(resetsInMs: number | undefined, now: number): string | undefined {
   if (resetsInMs === undefined || !Number.isFinite(resetsInMs)) return undefined
   const at = new Date(now + resetsInMs)
-  const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  const hm = hhmm(at)
   return at.toDateString() === new Date(now).toDateString() ? `resets ${hm}` : `resets ${DAYS[at.getDay()]} ${hm}`
 }
 
