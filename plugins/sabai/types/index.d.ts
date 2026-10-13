@@ -57,7 +57,7 @@ export type AgentRun = {
   files?: Record<string, AgentFile>
   // The step tool's notes, in the order they came.
   notes?: string[]
-  // Every request's tokens, summed.
+  // Every request's new tokens (input, cache writes, output), summed; cache reads left out.
   spent?: number
   // Clock time of its latest call, call's end or request.
   lastActiveAt?: number
