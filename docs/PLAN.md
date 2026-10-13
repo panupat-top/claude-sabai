@@ -89,6 +89,54 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | K1 | Clawd | redesign แบบมืออาชีพ ทีละตัว (sprite, ท่าทาง, ของประดับ) และเพิ่มตัวใหม่ | L | ทำเป็นรอบ ทีละตัว · sprite หนึ่งตัว ~14k ต้องดูขนาด band |
 | C1 | Mod ใหม่ | File tree pane | L | อ้างอิง data-goblin/claude-code-filetree · น่าจะเป็น mod แยกใน `plugins/` มากกว่าใส่ใน sabai |
 
+### P4 — ไอเดีย mod ใหม่ (ยังไม่กำหนด scope)
+
+รวบรวมเมื่อ 2026-10-14 · ทุกข้ออิง event/noun ที่มีใน `index.d.ts` แต่**ยังไม่ได้ลองบน desktop สักตัว** (ก่อนทำต้อง spike ว่า event ยิงจริงไหม เหมือนบทเรียน `classic.*`) · ส่วนใหญ่ควรเป็น mod แยกใน `plugins/` ไม่ใส่เพิ่มใน sabai ซึ่งใหญ่และผูกกับ desktop แล้ว · ข้อที่มี ★ คือที่แนะนำให้ทำก่อน
+
+**ประหยัด context และค่าใช้จ่าย**
+
+| ID | งาน | กลไก | ขนาด | หมายเหตุ |
+|---|---|---|---|---|
+| I1 | Context budget guard | `turn.step` (token ต่อ request) → `ui.toast` เตือนเมื่อเกินเกณฑ์ / แนะนำ `/compact` · subagent ที่กินเกินถามก่อนผ่าน `tool.check` | M | |
+| I2 | Prompt diet pane | `prompt.attachment` ตัด reminder ที่ไม่ต้องการ (`{ text: null }`) · `prompt.context` ดู/ตัด/เรียงสิ่งที่เข้า context ตอนเริ่ม · pane แสดงว่าอะไรกิน context เท่าไร (`$.session.usage({ breakdown })`) | M | |
+| I3 ★ | ตัด skill ที่ไม่เกี่ยวกับ project | `prompt.context` (และ `agent.offer` `{ isOffered: false }` สำหรับ agent type) ตัด listing เช่น `sales:*`, `marketing:*` ใน repo โค้ด · ตั้งต่อ project | S–M | ได้ผลทันที: เครื่องนี้มี skill หลายร้อยตัวที่กิน context ทุก turn |
+| I4 | ต้นทุนต่อ task | ผูก token จาก `turn.step` เข้ากับ task ที่ `in_progress` อยู่ (TaskCreate/TaskUpdate ที่ sabai จับอยู่แล้ว) → "task นี้ใช้ไป 32k" | M | |
+
+**คุณภาพโค้ดและความปลอดภัย**
+
+| ID | งาน | กลไก | ขนาด | หมายเหตุ |
+|---|---|---|---|---|
+| I5 ★ | Auto-verify หลังแก้ไฟล์ | `tool.call` บน Edit/Write → `$.process.run` รัน `tsc`/lint/test เฉพาะไฟล์ที่แตะ → ผลขึ้น band และส่งกลับให้ model | M–L | ต้องรู้คำสั่งของแต่ละ project (อ่านจาก `package.json` หรือให้ตั้งเอง) |
+| I6 | ขยาย guard: ไฟล์สำคัญ | กันแก้ `.env`, migration, lockfile ใน `tool.check` · `prompt.mention` ตอบ `{ deny }` กับ `@.env` ก่อน engine อ่าน | S–M | `prompt.mention` ที่ fail จะถูกข้ามแล้วไฟล์ถูกอ่าน ต้อง fail closed |
+| I7 | Secret scanner | ตรวจเนื้อหา Write/Edit และ `git commit` ใน `tool.call` หาแพทเทิร์น key/token แล้ว block | M | |
+| I8 | Paste guard | `prompt.edit` (paste) จับ secret ที่วางลงช่องพิมพ์ หรือ log ยาวมาก → เตือน/เสนอให้ตัดเหลือส่วนท้าย | M | |
+
+**workflow ประจำวัน**
+
+| ID | งาน | กลไก | ขนาด | หมายเหตุ |
+|---|---|---|---|---|
+| I9 | Git/PR convention | `attribution.text` (`kind: commit \| pr`) บังคับรูปแบบของทีม เช่นเลข Jira, ภาษาอังกฤษ · `prompt.autocomplete` เติม `#123` หรือชื่อ branch | M | |
+| I10 | Prompt suggestion ตามบริบท | `prompt.suggest` เสนอ prompt ถัดไปจากสถานะ เช่น test ล้มอยู่ → "fix failing tests in X" | M | |
+| I11 | Session journal | `turn.complete` + `session.end` สรุปไฟล์ที่แก้, token, test ผ่าน/ล้ม → `$.fs.write` ลง `docs/journal/` · ใช้ต่อกับ standup | M | |
+| I12 | Snippet / prompt template | `/sabai-snippet` หรือ pane เลือก template แล้ว `$.prompt.fill` ลงช่องพิมพ์ (`replace`/`append`/`insert`) | S–M | Pane ไม่รับการกด image link ต้องใช้ Button |
+| I13 | CI/PR status ใน band | `$.clock.every` + `$.process.run('gh pr checks')` → chip สถานะ CI ของ branch ใน info row · `ui.notify` เมื่อ CI จบ | M | ห้ามถี่: ทุก 1–2 นาทีพอ · ซ่อนเมื่อไม่มี `gh` หรือไม่มี PR |
+| I14 | Dev server watcher | อ่าน port ที่เปิดอยู่ใน project + background task ที่ sabai นับอยู่แล้ว → chip "dev :5173" · error ล่าสุดจาก log | M–L | |
+| I15 | Handoff ก่อน compact | `session.compact` → `$.model.fork` สรุปงานค้าง/การตัดสินใจลงไฟล์ ก่อนที่ context จะถูกย่อ | M | |
+| I16 | แจ้งเตือนเสียงเมื่อ turn ยาวจบ | `turn.complete` ของ turn ที่เกิน N นาที → `$.audio.speak` สรุปหนึ่งประโยค | S | ต่อจาก notifications ที่มีอยู่ใน sabai · ต้องเป็นตัวเลือก ปิดไว้ก่อน |
+
+**ต่อยอดกับ skills ที่ติดตั้งไว้**
+
+| ID | งาน | กลไก | ขนาด | หมายเหตุ |
+|---|---|---|---|---|
+| I17 | เติม convention ของ repo เข้า skill | `skill.prompt` ต่อท้ายข้อความของ skill (เช่น `brainstorming`, `code-review`) ด้วย glossary/ข้อจำกัดของ repo โดยไม่แก้ไฟล์ skill | S | |
+| I18 | Skill launcher pane | `$.command.list()` (source `skills`) จัดกลุ่ม/ค้นหา · กดแล้วรันผ่าน `$.skill.prompt` หรือ `$.command.run` | M | Button เท่านั้น (Pane ไม่รับ image link) |
+| I19 ★ | Skill router | `prompt.submit` → `$.model.classify(prompt, ชื่อ skill)` ด้วย Haiku → เสนอ skill ที่เข้ากันเป็น `prompt.suggest` (Tab เพื่อรับ) | M | ระวังเวลาและค่า Haiku ต่อ prompt · จำกัดเฉพาะ skill ที่เหลือหลัง I3 |
+| I20 | Agent type ที่ preload skill | `$.agent.register` ด้วย `skills: [...]` เช่น "reviewer" ที่โหลด `code-review` + `better-accessibility` ไว้แต่ต้น | S–M | |
+| I21 | Skill analytics | ต่อจาก `used` ใน race: skill ไหนใช้บ่อย, กิน token เท่าไร, ตัวไหนไม่เคยถูกเรียก (ควรถอดเพื่อลด context) · เก็บใน `$.store` ข้าม session | M | |
+| I22 | TDD mode | ถ้า turn โหลด `test-driven-development` แล้ว `tool.check` ถามก่อน Edit ไฟล์ src ขณะที่ยังไม่มี test ล้ม · บังคับกระบวนการของ skill ได้จริง | M | ต้องนิยามให้ชัดว่า "ไฟล์ src" และ "test ล้ม" คืออะไรต่อ project |
+| I23 | Verification gate | `turn.complete` ตรวจ `turnLog` ว่า turn ที่บอกว่า "เสร็จ" ได้รัน test จริงหรือยัง ถ้ายังให้เตือน | S–M | ตรงกับ `verification-before-completion` |
+| I24 | Skill-aware band | แสดงใน band ว่า skill/โหมดไหน active (เช่น "ponytail · full", "brainstorming") จาก `skill.prompt` | S | อยู่ใน sabai ได้ |
+
 ### ไม่ทำ
 
 | ID | งาน | เหตุผล |
