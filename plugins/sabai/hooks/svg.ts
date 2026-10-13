@@ -759,7 +759,8 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
     parts.push(part)
     y += part.height + GAP
   }
-  if (live && !race) add(livePart(look, live, rw, y))
+  // Clawd's line carries the turn's time while he works, so the live strip leaves it out.
+  if (live && !race) add(livePart(look, clawd && mood === 'working' ? { ...live, elapsedMs: undefined } : live, rw, y))
   if (p) add(progressPart(look, p, rw, mood, y, style, false))
   if (crew?.runs.length && !race) add(crewPart(look, crew.runs, crew.now, rw, y))
   const middleH = Math.max(0, y - GAP + 2)
@@ -773,7 +774,9 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
   else if (usageNote) parts.push(notePart(usageNote, 0, usageTop, rw, H - usageTop))
   let panel = ''
   // The race's header carries the turn's time, so beside it Clawd keeps his own line.
-  const words = mood === 'working' && live?.elapsedMs !== undefined && !race ? clock(live.elapsedMs) : (clawdLine ?? '')
+  // Background work left running stands in for his line while it is the person's turn.
+  const running = opts.running && (mood === 'idle' || mood === 'sleeping') ? `${opts.running} running` : ''
+  const words = running || (mood === 'working' && live?.elapsedMs !== undefined && !race ? clock(live.elapsedMs) : (clawdLine ?? ''))
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
   if (clawd) {
     const scale = 3
@@ -787,7 +790,9 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
       `<rect class="p" width="${HERO_PANEL_W}" height="${H}" rx="10"/>` +
       `<g transform="translate(${cx},${cy}) scale(${scale})">${clawdAt(look, 0, 0, mood, accessory, opts.trick)}</g>` +
       `<text class="t" x="${HERO_PANEL_W / 2}" y="${cy + ch + 18}" text-anchor="middle" font-family="${SANS}" font-size="11.5" font-weight="600">${MOOD_WORDS[mood]}</text>` +
-      (words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
+      (running
+        ? runningLine(look, running, cy + ch + 32)
+        : words ? `<text class="${wordsClass}" x="${HERO_PANEL_W / 2}" y="${cy + ch + 32}" text-anchor="middle" font-family="${MONO}" font-size="10.5">${xml(words)}</text>` : '')
   }
   // Shorter than the band, the middle sits in its middle; with the usage it fills the band.
   const dy = usage ? 0 : Math.max(0, Math.round((H - middleH) / 2))
@@ -795,6 +800,13 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
   const body = panel + `<g transform="translate(${x0},${dy})">${parts.map(part => part.body).join('')}</g>` + box
   const alt = [...(clawd ? [`Clawd: ${MOOD_WORDS[mood]}${words ? `, ${words}` : ''}`] : []), ...parts.map(part => part.alt), ...(raced ? [raced.alt] : [])]
   return drawing(look, W, H, body, alt.join('; '))
+}
+
+// "N running" in the ok ink after a pulsing dot, centred in Clawd's panel as a pair.
+function runningLine(look: Look, words: string, y: number): string {
+  const x = (HERO_PANEL_W - (11 + monoWidth(words, 10.5))) / 2
+  return `<circle class="d0" cx="${+(x + 3.5).toFixed(1)}" cy="${y - 3.5}" r="3.5" fill="${look.bar('context')}"/>` +
+    `<text class="c-ok" x="${+(x + 11).toFixed(1)}" y="${y}" font-family="${MONO}" font-size="10.5" font-weight="700">${words}</text>`
 }
 
 // How the band is drawn, past its rows' content.
@@ -811,6 +823,8 @@ export type BandOpts = {
   race?: Race
   // Clawd's second line under his headline (moodLine); working shows the turn's time instead.
   clawdLine?: string
+  // Background tasks the last turn left running: "N running" takes his line while idle or asleep.
+  running?: number
   trick?: Trick
   usageStyle?: UsageStyle
   // Said in the usage's place when the engine has answered with nothing to show.
@@ -819,27 +833,83 @@ export type BandOpts = {
   now?: number
 }
 
-// The turn as it runs, for the live strip.
-export type LiveStrip = { elapsedMs?: number; step?: { icon: StepIcon; title: string }; files: number; commands: number; test?: { passed: number; failed: number } }
-const LIVE_GLYPH: Record<StepIcon, string> = { terminal: '›', flask: '⚗', pen: '✎', file: '+', read: '≡', stop: '■' }
+// The turn as it runs, for the live strip: its time, the step in flight and how long it has run,
+// the turn's finished calls (the last RACE_TILES of `calls`), the lines its edits changed, its tests.
+export type LiveStrip = {
+  elapsedMs?: number
+  step?: { icon: StepIcon; title: string }
+  stepMs?: number
+  trail?: readonly { kind: CallKind; ok: boolean }[]
+  calls?: number
+  lines?: { added: number; removed: number }
+  files: number
+  commands: number
+  test?: { passed: number; failed: number }
+}
+// The step's icon as the call kind whose tile it wears.
+const STEP_KIND: Record<StepIcon, CallKind> = { terminal: 'command', flask: 'test', pen: 'edit', file: 'edit', read: 'read', stop: 'command' }
+const TILE = 12
+const TILE_STEP = 14
+const stepTime = (ms: number) => (ms < 60_000 ? `${Math.floor(ms / 1000)}s` : clock(ms))
 
-// The live strip: Clawd (when he stands here), the turn's elapsed time, the step in flight, and
-// the turn's tallies so far at the right.
+// The live strip: Clawd (when he stands here) and the turn's elapsed time; the call in flight as
+// its tile (blinking), its words and its own time, or three blinking dots while the turn thinks;
+// at the right the turn's calls as a trail of tiles (newest last, a failure red), then the lines
+// its edits changed and its tests.
 function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mood, accessory?: Accessory, trick?: Trick): Part {
   // Room for Clawd and anything he holds to his right.
   const lead = mood ? spriteSize('tasks').width + PROP_W + 6 : 0
   const time = live.elapsedMs === undefined ? '' : clock(live.elapsedMs)
-  const allTallies = [live.files ? `✎ ${live.files}` : '', live.commands ? `› ${live.commands}` : '', live.test ? (live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`) : ''].filter(Boolean).join('  ·  ')
   const stepX = lead + (time ? monoWidth(time, 11.5) + 12 : 0)
-  // On a narrow band the step outranks the tallies: they go first when both would not fit.
-  const tallies = live.step && W - stepX - monoWidth(allTallies, 11) - 16 < 80 ? '' : allTallies
-  const room = W - stepX - (tallies ? monoWidth(tallies, 11) + 16 : 0)
-  const title = live.step && room > 40 ? fit(`${LIVE_GLYPH[live.step.icon]} ${live.step.title}`, 12, room) : ''
+  const ty = top + 14
+  let right = ''
+  let edge = W
+  // On a narrow band the step outranks everything at the right: the tests and lines go first.
+  const roomy = !live.step || W - stepX >= 260
+  if (live.test && roomy) {
+    const t = live.test.failed ? `✗ ${live.test.failed}` : `✓ ${live.test.passed}`
+    right += `<text class="${live.test.failed ? 'c-alert' : 'c-ok'}" x="${edge}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="700">${t}</text>`
+    edge -= monoWidth(t, 11) + 10
+  }
+  if (live.lines && live.lines.added + live.lines.removed > 0 && roomy) {
+    const removed = `−${live.lines.removed}`
+    const added = `+${live.lines.added}`
+    right +=
+      `<text class="c-alert" x="${edge}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="11">${removed}</text>` +
+      `<text class="c-ok" x="${+(edge - monoWidth(removed, 11) - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="11">${added}</text>`
+    edge -= monoWidth(removed, 11) + 4 + monoWidth(added, 11) + 10
+  }
+  // The trail takes at most 40% of the room, and none when the step would have under 120 px.
+  const trail = live.trail ?? []
+  const fits = Math.max(0, Math.min(trail.length, Math.floor(((edge - stepX) * 0.4) / TILE_STEP), Math.floor((edge - stepX - 120) / TILE_STEP)))
+  const shown = trail.slice(trail.length - fits)
+  const tilesX = edge - shown.length * TILE_STEP
+  right += shown.map((c, i) => kindTile(look, c.kind, c.ok, +(tilesX + i * TILE_STEP).toFixed(1), top + 3, TILE)).join('')
+  const earlier = shown.length ? (live.calls ?? trail.length) - shown.length : 0
+  if (earlier > 0) right += `<text class="m" x="${+(tilesX - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="10">+${earlier}</text>`
+  const room = tilesX - (earlier > 0 ? monoWidth(`+${earlier}`, 10) + 8 : 0) - stepX - 10
+  let left = ''
+  if (live.step) {
+    const took = live.stepMs !== undefined && live.stepMs >= 1000 ? stepTime(live.stepMs) : ''
+    const title = room > 60 ? fit(live.step.title, 12, room - 22 - (took ? monoWidth(took, 11) + 8 : 0)) : ''
+    left =
+      `<g class="d0">${kindTile(look, STEP_KIND[live.step.icon], true, stepX, top + 2, 16)}</g>` +
+      (title ? `<text class="st" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` : '') +
+      (title && took ? `<text class="m" x="${+(stepX + 22 + textWidth(title, 12) + 8).toFixed(1)}" y="${ty}" font-family="${MONO}" font-size="11">${took}</text>` : '')
+  } else {
+    // With no call in flight the turn is thinking, so the strip never stands empty.
+    left =
+      [1, 2, 3].map(i => `<circle class="m d${i}" cx="${stepX + 3 + (i - 1) * 6}" cy="${top + 10}" r="2.2"/>`).join('') +
+      (room > 60 ? `<text class="m" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12">thinking</text>` : '')
+  }
+  const kinds = [...shown.map(c => (c.ok ? c.kind : 'fail')), ...(live.step ? [STEP_KIND[live.step.icon]] : [])] as (CallKind | 'fail')[]
+  const defs = kinds.length ? `<defs>${[...new Set(kinds)].map(k => `<path id="sabai-ic-${k}" d="${TRAIL_ICONS[k]}" fill="#ffffff"/>`).join('')}</defs>` : ''
   const body =
+    defs +
     (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory, trick) : '') +
-    (time ? `<text class="st" x="${lead}" y="${top + 14}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` : '') +
-    (title ? `<text class="sm" x="${stepX}" y="${top + 14}" font-family="${SANS}" font-size="12">${xml(title)}</text>` : '') +
-    (tallies ? `<text class="sm" x="${W}" y="${top + 14}" text-anchor="end" font-family="${MONO}" font-size="11">${xml(tallies)}</text>` : '')
+    (time ? `<text class="st" x="${lead}" y="${ty}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` : '') +
+    left +
+    right
   const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
   const words = [live.files && plural(live.files, 'file'), live.commands && plural(live.commands, 'command'), live.test && (live.test.failed ? `${live.test.failed} failed` : `${live.test.passed} passed`)].filter(Boolean).join(', ')
   return { body: `<g>${body}</g>`, height: ROW_H, alt: `Working${time ? ` ${time}` : ''}${live.step ? `: ${live.step.title}` : ''}${words ? `; ${words}` : ''}` }

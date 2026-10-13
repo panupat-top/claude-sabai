@@ -355,9 +355,10 @@ test('the live strip shows the turn’s time, step and tallies, and takes Clawd 
 test('on the narrowest band the live strip keeps the step and lets the tallies go', () => {
   const live = { elapsedMs: 31_000, step: { icon: 'terminal' as const, title: 'Wait eight seconds so the live strip can be seen' }, files: 0, commands: 2, test: { passed: 200, failed: 0 } }
   const d = bandSvg(undefined, [], 200, { mood: 'working', live })!
-  expect(d.source).toContain('› Wait eight')
+  expect(d.source).toContain('>Wait eight')
+  expect(d.source).not.toContain('✓ 200')
   // Wide enough, both show.
-  expect(bandSvg(undefined, [], 600, { mood: 'working', live })!.source).toMatch(/› Wait eight[\s\S]*✓ 200/)
+  expect(bandSvg(undefined, [], 600, { mood: 'working', live })!.source).toMatch(/>Wait eight[\s\S]*✓ 200/)
 })
 
 test('the comfortable band puts Clawd large in his own panel, with his mood and the turn’s time', () => {
@@ -481,7 +482,7 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, LIST, 600, opts)!
   expect(mid.alt).not.toContain('Race:')
-  expect(mid.alt).toContain('Working 1m 42s: Editing svg.ts')
+  expect(mid.alt).toContain('Clawd: working, 1m 42s; Working: Editing svg.ts')
   expect(mid.alt).toContain('Agents:')
   expect(bandSvg(undefined, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
   // Clawd hidden: no panel, the race stays.
@@ -519,6 +520,39 @@ test('the Clawd panel shows his headline and why, the failing count in alert ink
   const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
   expect(idle.source).toContain('>ready<')
   expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
+})
+
+test('background work left running takes Clawd\'s line while it is the person\'s turn, not while he works', () => {
+  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn', running: 2 })!
+  expect(idle.source).toMatch(/<circle class="d0"[^>]*\/><text class="c-ok"[^>]*>2 running</)
+  expect(idle.source).not.toContain('your turn')
+  expect(idle.alt.startsWith('Clawd: ready, 2 running')).toBe(true)
+  expect(bandSvg(undefined, LIST, 900, { hero: true, mood: 'sleeping', clawdLine: 'idle 9m', running: 1 })!.source).toContain('>1 running<')
+  const working = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '0:12', running: 1 })!
+  expect(working.source).not.toContain('running<')
+  expect(working.source).toContain('>0:12<')
+})
+
+test('a working turn with no call in flight says it is thinking, so the live strip never stands empty', () => {
+  const live = { elapsedMs: 6000, files: 0, commands: 2 }
+  const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '6s', live })!
+  expect(hero.source).toMatch(/<circle class="m d1"[\s\S]*class="m"[^>]*>thinking</)
+  expect(bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '6s', live: { ...live, step: { icon: 'read', title: 'Read svg.ts' } } })!.source).not.toContain('>thinking<')
+})
+
+test('the live strip trails the turn\'s calls as tiles, a failure in alert, then its lines and tests; the step shows its own time', () => {
+  const tile = (kind: 'read' | 'edit' | 'command' | 'test', ok = true) => ({ kind, ok })
+  const trail = [tile('read'), tile('edit'), tile('command', false), tile('test')]
+  const live = { elapsedMs: 42_000, step: { icon: 'read' as const, title: 'Read svg.ts' }, stepMs: 4200, trail, calls: 20, lines: { added: 42, removed: 8 }, files: 2, commands: 3, test: { passed: 12, failed: 0 } }
+  const d = bandSvg(undefined, LIST, 1240, { hero: true, mood: 'working', clawdLine: '42s', live })!
+  expect((d.source.match(/href="#sabai-ic-/g) ?? []).length).toBe(5)
+  expect(d.source).toContain('<path id="sabai-ic-fail"')
+  expect(d.source).toMatch(/<g class="d0"><rect[^>]*\/><use href="#sabai-ic-read"/)
+  expect(d.source).toMatch(/>Read svg\.ts<\/text><text class="m"[^>]*>4s</)
+  expect(d.source).toContain('>+16<')
+  expect(d.source).toMatch(/class="c-ok"[^>]*>\+42</)
+  expect(d.source).toMatch(/class="c-alert"[^>]*>−8</)
+  expect(d.source).toContain('>✓ 12<')
 })
 
 const USAGE_LIST = [

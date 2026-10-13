@@ -44,9 +44,12 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
   - `context full` · `84% · compact?`;
   - `napping` · `idle 20m`.
 
+  While background work Claude started is still running (a shell or a monitor; agents run in the race), his line says so on your turn, `● 1 running` with a pulsing dot, until each ends or is stopped.
+
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
   - the info row (the top row above): the project's folder, its branch as a tag with what is ahead (`↑`), behind (`↓`) and uncommitted (`±`), then quietly your git user and Node at its full version. On a narrow window the user goes first, then Node, then the sync counts; then the folder is shortened and, if still too long, left out, so the branch stays longest;
+  - while Claude works, the line of what he is doing: the call in flight as a blinking icon with its words and how long it has run (three blinking dots and `thinking` between calls), and at the right the turn's calls as a trail of small icons, coloured by kind (read, edit, command, test; a failed one red), then the lines its edits changed (`+42 −8`) and its tests (`✓ 12`). On a narrow band the call in flight keeps its room first;
   - Claude's task list as a progress bar, when it keeps one;
   - the usage limits (Context, 5H, 7D), filling the band's height, amber and red at your thresholds. When there is room each also shows what is left of the context or when the limit resets (`resets 14:30`). Until the session has read them, the band stands as a still outline with no numbers; with nothing to read yet, it says so.
   - Pick how they look in Settings → Usage → Style:

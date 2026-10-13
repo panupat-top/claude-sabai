@@ -76,6 +76,16 @@ export function testResult(text: string): ({ runner: TestRunner } & Counts) | un
   return undefined
 }
 
+// The background tasks a notification says have ended: each block's task id, once it carries a
+// status other than running (a monitor's event lines carry none).
+export function endedTasks(text: string): string[] {
+  return [...text.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)].flatMap(([, block = '']) => {
+    const id = /<task-id>([^<]+)<\/task-id>/.exec(block)?.[1]
+    const status = /<status>([^<]+)<\/status>/.exec(block)?.[1]
+    return id && status && status !== 'running' ? [id.trim()] : []
+  })
+}
+
 export type CalloutKind = 'note' | 'tip' | 'important' | 'warning' | 'caution'
 export type Segment = { kind: 'md'; text: string } | { kind: 'callout'; type: CalloutKind; body: string }
 
