@@ -1141,9 +1141,10 @@ export const register: Register = on => {
     text: (await togglePane($, SKIN_PANE, 'Settings', true)) ? 'Settings panel opened.' : 'Settings panel closed.',
   }))
 
-  // The settings, most seen first: the look, the usage, the info row, Clawd, agents, the chat, the
-  // guard, notifications. A part of the band with choices of its own is a group with its On/Off in
-  // the group's head; each choice is a name and a note on the left with its control on the right,
+  // The settings: the look, then the band's parts as they stand in it, top to bottom (the info row,
+  // Clawd, the parts with no choices of their own, the usage, the subagents' race), then what lies
+  // outside the band (the chat, the guard, notifications). A part of the band with choices of its own
+  // is a group with its On/Off in the group's head; each choice is a name and a note on the left with its control on the right,
   // and a choice that changes a drawing shows it.
   on('ui.render', { component: 'Pane', requestId: SKIN_PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
@@ -1287,31 +1288,7 @@ export const register: Register = on => {
               <Svg key="bar-sample" source={preview.source} alt={preview.alt} width={preview.width} height={preview.height} />,
               choice('bar', Object.keys(BAR_STYLES) as BarStyle[], b => BAR_STYLES[b], style, b => void setBar($, b)),
             )}
-            {part(
-              'rows',
-              'Also show',
-              'Tap to show or hide',
-              pills([rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('toolbar', 'Toolbar')]),
-              <Text key="rows-note" dimColor>Activity is the line of what Main is doing; the race follows Subagents. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
-            )}
           </Box>,
-        )}
-        {group(
-          'usage',
-          '◔',
-          'Usage',
-          'Context, 5H and 7D',
-          <Box flexDirection="column" rowGap={2}>
-            {part(
-              'style',
-              'Style',
-              '',
-              sketch(`usage-${p.usageStyle}`, usageSketch(p.usageStyle, themed, sketchW)),
-              choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u }))),
-            )}
-            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', 'Session'), showPill('week', 'Weekly')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
-          </Box>,
-          rowPower('usage'),
         )}
         {group(
           'info',
@@ -1319,8 +1296,8 @@ export const register: Register = on => {
           'Info row',
           'Above the band',
           <Box flexDirection="column" rowGap={1}>
-            {pills([showPill('folder', 'Folder'), showPill('branch', 'Branch'), showPill('gitUser', 'Git user'), showPill('node', 'Node')])}
             {infoNow ? <Svg source={infoNow.source} alt={infoNow.alt} width={infoNow.width} height={infoNow.height} /> : null}
+            {pills([showPill('folder', 'Folder'), showPill('branch', 'Branch'), showPill('gitUser', 'Git user'), showPill('node', 'Node')])}
           </Box>,
           rowPower('info'),
         )}
@@ -1336,10 +1313,37 @@ export const register: Register = on => {
           { key: 'show-clawd', on: p.show.clawd, flip: x => ({ ...x, show: { ...x.show, clawd: !x.show.clawd } }) },
         )}
         {group(
+          'band',
+          '▤',
+          'Band',
+          'Parts with no choices of their own',
+          <>
+            {pills([rowPill('live', 'Activity'), rowPill('tasks', 'Tasks'), rowPill('toolbar', 'Toolbar')])}
+            <Text dimColor>Activity is the line of what Main is doing; the race follows Subagents. With the toolbar hidden, /sabai-settings brings you back here.</Text>
+          </>,
+        )}
+        {group(
+          'usage',
+          '◔',
+          'Usage',
+          'Context, Session limit and Weekly limit',
+          <Box flexDirection="column" rowGap={2}>
+            {part(
+              'style',
+              'Style',
+              '',
+              sketch(`usage-${p.usageStyle}`, usageSketch(p.usageStyle, themed, sketchW)),
+              choice('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => void setPrefs($, x => ({ ...x, usageStyle: u }))),
+            )}
+            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', 'Session limit'), showPill('week', 'Weekly limit')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
+          </Box>,
+          rowPower('usage'),
+        )}
+        {group(
           'agents',
-          '✻',
+          '◑',
           'Subagents',
-          'Race lanes, or a row of small Clawds',
+          'The race in the band, and the Subagents pane',
           <Box flexDirection="column" rowGap={1}>
             {flag('steps', 'Step reports', 'Subagents report their progress to their lane and the Subagents pane; from the next session')}
             {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished subagent’s report in Thai, in the Subagents pane')}
@@ -1394,7 +1398,7 @@ export const register: Register = on => {
           'Outside the band',
           <>
             {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or a subagent fails')}
-            {flag('limits', 'Limit warnings', 'Once per window, when 5H or 7D passes red')}
+            {flag('limits', 'Limit warnings', 'Once per window, when the Session or Weekly limit passes red')}
           </>,
         )}
         <Box flexDirection="row" alignItems="center" columnGap={2}>

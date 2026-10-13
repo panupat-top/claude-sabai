@@ -1988,18 +1988,21 @@ test('a reply too long to redraw within the tree limit is left to the engine, ca
   expect(await isStock(await mountReply($, 'desktop', `> [!NOTE]\n> x\n\n${'word '.repeat(19_000)}`))).toBe(true)
 })
 
-test('settings are eight bordered groups in order: look, usage, info row, Clawd, agents, conversation, guard, notifications', async ($, on) => {
+test('settings are nine bordered groups: the look, the band\'s parts top to bottom, then what lies outside the band', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications']
+  const titles = ['Look', 'Info row', 'Clawd', 'Band', 'Usage', 'Subagents', 'Conversation', 'Guard', 'Notifications']
   expect(cards.length).toBe(titles.length)
   const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
   const order = titles.map(t => words.indexOf(`  ${t}`))
   expect(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))).toBe(true)
   for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'theme-light-pastel', 'theme-dark-forest', 'density-compact', 'usage-rows']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+  // The glossary's names for the limits, never 5H and 7D.
+  expect(words).not.toMatch(/\b(5H|7D)\b/)
+  expect((await pane.findAll({ type: 'Button' })).map(b => String(b.props.label))).toEqual(expect.arrayContaining(['● Session limit', '● Weekly limit']))
 })
 
 test('settings preview what they change: the layout in use, the usage in its style, the info row, the chat; a part off keeps only its head', async ($, on) => {
@@ -2133,7 +2136,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   const all = await labels()
   for (const l of ['● Tasks', '● Activity', '● Toolbar', '● Folder', '● Context', '● Hats and props', '● Tricks', 'Dither', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
   const text = JSON.stringify(await pane.drawn())
-  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
+  const order = ['Look', 'Info row', 'Clawd', 'Band', 'Usage', 'Subagents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
   expect(order.every(i => i >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
   await pane.press({ key: 'pref-show-folder' })
