@@ -709,6 +709,22 @@ test('every call of a subagent lands in its detail: tools by group, the activity
   expect((await altsOf(await viewed(await mountPane($, 'desktop'), 'worker'))).find(a => a.startsWith('Tools:'))).toContain('Grep 1×')
 })
 
+test('the race follows the Subagents switch, not Activity', async ($, on) => {
+  engine(on, { store: { prefs: { rows: { live: false } } } })
+  panes(on)
+  await start($)
+  await spawn($, 'scout')
+  expect((await shown($, 'desktop')).words).toContain('Race: 1 running')
+})
+
+test('a teammate of an agent team says so in its head: it is no subagent', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await $.agent.spawn({ tool_use_id: 'tu-mate', prompt: 'go', description: 'mate', subagentType: 'researcher', isTeammate: true, provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false } as never)
+  expect((await headOf(await viewed(await mountPane($, 'desktop'), 'mate')))?.props.alt).toContain('researcher · teammate')
+})
+
 test('a subagent’s test run that fails on stderr fails in its detail too, as the race counts it', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: 'bun test v1\n\n 8 pass\n 1 fail\nRan 9 tests across 1 file. [1s]', interrupted: false } }))
   engine(on)
@@ -986,6 +1002,8 @@ test('a workflow agent says so in its detail, and its brief shows a line that Mo
   })
   const ui = await viewed(await mountPane($, 'desktop'), 'fan out')
   expect((await headOf(ui))?.props.alt).toContain('general-purpose · Sonnet 5.5 · background · workflow')
+  // The box names the group by its origin: a workflow run, not a turn.
+  expect(await ui.find({ type: 'Text', text: ' · workflow run · 1 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Count the hooks.…' })).toBeDefined()
   expect((await ui.find({ key: 'fold-brief' }))?.props.label).toBe('▸ More')
   await ui.press({ key: 'fold-brief' })

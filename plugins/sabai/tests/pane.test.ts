@@ -78,7 +78,7 @@ test('crews: the newest five are kept with any still at work, the newest and tho
   // turn:0 still runs, so it stays though older than the five newest.
   expect(crewsOf(list).map(c => c.id)).toEqual(['turn:6', 'turn:5', 'turn:4', 'turn:3', 'turn:2', 'turn:0'])
   expect(crewsOf(list).length).toBe(CREWS_KEPT + 1)
-  const { now, earlier } = openCrews(crewsOf(list))
+  const { atWork: now, earlier } = openCrews(crewsOf(list))
   expect([now.map(c => c.id), earlier.length]).toEqual([['turn:6', 'turn:0'], CREWS_KEPT - 2])
   expect(clearEarlier(list, new Set(now.map(c => c.id))).map(a => a.id)).toEqual(['a0', 'a6'])
 })
@@ -222,6 +222,8 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   const files = filesSvg(a, 530)!.source
   expect([files.includes('Changed · 1'), files.includes('>NEW<'), files.includes('Read · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
   expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')
+  // A dynamic workflow's run is named so; a turn's group needs no name.
+  expect(earlierSvg([busy('w', { status: 'done', endedAt: 28_000, crew: 'wf:r1' })], 454).alt).toMatch(/^\d\d:\d\d · workflow run · 1 subagent:/)
 })
 
 test('an earlier crew crowns its MVP: done without a failed call, the most files changed, then the quickest', () => {
@@ -248,7 +250,7 @@ test('runs from before crews are one crew, and the pane shows no more than five 
   const old = [run('x', { status: 'done' }), run('y', { status: 'done' })]
   expect(crewsOf(old).map(c => c.runs.length)).toEqual([2])
   const many = Array.from({ length: 8 }, (_, i) => run(`c${i}`, { crew: `turn:${i}`, status: 'done' }))
-  const { now, earlier } = openCrews(crewsOf(many))
+  const { atWork: now, earlier } = openCrews(crewsOf(many))
   expect([now.length, earlier.length]).toEqual([1, CREWS_KEPT - 1])
 })
 

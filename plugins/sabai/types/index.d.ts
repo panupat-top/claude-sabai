@@ -46,6 +46,8 @@ export type AgentRun = {
   // The task as the Agent call gave it, cut short.
   brief?: string
   background?: boolean
+  // A teammate of an agent team, which the docs keep apart from subagents.
+  teammate?: true
   // Its latest calls, oldest first, with every call and failure counted past them.
   calls?: AgentCall[]
   callCount?: number

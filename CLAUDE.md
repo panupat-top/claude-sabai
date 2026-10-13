@@ -54,7 +54,8 @@ The words the band, the panes, the settings and the README use, after Claude Cod
 | **Main** | the main conversation (the docs' word), as its lane in the race and the pane | — (not "Claude" for the lane) |
 | **subagent** | what the Agent tool starts; its type is Explore, Plan, general-purpose or a custom one | "Agent" is only the tool's name |
 | **turn** | one prompt to Claude's answer in the main conversation; the subagents a turn starts are shown together under it | the code's `crew` is that group: the docs have no word for it, so the UI names its origin |
-| **workflow run** | one run of a dynamic workflow; its subagents are shown together under it | |
+| **workflow run** | one run of a dynamic workflow; its subagents are shown together under it, its box and Earlier row named so | |
+| **teammate** | an agent team's teammate (`agent.spawn`'s `isTeammate`): the docs keep it apart from subagents, so its head says so | |
 | **round** | a finished subagent sent more work runs again: round 2 | |
 | **task**, **task list** | Claude's task list (TaskCreate, TaskUpdate, TodoWrite) and its items | a subagent's job: its **description** (its name) and **prompt** ("Asked to") |
 | **step** | a step of a plan: the step tool's steps, the STEPS meter | a model request, which is a **request** |

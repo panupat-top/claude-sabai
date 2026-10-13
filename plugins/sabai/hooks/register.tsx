@@ -524,6 +524,7 @@ export const register: Register = on => {
       crew,
       brief: briefOf(e.prompt),
       ...(e.background ? { background: true } : {}),
+      ...(e.isTeammate ? { teammate: true } : {}),
       lastActiveAt: at,
     }
     await update($, agents, list => spawned(list, run))
@@ -656,7 +657,7 @@ export const register: Register = on => {
 
     // A run on the main loop's model has its context window; on another model it is unknown.
     const windowOf = (a: AgentRun) => (main && a.model === main ? window : undefined)
-    const { now: current, earlier } = openCrews(crewsOf(list))
+    const { atWork: current, earlier } = openCrews(crewsOf(list))
     const currentIds = new Set(current.map(c => c.id))
     const runs = list.filter(a => currentIds.has(crewOf(a))).map(withTasks)
     const selected = list.map(withTasks).find(a => a.id === picked)
@@ -822,7 +823,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box key="now" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Now', standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`).join(' · '))}
+          {boxHead('Now', [current.some(c => c.id.startsWith('wf:')) ? 'workflow run' : '', ...standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`)].filter(Boolean).join(' · '))}
           {top}
           {laneList}
         </Box>
@@ -1483,7 +1484,8 @@ export const register: Register = on => {
         }
       : undefined
     // The race: Main and the agents at work, while any work runs.
-    const raceNow = rows.live ? raceOf(raceLog, rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
+    // It is the Subagents switch's: Activity is the line of what Main is doing.
+    const raceNow = rows.crew ? raceOf(raceLog, everyone, p, at, e.props.isWorking, began, step?.title) : undefined
     // The toolbar and the guard's shield keep the band even with nothing else to show.
     if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !shownPrefs.guard) return next(e)
     const last = await read($, lastTurnAt)

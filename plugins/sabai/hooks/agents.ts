@@ -178,7 +178,7 @@ export function clock(ms: number): string {
   return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export type LaneState = 'out' | 'stopped' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
+export type LaneState = 'failed' | 'stopped' | 'done' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
 // agent in the seconds after it finished or failed.
 export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
@@ -249,22 +249,22 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     }
     const p = progressOf(a)
     // A stop is the person's choice, not a failure.
-    const state: LaneState = a.status === 'failed' ? (a.reason === 'aborted' ? 'stopped' : 'out') : a.status === 'done' ? 'finished' : (timed(id) ?? 'running')
+    const state: LaneState = a.status === 'failed' ? (a.reason === 'aborted' ? 'stopped' : 'failed') : a.status === 'done' ? 'done' : (timed(id) ?? 'running')
     const mood = agentMood(a, now)
     return {
       id,
       who: a.description || laneName(a.type),
       type: a.type,
       // A plan's step by its title: the lane draws its done and total.
-      step: state === 'out' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'finished' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
+      step: state === 'failed' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'done' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
       timeMs: time(a),
-      ...(p && state !== 'finished' ? { steps: { done: p.done, total: p.total } } : {}),
+      ...(p && state !== 'done' ? { steps: { done: p.done, total: p.total } } : {}),
       count: countOf(log, id),
       fails: failsOf(log, id),
       ...doingFor([id]),
       mood,
       ...(mood === 'quiet' ? { quietMs: quietFor(a, now) } : {}),
-      ...((state === 'finished' || state === 'out') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
+      ...((state === 'done' || state === 'failed') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
       state,
     }
   }
@@ -366,9 +366,9 @@ export function crewsOf(list: readonly AgentRun[]): Crew[] {
 }
 
 // The crews the pane shows in full: the newest, and any still at work; the rest are earlier.
-export function openCrews(crews: readonly Crew[]): { now: Crew[]; earlier: Crew[] } {
-  const now = crews.filter((c, i) => i === 0 || c.running > 0)
-  return { now, earlier: crews.filter(c => !now.includes(c)).slice(0, Math.max(0, CREWS_KEPT - now.length)) }
+export function openCrews(crews: readonly Crew[]): { atWork: Crew[]; earlier: Crew[] } {
+  const atWork = crews.filter((c, i) => i === 0 || c.running > 0)
+  return { atWork, earlier: crews.filter(c => !atWork.includes(c)).slice(0, Math.max(0, CREWS_KEPT - atWork.length)) }
 }
 
 // Every earlier crew dropped: what is left is the crews shown in full, and any run at work.

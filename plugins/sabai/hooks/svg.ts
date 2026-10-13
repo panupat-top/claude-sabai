@@ -528,9 +528,9 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // What each row says after its name, in its ink.
   const said = (l: Lane): [string, string] =>
     l.quietMs !== undefined ? ['c-warn', `Quiet ${Math.floor(l.quietMs / 1000)}s`] :
-    l.state === 'out' || l.state === 'tripped' ? ['c-alert', l.step] :
+    l.state === 'failed' || l.state === 'tripped' ? ['c-alert', l.step] :
     l.state === 'stopped' ? ['m', l.step] :
-    l.state === 'finished' ? ['c-ok', l.fresh ? 'Done 🎉' : 'Done'] : ['m', l.step]
+    l.state === 'done' ? ['c-ok', l.fresh ? 'Done 🎉' : 'Done'] : ['m', l.step]
   const rows = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * RACE_ROW
     const mid = y + RACE_ROW / 2
@@ -559,16 +559,16 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
         `<text class="m" x="${+(bx - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9">${frac}</text>`
       edge = bx - 4 - monoWidth(frac, 9) - 6
     }
-    const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || (l.fresh && l.state === 'finished') ? 'hop' : l.state === 'out' ? 'out' : 'idle'
+    const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || (l.fresh && l.state === 'done') ? 'hop' : l.state === 'failed' ? 'out' : 'idle'
     const style = l.type ? hatOf(look, l.type) : undefined
     // Main wears the captain's cap; a finished agent holds its report.
-    const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'finished' ? ('scroll' as const) : true } : undefined
+    const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'done' ? ('scroll' as const) : true } : undefined
     const tool = l.state === 'running' && l.quietMs === undefined ? l.doing : undefined
     const figure =
-      l.state === 'stopped' || ((l.state === 'finished' || l.state === 'out') && !l.fresh)
-        ? statusMark(look, l.state === 'stopped' ? 'stopped' : l.state === 'out' ? 'failed' : 'done', x + 8, mid)
-        : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'out' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
-    const failed = l.state === 'out'
+      l.state === 'stopped' || ((l.state === 'done' || l.state === 'failed') && !l.fresh)
+        ? statusMark(look, l.state === 'stopped' ? 'stopped' : l.state === 'failed' ? 'failed' : 'done', x + 8, mid)
+        : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'failed' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
+    const failed = l.state === 'failed'
     const party = l.fresh
       ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${kl(failed ? 'fail' : 'ok')}" opacity=".35"/>`
       : ''
@@ -592,7 +592,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   if (race.more) height += 16
   const alt = [
     `Race: ${[lead, ...ended.split(' · '), race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
-    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
+    ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state === 'tripped' || l.state === 'scored' ? 'running' : l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
     ...(race.more ? [`${race.more} more in the Subagents pane`] : []),
   ].join('; ')
   return { body: `<style>${RACE_MOTION}</style>` + head + rows.join('') + more, height: height + 6, alt }
@@ -1463,7 +1463,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const time = clock(elapsed(a, now))
   const since = Math.max(0, quietFor(a, now))
   const effort = effortLabel(a.effort)
-  const meta = [isMain(a) ? '' : a.type, modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const meta = [isMain(a) ? '' : a.type, a.teammate ? 'teammate' : '', modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
   const doing = a.doing?.at(-1)
   const last = a.calls?.at(-1)
   const latest = doing ? { mark: '▶', ink: 'm', title: doing.title } : last ? { mark: last.ok ? '✓' : '✗', ink: last.ok ? 'c-ok' : 'c-alert', title: last.title } : undefined
@@ -1685,7 +1685,8 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const changed = (a: AgentRun) => Object.values(a.files ?? {}).filter(f => f.edits > 0).length
   const mvp = runs.length > 1 ? runs.filter(a => a.status === 'done' && !a.callFails).sort((x, y) => changed(y) - changed(x) || elapsed(x, end) - elapsed(y, end))[0] : undefined
   const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
-  const title = `${time} · ${plural(runs.length, 'subagent')}`
+  // A dynamic workflow's run is named so; a turn's group needs no name.
+  const title = `${time}${crew.some(a => a.crew?.startsWith('wf:')) ? ' · workflow run' : ''} · ${plural(runs.length, 'subagent')}`
   const what = runs.map(a => `${a === mvp ? '👑 ' : ''}${a.description || a.type}`).join(' · ')
   const tallyW = monoWidth(tally, 10.5)
   const body =

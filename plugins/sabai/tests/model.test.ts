@@ -208,7 +208,7 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   expect([solo.lanes[0]!.state, solo.elapsedMs]).toEqual(['waiting', 5000])
   // Finished and out agents show their states while the race runs.
   const ends = raceOf(EMPTY_RACE, [run('d', { status: 'done', endedAt: now - 2000 }), run('e', { status: 'failed', endedAt: now - 2000 })], undefined, now, true, now - 10)!
-  expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
+  expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['done', 'failed'])
   // A failed agent is not done, and a stopped one did not fail.
   expect([ends.agents, ends.done, ends.failed, ends.stopped]).toEqual([0, 1, 1, 0])
   const stop = raceOf(EMPTY_RACE, [run('s', { status: 'failed', reason: 'aborted', endedAt: now - 2000 })], undefined, now, true, now - 10)!

@@ -395,13 +395,13 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
   expect(part.body).toContain('fill="var(--kl-warn)"')
   // Gone: the turn's worked calls, a lane's ✓ tally, the track, its footprints and flags.
   for (const s of ['✓', 'class="flag', 'class="scroll"', 'sabai-tr-', 'OUCH']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  expect(part.alt).toBe('Race: 3 running, 1 done, 1 failed call, 1m 42s; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: Quiet 47s; 1 more in the Subagents pane')
+  expect(part.alt).toBe('Race: 3 running, 1 done, 1 failed call, 1m 42s; Main running: Editing svg.ts (2/4); Explore ×3 running: 3 running; Write race tests running: bun test failed, 1 failed; Plan the race running: Quiet 47s; 1 more in the Subagents pane')
 })
 
 test('a just-finished agent hops among confetti on a flashing row, then folds to a check', () => {
-  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'finished' }]), 300, 0).body
+  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'done' }]), 300, 0).body
   for (const s of ['class="flash"', 'class="cf"', 'class="hop', '>· Done 🎉<']) expect([s, fresh.includes(s)]).toEqual([s, true])
-  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'finished' }]), 300, 0).body
+  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'done' }]), 300, 0).body
   for (const s of ['class="flash"', 'class="cf"', 'class="hop', '🎉']) expect([s, later.includes(s)]).toEqual([s, false])
   expect(later).toMatch(/class="c-ok"[^>]*>· Done</)
   // Main waiting fades its stripe; it wears the captain's cap.
@@ -410,7 +410,7 @@ test('a just-finished agent hops among confetti on a flashing row, then folds to
 
 test('a just-failed agent falls on a red-flashing row with no confetti, then folds to a cross', () => {
   const look = lookOf('auto')
-  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out', ...(fresh ? { fresh } : {}) }]), 300, 0).body
+  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed', ...(fresh ? { fresh } : {}) }]), 300, 0).body
   const now = row(true)
   expect(now).toContain('class="flash" x="2" y="47" width="296" height="20" rx="6" fill="var(--kl-fail)"')
   for (const s of ['class="out', '>· Failed<']) expect([s, now.includes(s)]).toEqual([s, true])
@@ -427,15 +427,17 @@ test('a just-failed agent falls on a red-flashing row with no confetti, then fol
 test('the header tells done, failed and stopped agents apart; a stopped row is muted, not failed', () => {
   const part = racePart(lookOf('auto'), race([
     {},
-    { id: 'o', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out' },
+    { id: 'o', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed' },
     { id: 's', who: 'Halted', type: 'Plan', step: 'Stopped', mood: 'stopped', state: 'stopped' },
-    { id: 'd', who: 'Finished', type: 'Plan', step: 'Done', mood: 'done', state: 'finished' },
+    { id: 'd', who: 'Finished', type: 'Plan', step: 'Done', mood: 'done', state: 'done' },
   ], { agents: 0, done: 1, failed: 1, stopped: 1 }), 300, 0)
   expect(part.body).toContain('>1 done · 1 failed · 1 stopped<')
   expect(part.body).toMatch(/class="c-alert"[^>]*>· Failed</)
   expect(part.body).toMatch(/class="m"[^>]*>· Stopped</)
   expect(part.body).toContain('>✋</text>')
   expect(part.alt).toContain('Race: 1 done, 1 failed, 1 stopped, 1s;')
+  // Each row is said in the words it is drawn with.
+  expect(part.alt).toContain('Broke failed: Failed; Halted stopped: Stopped; Finished done: Done')
   // A long tally is cut before the header's figures.
   const long = racePart(lookOf('auto'), race([{}], { agents: 12, done: 123, failed: 45, stopped: 67, fails: 890, elapsedMs: 6_000_000 }), 300, 0).body
   expect(long).toMatch(/>[^<]*…</)
@@ -496,8 +498,8 @@ test('no race element carries two class attributes, whatever its Clawd is doing'
     const body = racePart(lookOf('auto'), race([
       { doing, fails: 1 },
       { id: 'w', who: 'W', type: 'Plan', mood: 'quiet', quietMs: 31_000 },
-      { id: 'f', who: 'F', type: 'Explore', step: 'Done', fresh: true, mood: 'done', state: 'finished' },
-      { id: 'o', who: 'O', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out' },
+      { id: 'f', who: 'F', type: 'Explore', step: 'Done', fresh: true, mood: 'done', state: 'done' },
+      { id: 'o', who: 'O', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed' },
     ]), 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
@@ -505,7 +507,7 @@ test('no race element carries two class attributes, whatever its Clawd is doing'
 })
 
 test('in the comfortable band the race box’s words take the card’s ink', () => {
-  const raced = race([{ doing: 'test' }, { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', state: 'finished' }], { done: 1, more: 1 })
+  const raced = race([{ doing: 'test' }, { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', state: 'done' }], { done: 1, more: 1 })
   const source = bandSvg(undefined, LIST, 900, { hero: true, skin: 'raised', race: raced })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()

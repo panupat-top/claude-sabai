@@ -66,7 +66,7 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
   - each finished, failed or stopped subagent wears the same mark everywhere, in the race, the subagents row and the Subagents pane: a check, a cross or a hand on a soft green, red or grey disc. The band's and pane's colours are one pastel set, softer tiles with deep glyphs in light mode and deep tiles with bright glyphs in dark;
   - more subagents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Subagents for all` counts any left over. The details live in the Subagents pane.
 
-  Turning **Activity** off in Settings hides the race.
+  Turning **Subagents** off in Settings hides the race; **Activity** is the line of what Main is doing.
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band, with the usage limits in your style at its shortest.
 
@@ -79,12 +79,12 @@ Press the Subagents icon or type `/sabai-agents`. The pane shows the subagents b
   - a timeline: each member a bar from its start to its end on one time axis in its mood's colour, a Clawd riding the end of each bar still at work and ✓, ✗ or ✋ at the end of the others; then three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
   - a lane for Main (in his captain's cap; `Waiting on N` once his turn ends while its subagents still work, as in the band), then one per subagent (in its type's hat): a stripe in its mood's colour, its Clawd, its description, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**. A lane that has ended wears a badge on its Clawd: a green ✓, a red ✗, or ✋ for one you stopped; for its first seconds the lane is tinted green or red.
 - **Viewing**, the lane you opened with **View**: the lane is ringed and tinted, its Clawd waves and its button reads **Viewing**. Press it again, or **✕ Close**, to close the view. With none viewed, Viewing invites you to pick one and names a subagent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
-  - its head: its description and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type, model and effort in small print;
+  - its head: its description and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type (and **teammate** for an agent team's teammate), model and effort in small print;
   - **Asked to**: the first line of its prompt, **▸ More** for the rest;
   - **Summary** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then, for a subagent, two to four lines Haiku writes in Thai from its report;
   - **Progress** (the steps it reported, or its task list), **Tools** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
   - **Report** (an **Answer** for Main), with earlier rounds when a subagent was sent more work after finishing.
-- **Earlier**: the last turns before this one that had subagents, folded to one line while a turn is at work. Each line crowns its MVP 👑: the subagent that finished without a failed call, changed the most files, and was quickest. **▸ Show** a turn to see its lanes; turns are grouped by day when they span more than one; **Clear** drops them.
+- **Earlier**: the last turns before this one that had subagents (a dynamic workflow's run says **workflow run**, in Now too), folded to one line while a turn is at work. Each line crowns its MVP 👑: the subagent that finished without a failed call, changed the most files, and was quickest. **▸ Show** a turn to see its lanes; turns are grouped by day when they span more than one; **Clear** drops them.
 
 A turn that called nothing and started no subagents (a quick reply) is not kept. A subagent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done. Main is never quiet: writing a long answer is quiet work; once its turn ends while its subagents run, it is waiting.
 
@@ -135,7 +135,7 @@ Groups run from what you see most to what you set once. A part of the band with 
 
 | Group | Choices |
 |---|---|
-| Look | Layout: **Comfortable** (side by side) or **Compact** (stacked and shorter), and cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; each a sketch with its button under it. The bar style, with a sample; and Tasks, Activity (the race on a wide window, else a one-line strip) and Toolbar to show or hide |
+| Look | Layout: **Comfortable** (side by side) or **Compact** (stacked and shorter), and cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; each a sketch with its button under it. The bar style, with a sample; and Tasks, Activity (the line of what Main is doing while he works) and Toolbar to show or hide |
 | Usage | On or off; style (Tiles, Rings, Columns, Rows), each a sketch with its button; each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
 | Info row | On or off; each part: Folder, Branch, Git user, Node, with the row as it reads |
 | Clawd | On or off; Hats and props, Tricks (waves, yawns, looks) |
