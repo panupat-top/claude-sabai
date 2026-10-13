@@ -4,7 +4,11 @@ export type Usage = { contextPercent?: number; contextTokens?: number; contextWi
 
 // The session's surroundings: what the band's first row shows. `read` once git and node have
 // answered (or given up); until then the row is a skeleton.
-export type Env = { dir?: string; gitUser?: string; branch?: string; ahead?: number; behind?: number; changes?: number; node?: string; read?: boolean }
+// This copy of the mod, as the settings' last line tells it: an installed copy names its marketplace,
+// a dev copy (a folder loaded in place) the branch and commit it stands at; the engine's version after.
+export type Build = { version?: string; marketplace?: string; branch?: string; sha?: string; engine?: string }
+
+export type Env = { dir?: string; gitUser?: string; branch?: string; ahead?: number; behind?: number; changes?: number; node?: string; read?: boolean; build?: Build }
 
 // The band's and the panes' colours: the theme used while the OS is light, and the one while it is dark.
 export type Theme = { light: 'mono' | 'pastel' | 'matcha'; dark: 'ink' | 'forest' | 'synthwave' }

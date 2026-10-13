@@ -114,6 +114,7 @@ sabai reads only what Claude Code gives a mod, and runs `git` and `node --versio
 |---|---|
 | Nothing of sabai | It runs in the desktop app's Code tab only; open a new session after installing |
 | No Session or Weekly limit | No reply yet in this session, or not a subscription plan |
+| Not sure which version runs | The last line of Settings: `Release` is the installed copy, `Dev` one loaded from a folder |
 | No Node or branch in the info row | `node` is not on Claude Code's `PATH`, or the folder is not a git repository |
 
 More in the [guide](docs/guide.md#troubleshooting).
