@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-13): sabai 2.14.1 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-13): sabai 2.14.2 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -102,6 +102,16 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 
 ทดสอบบน desktop → docs (README, CLAUDE.md, §5) → release 2.14.0 เมื่อเจ้าของสั่ง
 
+#### ค้างจาก review หลัง 2.14.1 (รอบถัดไป)
+
+| ID | งาน | รายละเอียด | ขนาด |
+|---|---|---|---|
+| V1 | contrast บนพื้น tint | ป้าย mood ใน head, ป้าย NEW, `+added` ในแถวไฟล์ และตัวนับใน chip ของ MCP/skills ต่ำกว่า 4.5:1 ในบาง look · icon สีขาวบน tile แบบ `c-ok`/`m` ใน dark ต่ำกว่า 3:1 · เพิ่ม test ที่วัดบนพื้น tint | S–M |
+| V2 | ค่า CONTEXT ใน head ถูกตัด | ที่ pane กว้าง 310–400 px · ถ้าค่าเต็มไม่พอดีให้ใช้ % แทน · ที่ 240 px "active … ago" ทับป้าย mood | S |
+| V3 | สิ่งที่เกิน budget หายเงียบ | แถว Earlier และกล่องย่อยของ Detail ที่ไม่พอดีไม่มีตัวนับเหมือน lane | S |
+| V4 | ขอบ ๆ ของ state | `pending` ค้างหลัง hot reload · `finished` ไม่ล้าง `doing` · ผล test ของ agent อ่านแค่ stdout (race อ่าน stderr ด้วย) · agent ของ workflow ที่ถูกปลุกหลุดไป crew `turn:` · crew ที่มีแต่ Main ใน Earlier ขึ้น "0 agents" · key ของ overview ตายตัว (`crew`) | M |
+| V5 | performance | รวม update ต่อ call ของ `logAgentCall` เป็นครั้งเดียว · จำกัด Haiku ที่เรียกพร้อมกัน | S |
+
 ### P2 — ถัดไป (กลาง)
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
@@ -133,6 +143,7 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 
 ## 5. ประวัติเวอร์ชัน
 
+- **2.14.2** แก้จาก review: pane นับ budget ตามขนาดจริงใน tree (source ที่ escape แล้ว + alt) จึงไม่ทะลุ 100k จนว่างตอนเปิด detail ของ agent ที่มี call ยาว และหยุดวาด lane หลังตัวแรกที่ไม่พอดี · Clear ลบ crew ใน Earlier ได้ครบ (คิด crew ที่แสดงจาก Main กับ agent รวมกัน) · Main ของ turn เก่าที่ agent ย้ายไป turn ใหม่ไม่เด้งขึ้นบน Now · ไฟล์ที่แก้ไม่หลุดจาก Files เมื่ออ่านไฟล์เกิน 40 · สรุปของ Haiku ลงรอบที่อ่านเท่านั้น · TOKENS นับเฉพาะ token ใหม่ (input + cache write + output, ไม่นับ cache read) · overview ไม่ให้หัวข้อทับ "+N" และ ✗ ของ CALLS ไม่ทับตัวเลขที่ pane แคบ · ชื่อ lane ที่ดูอยู่ไม่ชนเวลา · สรุปของ Haiku เป็นไทยแม้ report เป็นอังกฤษ
 - **2.14.1** agents pane: ภาพในกล่องเต็มความกว้างแล้ว ไม่เหลือช่องว่างทางขวา (กรอบ + padding ของกล่องกิน ~20 px ไม่ใช่ 36 ตามที่วัดบน desktop, ที่เผื่อปุ่ม View ข้าง lane 78 px)
 - **2.14.0** agents pane รอบสอง (R2 ต่อ): แบ่งเป็น 3 กล่อง Now (overview + lane) / Earlier / Detail (A3) · Main เป็น lane ของทุก crew (M1, atom `mains` แยกจาก `agents` ไม่ให้ band/race เห็น, บันทึกทุก tool ของ Main, คำตอบของ Claude เป็น Answer, ไม่เรียก Haiku, ไม่มี mood quiet) · turn ที่จบโดยไม่มี call และไม่มี agent ไม่นับเป็น crew (กัน turn ของ notification ดัน crew ลง) · turn ใหม่ปิด run ของ Main ตัวก่อนเสมอ · กด View ซ้ำหรือ ✕ Close เพื่อปิด, ไม่เลือก agent ให้เองแล้ว: Detail ว่างเป็น Clawd หลับ + บรรทัดเตือนตัวที่ควรดูพร้อม View it (T2/T3-a) · lane ที่ดูอยู่: แถบซ้ายสี Clawd + ชื่อตัวหนา + ปุ่ม Viewing (S3) · Detail เป็นกล่องย่อย Summary / Plan / Tools used / Calls / Files / Report (Answer) / Task พร้อมจำนวนที่หัว (G1) · overview เหลือ 3 tile (CALLS/TOKENS/TIME) ไม่มี bar · บทเรียน: `update()` ต้องอ้าง atom ตรง ๆ ในที่เรียก ส่ง atom ผ่านตัวแปรไม่ได้ (module ไม่โหลด)
 - **2.13.0** agents pane ใหม่ (R2 รอบแรก): Overview ของ crew (Clawd ตาม mood, bar แบ่งช่องละ agent, tile CALLS/TOKENS/TIME/FILES) · lane ละ agent พร้อมประโยคไทยตาม mood ที่ใส่ตัวเลขจริง · Detail (head + meter, สรุปไทย = ข้อเท็จจริงที่นับเอง + bullet จาก Haiku ผ่าน `$.model.complete`, TOOLS แยก built-in/skills/MCP, STEPS, ACTIVITY, FILES แบบ F1, Report รวมรอบก่อน, Brief) · crew ตาม turn หลัก (workflow ตาม `runId`, agent ลูกตาม parent) เก็บ 5 crew · กล่อง Earlier พับได้ แบ่งตามวันเมื่อข้ามวัน · stopped แยกจาก failed · บันทึกทุก tool ของ subagent และนับใน lane ของ race ด้วย · Settings › Agents › Thai summary · path นอก project ย่อเหลือ 2 folder · บทเรียน: Svg ใน pane ที่ key เดิมแต่เปลี่ยนเรื่องที่แสดง (สลับ agent) desktop คงภาพเก่าไว้ ต้องใส่ id ของเรื่องใน key · ประโยคไทยและสรุปไทยเป็นข้อยกเว้นภาษาไทยเพิ่มจาก spinner ตามที่เจ้าของเลือก

@@ -47,13 +47,14 @@ export function stepped(list: AgentRun[], agentId: string, model: string, u: Usa
   const run = list.find(a => runKey(a) === agentId)
   if (!run) return list
   const total = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
+  // What it spent is what was new: a cache read is the same context read again.
   const again = run.status !== 'running'
   const next: AgentRun = {
     ...run,
     model: model || run.model,
     steps: run.steps + 1,
     contextTokens: total,
-    spent: (run.spent ?? 0) + total,
+    spent: (run.spent ?? 0) + total - u.cache_read_input_tokens,
     effort: effort === undefined ? run.effort : String(effort),
     ...(at === undefined ? {} : { lastActiveAt: at }),
   }
@@ -316,7 +317,9 @@ export const touched = (list: AgentRun[], agentId: string, path: string, change:
         ? { ...was, reads: was.reads + 1 }
         : { ...was, edits: was.edits + 1, added: was.added + change.added, removed: was.removed + change.removed, ...(change.created || was.created ? { created: true } : {}) }
     const files = Object.entries({ ...a.files, [path]: now })
-    return { ...a, files: Object.fromEntries(files.slice(-FILES_KEPT)) }
+    // Over the cap the oldest file only read goes first: a change is what the detail is for.
+    while (files.length > FILES_KEPT) files.splice(Math.max(0, files.findIndex(([, f]) => f.edits === 0)), 1)
+    return { ...a, files: Object.fromEntries(files) }
   })
 
 // The run's files: those it changed first (most lines first), then those it only read.
@@ -356,11 +359,8 @@ export function openCrews(crews: readonly Crew[]): { now: Crew[]; earlier: Crew[
   return { now, earlier: crews.filter(c => !now.includes(c)).slice(0, Math.max(0, CREWS_KEPT - now.length)) }
 }
 
-// Every earlier crew dropped: what is left is the crews shown in full.
-export const clearEarlier = (list: AgentRun[]): AgentRun[] => {
-  const shown = new Set(openCrews(crewsOf(list)).now.map(c => c.id))
-  return list.filter(a => shown.has(crewOf(a)))
-}
+// Every earlier crew dropped: what is left is the crews shown in full, and any run at work.
+export const clearEarlier = (list: AgentRun[], shown: ReadonlySet<string>): AgentRun[] => list.filter(a => shown.has(crewOf(a)) || a.status === 'running')
 
 // ---- Moods: how each agent's Clawd stands, and his line in Thai.
 
@@ -446,7 +446,7 @@ export function needsLook(list: readonly AgentRun[], now: number, windowOf: (a: 
 // ---- The Thai summary Haiku writes of a finished run.
 
 export const SUMMARY_SYSTEM =
-  'You sum up what a coding subagent did, in Thai, for the developer who sent it. Reply with 2 to 4 lines, each starting with "- ": ' +
+  'You sum up what a coding subagent did, in Thai, for the developer who sent it. Write every line in Thai, even when the report is in English. Reply with 2 to 4 lines, each starting with "- ": ' +
   'what it found or changed, and anything that needs their attention. Keep each line under 25 words. Keep file names, code and ' +
   'technical terms in English. No heading, no preamble.'
 

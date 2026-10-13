@@ -1310,8 +1310,9 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   const room = Math.max(1, Math.min(8, Math.floor((W - 180) / slot)))
   const shown = runs.slice(-room)
   const more = runs.length - shown.length
-  let b = `<text class="t" x="${PAD + 6}" y="28" font-family="${SANS}" font-size="${running ? 20 : 17}" font-weight="700">${xml(fit(title, running ? 20 : 17, W - shown.length * slot - 40))}</text>`
-  b += `<text class="${subInk}" x="${PAD + 6}" y="46" font-family="${SANS}" font-size="12">${xml(fit(sub, 12, W - shown.length * slot - 40))}</text>`
+  const room0 = W - shown.length * slot - 40 - (more > 0 ? monoWidth(`+${more}`, 11) + 8 : 0)
+  let b = `<text class="t" x="${PAD + 6}" y="28" font-family="${SANS}" font-size="${running ? 20 : 17}" font-weight="700">${xml(fit(title, running ? 20 : 17, room0))}</text>`
+  b += `<text class="${subInk}" x="${PAD + 6}" y="46" font-family="${SANS}" font-size="12">${xml(fit(sub, 12, room0))}</text>`
   shown.forEach((a, i) => {
     const x = W - PAD - (shown.length - i) * slot
     const mood = agentMood(a, now, windowOf(a))
@@ -1334,17 +1335,18 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   const calls = runs.reduce((n, a) => n + (a.callCount ?? 0), 0)
   const fails = runs.reduce((n, a) => n + (a.callFails ?? 0), 0)
   const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
-  const tile = (i: number, name: string, big: string, note = '') => {
+  const tile = (i: number, name: string, big: string, note = '', noteW = 0) => {
     const x = PAD + 6 + (i % cols) * (tw + 8)
     const y = y0 + Math.floor(i / cols) * (th + 8)
     return (
       `<rect class="k" fill-opacity=".45" x="${x.toFixed(1)}" y="${y}" width="${tw.toFixed(1)}" height="${th}" rx="9"/>` +
       label(x + 10, y + 16, name) +
       `<text class="t" x="${x + 10}" y="${y + 41}" font-family="${SANS}" font-size="19" font-weight="700">${xml(fit(big, 19, tw - 20))}</text>` +
-      (note ? `<text x="${(x + tw - 10).toFixed(1)}" y="${y + 40}" text-anchor="end" font-family="${MONO}" font-size="10.5">${note}</text>` : '')
+      // Beside the figure while both fit, else up on the name's line.
+      (note ? `<text x="${(x + tw - 10).toFixed(1)}" y="${textWidth(big, 19) + noteW + 26 <= tw ? y + 40 : y + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5">${note}</text>` : '')
     )
   }
-  b += tile(0, 'CALLS', String(calls), fails ? `<tspan class="c-alert">✗ ${fails}</tspan>` : '')
+  b += tile(0, 'CALLS', String(calls), fails ? `<tspan class="c-alert">✗ ${fails}</tspan>` : '', fails ? monoWidth(`✗ ${fails}`, 10.5) : 0)
   b += tile(1, 'TOKENS', tokens(spent))
   b += tile(2, 'TIME', clock(end - start))
   const H = y0 + Math.ceil(tileCount / cols) * (th + 8) + 4
@@ -1368,13 +1370,13 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const barW = 64
   const barX = right - timeW - 12 - (p ? monoWidth(`${p.done}/${p.total}`, 10) + 6 : 0) - barW
   const textX = 8 + CLAWD_W + 8
-  const textRoom = (wide ? barX - 10 : right - timeW - 10) - textX
+  const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
   const body =
     `<rect class="p" width="${W}" height="${AGENT_LANE_H}" rx="8"/>` +
     (selected ? `<rect width="4" height="${AGENT_LANE_H}" rx="2" fill="${look.clawd}"/>` : '') +
     agentClawd(look, a, mood, now, 8, (AGENT_LANE_H - CLAWD_H) / 2, 1) +
-    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="${selected ? 800 : 600}">${xml(fit(a.description || a.type, 12.5, textRoom))}</text>` +
+    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="${selected ? 800 : 600}">${xml(fit(a.description || a.type, selected ? 13.2 : 12.5, textRoom))}</text>` +
     `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
     (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(look, mood), style) : '') +
     (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
@@ -1514,7 +1516,9 @@ export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max =
   for (const d of doing)
     row(d.kind, d.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">running…</text><circle cx="${W - 15}" cy="${y + 11}" r="4" fill="none" stroke="${look.clawd}" stroke-width="2" stroke-dasharray="12 6"/>`, true)
   const H = y + 6
-  const alt = `Calls: ${calls.map(c => `${c.title} ${c.ok ? 'worked' : 'failed'}`).join('; ')}${doing.length ? `; running ${doing.map(d => d.title).join(', ')}` : ''}`
+  // Each title cut short in the alt, which the pane's tree carries whole.
+  const said = (t: string) => fit(t, 1, 45)
+  const alt = `Calls: ${calls.map(c => `${said(c.title)} ${c.ok ? 'worked' : 'failed'}`).join('; ')}${doing.length ? `; running ${doing.map(d => said(d.title)).join(', ')}` : ''}`
   return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt)
 }
 

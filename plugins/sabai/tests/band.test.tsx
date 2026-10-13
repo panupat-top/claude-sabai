@@ -665,6 +665,29 @@ test('every call of a subagent lands in its detail: tools by group, the activity
   expect((await altsOf(await viewed(await mountPane($, 'desktop'), 'worker'))).find(a => a.startsWith('Tools:'))).toContain('Grep 1×')
 })
 
+test('a summary lands on the round it read, though more work ended a round before Haiku answered', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  steps(on)
+  const answers: ((text: string) => void)[] = []
+  on('model.complete', () => new Promise(done => answers.push(text => done({ value: { isAnswered: true, text, usage: {} } } as never))) as never)
+  await start($)
+  await spawn($, 'twice')
+  await finish($, 'twice', 'first report')
+  await clock.advance(1)
+  await step($, 'agent-twice')
+  await finish($, 'twice', 'second report')
+  await clock.advance(1)
+  await settle()
+  expect(answers.length).toBe(2)
+  answers[0]!('- รอบแรก')
+  await settle()
+  answers[1]!('- รอบสอง')
+  await settle()
+  const ui = await viewed(await mountPane($, 'desktop'), 'twice')
+  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('- รอบสอง')
+})
+
 test('a finished agent’s report is summed up in Thai by Haiku; with the toggle off, or no answer, there is none', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
@@ -736,6 +759,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   await ui.press({ key: String(show.props.key) })
   expect(await laneOf(ui, 'old')).toBeDefined()
   await ui.press({ key: 'clear-earlier' })
+  await clock.advance(1)
   expect(await laneOf(ui, 'old')).toBeUndefined()
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
@@ -802,6 +826,18 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   ui = await mountPane($, 'desktop')
   expect(await ui.find({ type: 'Text', text: ' · Main + 1 agent' })).toBeDefined()
   expect(await laneOf(ui, 'helper')).toBeDefined()
+  await ui.unmount()
+  // A turn of Main's alone puts the crew in Earlier, and Clear drops it.
+  await finish($, 'helper')
+  await $.turn.start({ turnId: 'solo again' } as never)
+  await $.tool.call({ tool: 'Grep', pattern: 'z' } as unknown as Parameters<typeof $.tool.call>[0])
+  ui = await mountPane($, 'desktop')
+  expect(await ui.find({ type: 'Text', text: ' · Claude' })).toBeDefined()
+  await ui.press({ key: 'fold-earlier' })
+  await ui.press({ key: 'clear-earlier' })
+  await clock.advance(1)
+  expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
+  expect(await laneOf(ui, 'Claude')).toBeDefined()
 })
 test('the report folds open as Markdown once an agent ends, a stop says so, and no colour is forced on native text', async ($, on) => {
   engine(on, { store: { skin: 'raised' } })
@@ -880,6 +916,7 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   turnStarts(on)
   await start($)
   await $.turn.start({ turnId: 'one' } as never)
+  await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
   await spawn($, 'scout')
   await finish($, 'scout', 'first report')
   await clock.advance(60_000)
@@ -887,6 +924,9 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   await step($, 'agent-scout')
   const ui = await mountPane($, 'desktop')
   expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
+  // The first turn's Main, its agent gone to the turn at work, is no crew of its own.
+  expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude:')).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: ' · Main + 1 agent' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^EARLIER/ })).toBeUndefined()
   await finish($, 'scout', 'second report')
   await viewed(ui, 'scout')
@@ -917,7 +957,7 @@ test('agents report their own steps through the mod’s tool, a checklist in the
   expect((await altsOf(ui)).some(a => a.startsWith('Tools:'))).toBe(false)
 })
 
-test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide pane in blocks with every fold open', { timeoutMs: 20_000 }, async ($, on) => {
+test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide pane in blocks with an agent viewed and every fold open', { timeoutMs: 20_000 }, async ($, on) => {
   const { clock } = engine(on, { store: { bar: 'blocks' } })
   panes(on)
   turnStarts(on)
@@ -929,16 +969,22 @@ test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide 
       await spawn($, name)
       for (let k = 0; k < 12; k++) await subCall($, `agent-${name}`, { tool: 'Read', file_path: `/work/src/file-${k}.ts` })
       await subCall($, `agent-${name}`, { tool: 'Edit', file_path: `/work/src/file-${i}.ts`, old_string: 'a', new_string: 'b' })
+      // The agent viewed below: a full log of long commands, whose titles fill its calls' alt.
+      if (c === 5 && i === 6) for (let k = 0; k < 60; k++) await subCall($, `agent-${name}`, { tool: 'Bash', command: `echo "${k} ${'x'.repeat(300)}"` })
       if (c < 5 || i > 1) await finish($, name, 'r'.repeat(5000))
     }
     await clock.advance(60_000)
   }
   for (const bodyColumns of [40, 160, 496]) {
     const ui = await widePane($, bodyColumns)
+    // The view stays across mounts: pressed only while closed.
+    if ((await ui.find({ key: 'view-agent-job 5-6' }))?.props.label === 'View') await ui.press({ key: 'view-agent-job 5-6' })
+    expect(await ui.find({ key: 'close-detail' })).toBeDefined()
     for (const key of ['fold-report', 'fold-brief', 'fold-calls']) if (/^▸|^All calls$/.test(String((await ui.find({ key }))?.props.label ?? ''))) await ui.press({ key })
     if ((await ui.find({ key: 'fold-earlier' }))?.props.label === '▸ Show') await ui.press({ key: 'fold-earlier' })
     const shows = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).filter(k => k.startsWith('show-'))
-    expect(shows.length).toBe(4)
+    // A pane 4,000 px wide spends its budget on the detail viewed; the earlier lines go first.
+    if (bodyColumns <= 160) expect(shows.length).toBe(4)
     for (const key of shows) await ui.press({ key })
     const size = JSON.stringify(await ui.drawn()).length
     expect([bodyColumns, size < 100_000]).toEqual([bodyColumns, true])

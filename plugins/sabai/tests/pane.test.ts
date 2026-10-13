@@ -48,14 +48,18 @@ test('files: changed ones first by lines, a new file marked, read-only ones by r
   list = touched(list, 'a', 'tests/new.test.ts', { added: 38, removed: 0, created: true })
   expect(filesOf(list[0]!).map(f => f.path)).toEqual(['tests/new.test.ts', 'hooks/agents.ts', 'hooks/svg.ts', 'docs/PLAN.md'])
   expect(list[0]!.files!['tests/new.test.ts']).toEqual({ reads: 0, edits: 1, added: 38, removed: 0, created: true })
+  // Past the cap, the files only read go first; the changed ones stay.
+  for (let i = 0; i < 45; i++) list = touched(list, 'a', `src/read-${i}.ts`, { read: true })
+  expect(Object.keys(list[0]!.files!)).toHaveLength(40)
+  expect(['hooks/agents.ts', 'tests/new.test.ts', 'src/read-44.ts'].every(k => k in list[0]!.files!)).toBe(true)
   const tools = toolsOf(run('t', { tools: { Read: 2, 'skill:superpowers:brainstorming': 1, mcp__sabai__step: 4, Grep: 3 } }))
   expect(tools).toEqual({ builtin: [['Grep', 3], ['Read', 2]], skills: [['superpowers:brainstorming', 1]], mcp: [['sabai · step', 4]] })
 })
 
-test('a request adds its tokens to what the run spent; a resumed run moves to the end in the crew at work', () => {
+test('a request adds its new tokens, not its cache reads, to what the run spent; a resumed run moves to the end in the crew at work', () => {
   let list = stepped([run('a', { crew: 'turn:1' }), run('b', { crew: 'turn:1' })], 'a', '', USAGE, undefined, 5000)
   list = stepped(list, 'a', '', USAGE)
-  expect([list[0]!.spent, list[0]!.contextTokens, list[0]!.lastActiveAt]).toEqual([84_200, 42_100, 5000])
+  expect([list[0]!.spent, list[0]!.contextTokens, list[0]!.lastActiveAt]).toEqual([4200, 42_100, 5000])
   list = [{ ...list[0]!, status: 'done', endedAt: 6000, result: 'r' }, list[1]!]
   list = stepped(list, 'a', '', USAGE, undefined, 9000, 'turn:8000')
   expect(list.map(a => [a.id, a.crew, a.status])).toEqual([['b', 'turn:1', 'running'], ['a', 'turn:8000', 'running']])
@@ -76,7 +80,7 @@ test('crews: the newest five are kept with any still at work, the newest and tho
   expect(crewsOf(list).length).toBe(CREWS_KEPT + 1)
   const { now, earlier } = openCrews(crewsOf(list))
   expect([now.map(c => c.id), earlier.length]).toEqual([['turn:6', 'turn:0'], CREWS_KEPT - 2])
-  expect(clearEarlier(list).map(a => a.id)).toEqual(['a0', 'a6'])
+  expect(clearEarlier(list, new Set(now.map(c => c.id))).map(a => a.id)).toEqual(['a0', 'a6'])
 })
 
 test('moods: at work, thinking, quiet, context nearly full, failed, stopped and done', () => {

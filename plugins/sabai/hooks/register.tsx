@@ -355,7 +355,11 @@ async function summarize($: EngineInterface, agentId: string) {
   if (!run || run.summary !== 'pending') return
   const r = await $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS }).catch(() => undefined)
   const bullets = r?.isAnswered ? summaryOf(r.text) : undefined
-  await update($, agents, l => (l.find(a => a.agentId === agentId)?.summary === 'pending' ? summarized(l, agentId, bullets) : l))
+  // Only on the round it read: more work and a quicker end meanwhile wait for their own.
+  await update($, agents, l => {
+    const now = l.find(a => a.agentId === agentId)
+    return now?.summary === 'pending' && now.endedAt === run.endedAt ? summarized(l, agentId, bullets) : l
+  })
 }
 
 async function unstep($: EngineInterface, agentId: string | undefined) {
@@ -570,9 +574,10 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     if (e.surface !== 'desktop') return next(e)
     const subagents = await read($, agents)
-    // A finished turn that called nothing and started no agents (a notification's, a quick reply)
-    // is no crew: the work before it stays at the top.
-    const turns = (await read($, mains)).filter(m => m.status === 'running' || (m.callCount ?? 0) > 0 || subagents.some(a => crewOf(a) === crewOf(m)))
+    // A turn is a crew with its agents. Without any, only the latest is (Claude's alone), and not
+    // once it ends calling nothing (a notification's, a quick reply): the work before stays on top.
+    const allMains = await read($, mains)
+    const turns = allMains.filter(m => subagents.some(a => crewOf(a) === crewOf(m)) || (m === allMains.at(-1) && (m.status === 'running' || (m.callCount ?? 0) > 0)))
     const mainTasks = await read($, tasks)
     const at = await read($, now)
     const skinName = await read($, skin)
@@ -613,20 +618,14 @@ export const register: Register = on => {
     // Each drawing spends from the pane's budget, the overview and the detail first; what does
     // not fit is counted instead.
     let spent = 0
+    // A drawing costs what it takes in the serialized tree: its source escaped, and its alt.
     const fits = (d: Drawing | undefined): d is Drawing => {
-      if (!d || spent + d.source.length > PANE_BUDGET) return false
-      spent += d.source.length
+      const cost = d ? JSON.stringify(d.source).length + d.alt.length : 0
+      if (!d || spent + cost > PANE_BUDGET) return false
+      spent += cost
       return true
     }
     const image = (key: string, d: Drawing) => <Svg key={key} source={d.source} alt={d.alt} width={d.width} height={d.height} />
-    const heading = (key: string, text: string, button?: RenderNode) => (
-      <Box key={`head-${key}`} flexDirection="row" alignItems="center" columnGap={1}>
-        <Box flexGrow={1}>
-          <Text dimColor bold>{text}</Text>
-        </Box>
-        {button}
-      </Box>
-    )
     // A box's title row: its name in bold, what it holds, and its buttons.
     const boxHead = (title: string, note: string, ...buttons: (RenderNode | false | undefined)[]) => (
       <Box flexDirection="row" alignItems="center" columnGap={1}>
@@ -665,11 +664,17 @@ export const register: Register = on => {
       ) : undefined
     }
     const lanes = (key: string, of: readonly AgentRun[], inset: number) => {
-      const drawn = of.map(a => laneOf(a, inset))
-      const left = drawn.filter(x => !x).length
+      // Lanes are drawn alike, so after the first that does not fit the rest are only counted.
+      const drawn: RenderNode[] = []
+      for (const a of of) {
+        const lane = laneOf(a, inset)
+        if (!lane) break
+        drawn.push(lane)
+      }
+      const left = of.length - drawn.length
       return (
         <Box key={`lanes-${key}`} flexDirection="column" rowGap={1}>
-          {drawn.filter(Boolean)}
+          {drawn}
           {left > 0 && <Text dimColor>{`+ ${left} more`}</Text>}
         </Box>
       )
@@ -770,13 +775,16 @@ export const register: Register = on => {
                 <Button
                   key="clear-earlier"
                   label="Clear"
-                  onPress={async () => {
-                    await update($, agents, clearEarlier)
-                    await update($, mains, clearEarlier)
-                    await update($, earlierOpen, () => [])
-                    await update($, earlierFolded, () => null)
-                    await update($, selectedAgent, id => (id && runs.some(a => a.id === id) ? id : null))
-                  }}
+                  // The crews shown in full are the pane's, Main's and the agents' together.
+                  onPress={() =>
+                    void $.clock.after(0, async () => {
+                      await update($, agents, l => clearEarlier(l, currentIds))
+                      await update($, mains, l => clearEarlier(l, currentIds))
+                      await update($, earlierOpen, () => [])
+                      await update($, earlierFolded, () => null)
+                      await update($, selectedAgent, id => (id && runs.some(a => a.id === id) ? id : null))
+                    })
+                  }
                 />
               ),
               <Button key="fold-earlier" label={isFolded ? '▸ Show' : '▾ Hide'} onPress={() => update($, earlierFolded, () => !isFolded)} />,

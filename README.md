@@ -84,7 +84,7 @@ The info row sits above the band on a card of its own, everything from the left 
 
 Press the Agents icon or type `/sabai-agents`. Each of Claude's turns is a **crew**: Claude and the agents that turn started. The panel has three boxes:
 - **Now**, the crew at work:
-  - the overview: who is in it and how they stand, a Clawd for each in his mood (agents in their type's hat), a bar of each one's share done, and three tiles: calls (with failures), tokens and time;
+  - the overview: who is in it and how they stand, a Clawd for each in his mood (agents in their type's hat), a bar of each one's share done, and three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
   - a lane for Claude, then one per agent: its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**.
 - **Earlier**: the last crews before this one that had agents, folded to one line while a crew is at work. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
 - **Detail**, of the lane you viewed. The viewed lane is marked by a bar on its left and its button reads **Viewing**; press it again, or **✕ Close**, to close the view. With none viewed, Detail invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
