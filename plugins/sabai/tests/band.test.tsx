@@ -717,6 +717,38 @@ test('the race follows the Subagents switch, not Activity', async ($, on) => {
   expect((await shown($, 'desktop')).words).toContain('Race: 1 running')
 })
 
+test('Settings says what Activity shows: the line of what Main is doing, not the race', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  const ui = await mountPane($, 'desktop', 'sabai-skins')
+  expect(await ui.find({ type: 'Text', text: /Activity is the line of what Main is doing; the race follows Subagents/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /race on a wide window/ })).toBeUndefined()
+})
+
+test('a workflow agent started from inside a turn’s subagent still counts as its workflow run', async ($, on) => {
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'lead')
+  await $.agent.spawn({ tool_use_id: 'tu-wfc', prompt: 'go', description: 'wf child', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false, parentAgentId: 'agent-lead', workflow: { runId: 'wf_7', agentIndex: 1 } } as never)
+  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · 2 running' })).toBeDefined()
+})
+
+test('Earlier counts its groups by origin: turns and workflow runs', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  turnStarts(on)
+  await start($)
+  await $.turn.start({ turnId: 'one' } as never)
+  await $.agent.spawn({ tool_use_id: 'tu-wfa', prompt: 'go', description: 'wfa', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_9', agentIndex: 1 } })
+  await finish($, 'wfa')
+  await clock.advance(60_000)
+  await $.turn.start({ turnId: 'two' } as never)
+  await spawn($, 'live')
+  expect(await (await mountPane($, 'desktop')).find({ type: 'Text', text: ' · 1 workflow run · ✓ 1' })).toBeDefined()
+})
+
 test('a teammate of an agent team says so in its head: it is no subagent', async ($, on) => {
   engine(on)
   panes(on)
@@ -838,7 +870,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await laneOf(ui, 'old')).toBeUndefined()
   // While a crew works the earlier ones fold to one line in their own box; Show opens it.
-  expect(await ui.find({ type: 'Text', text: ' · 1 crew · ✓ 1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 turn · ✓ 1' })).toBeDefined()
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
@@ -892,7 +924,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'solo' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
   let ui = await mountPane($, 'desktop')
-  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('1 member: Main thinking'))).toBeDefined()
+  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('Main on the timeline: Main thinking'))).toBeDefined()
   expect(await laneOf(ui, 'Main')).toBeDefined()
   await ui.unmount()
   await $.turn.complete({ turnId: 'solo', answer: 'All done.', durationMs: 10, isAborted: false, reason: 'answer' })
@@ -912,6 +944,8 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   const key = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).find(k => k.startsWith('view-main:'))!
   await ui.press({ key })
   expect((await altsOf(ui)).find(a => a.startsWith('Tools:'))).toBe('Tools: Grep 1×')
+  // Main's head names what Main is: the main conversation.
+  expect((await headOf(ui))?.props.alt).toContain('main conversation')
   await ui.unmount()
   // A turn that ends calling nothing (a notification's) does not push the crew down.
   await $.turn.complete({ turnId: 'crew', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
@@ -1003,7 +1037,7 @@ test('a workflow agent says so in its detail, and its brief shows a line that Mo
   const ui = await viewed(await mountPane($, 'desktop'), 'fan out')
   expect((await headOf(ui))?.props.alt).toContain('general-purpose · Sonnet 5.5 · background · workflow')
   // The box names the group by its origin: a workflow run, not a turn.
-  expect(await ui.find({ type: 'Text', text: ' · workflow run · 1 running' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 workflow run · 1 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Count the hooks.…' })).toBeDefined()
   expect((await ui.find({ key: 'fold-brief' }))?.props.label).toBe('▸ More')
   await ui.press({ key: 'fold-brief' })

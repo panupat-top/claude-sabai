@@ -7,7 +7,7 @@ import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf,
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
+import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, plural, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
@@ -268,11 +268,13 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
-// The main turn's step in flight, for the live strip: the step's running title; a subagent's
-// calls leave it alone. Every member's race lane keeps the call's name as it reads once done.
-async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown) {
+// A call of a raced tool starts: in the member's race lane its kind is in flight and its name kept
+// as it reads once done, in one write; the main turn's call in flight goes to the live strip (a
+// subagent's calls leave it alone).
+async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown, kind: CallKind) {
+  const member = agentId ?? 'main'
   const said = stepOf({ tool, input, isRunning: false, isErrored: false, isInterrupted: false })?.title
-  if (said) await update($, race, r => ({ ...r, said: { ...r.said, [agentId ?? 'main']: said } }))
+  await update($, race, r => ({ ...r, ...(said ? { said: { ...r.said, [member]: said } } : {}), doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   const at = await $.clock.now()
@@ -342,17 +344,22 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
     const out = result?.result as { stdout?: string; stderr?: string } | undefined
     const output = typeof result?.result === 'string' ? result.result : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
     const ok = result === undefined || result.deny !== undefined ? undefined : !result.isError && (act.kind !== 'test' || (testResult(output)?.failed ?? 0) === 0)
-    await updateRuns($, main, l => called(l, agentId, act, end, end - start, ok))
+    // The file it read or changed, with the call, in one write: each write sends the whole list.
+    let file: { path: string; change: Parameters<typeof touched>[3] } | undefined
     if (ok && typeof i.file_path === 'string') {
       const path = inProject(i.file_path)
-      if (tool === 'Read') await updateRuns($, main, l => touched(l, agentId, path, { read: true }))
+      if (tool === 'Read') file = { path, change: { read: true } }
       else if (tool === 'Edit' || tool === 'Write') {
         const r = result!.result as { structuredPatch?: BuiltinToolResults['Edit']['structuredPatch']; type?: string } | undefined
         const c: Logged = tool === 'Edit' ? { tool, path, oldText: i.old_string ?? '', newText: i.new_string ?? '', ...(r?.structuredPatch ? { patch: r.structuredPatch } : {}) } : { tool, path, content: i.content ?? '', ...(r?.type === 'update' && r.structuredPatch ? { patch: r.structuredPatch } : {}) }
         const delta = logged(EMPTY_LOG, c).files[path] ?? { added: 0, removed: 0 }
-        await updateRuns($, main, l => touched(l, agentId, path, { ...delta, ...(r?.type === 'create' ? { created: true } : {}) }))
+        file = { path, change: { ...delta, ...(r?.type === 'create' ? { created: true } : {}) } }
       }
     }
+    await updateRuns($, main, l => {
+      const next = called(l, agentId, act, end, end - start, ok)
+      return file ? touched(next, agentId, file.path, file.change) : next
+    })
     if (!raced) await racing($, agentId, kind, result ?? UNFINISHED, ok)
   }
 }
@@ -506,9 +513,9 @@ export const register: Register = on => {
     // A remote workflow agent has no local loop: nothing would ever step or end its run.
     if (started.deny !== undefined || started.agentId === undefined) return started
     const at = await $.clock.now()
-    // Its crew: its parent agent's, else its workflow run, else the main turn that started it.
+    // Its crew: its workflow run, else its parent agent's, else the main turn that started it.
     const parent = e.parentAgentId === undefined ? undefined : (await read($, agents)).find(a => a.agentId === e.parentAgentId)
-    const crew = parent ? crewOf(parent) : e.workflow?.runId ? `wf:${e.workflow.runId}` : `turn:${await read($, turnStartedAt)}`
+    const crew = e.workflow?.runId ? `wf:${e.workflow.runId}` : parent ? crewOf(parent) : `turn:${await read($, turnStartedAt)}`
     const run: AgentRun = {
       id: started.agentId,
       agentId: started.agentId,
@@ -539,7 +546,9 @@ export const register: Register = on => {
     const { agentId } = e
     const { usage: used } = result
     if (!agentId) {
-      if (used?.model || e.model) await update($, mainModel, () => used?.model || e.model)
+      // Written only when it changes: every write redraws what reads it.
+      const model = used?.model || e.model
+      if (model && model !== (await read($, mainModel))) await update($, mainModel, () => model)
       if (used) {
         const key = mainKey(await read($, turnStartedAt))
         const at = await $.clock.now()
@@ -560,7 +569,7 @@ export const register: Register = on => {
     if (!desktop) return next(e)
     const completed = await next(e)
     const { agentId } = e
-    const { notify } = await read($, prefs)
+    const { notify, agentSummary } = await read($, prefs)
     if (agentId === undefined) {
       const key = mainKey(await read($, turnStartedAt))
       const endedAt = await $.clock.now()
@@ -586,12 +595,14 @@ export const register: Register = on => {
       }
     } else {
       const at = await $.clock.now()
-      const list = await update($, agents, l => finished(l, agentId, e.reason, at, e.answer))
+      // Ended, and marked for its summary, in one write.
+      const list = await update($, agents, l => {
+        const ended = finished(l, agentId, e.reason, at, e.answer)
+        const run = ended.find(a => a.agentId === agentId)
+        return agentSummary && run?.status === 'done' && run.result ? summarized(ended, agentId, 'pending') : ended
+      })
       const run = list.find(a => a.agentId === agentId)
-      if (run?.status === 'done' && run.result && (await read($, prefs)).agentSummary) {
-        await update($, agents, l => summarized(l, agentId, 'pending'))
-        $.clock.after(1, () => void summarize($, agentId))
-      }
+      if (run?.summary === 'pending') $.clock.after(1, () => void summarize($, agentId))
       if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Subagent' }).catch(() => undefined)
       // The hop and confetti last a few seconds; with nothing left running, nothing else would
       // tick the clock to end them.
@@ -823,7 +834,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column" rowGap={1}>
         <Box key="now" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Now', [current.some(c => c.id.startsWith('wf:')) ? 'workflow run' : '', ...standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`)].filter(Boolean).join(' · '))}
+          {boxHead('Now', [plural(current.filter(c => c.id.startsWith('wf:')).length, 'workflow run'), ...standing.filter(([, n]) => n > 0).map(([word, n]) => `${n} ${word}`)].filter(w => w && !w.startsWith('0 ')).join(' · '))}
           {top}
           {laneList}
         </Box>
@@ -843,7 +854,8 @@ export const register: Register = on => {
           <Box key="earlier" borderStyle="round" borderColor="subtle" paddingX={1} flexDirection="column" rowGap={1}>
             {boxHead(
               'Earlier',
-              `${earlier.length} ${earlier.length === 1 ? 'crew' : 'crews'} · ${tally}`,
+              // Counted by origin: the docs have no word for a group of subagents.
+              [plural(earlier.filter(c => !c.id.startsWith('wf:')).length, 'turn'), plural(earlier.filter(c => c.id.startsWith('wf:')).length, 'workflow run'), tally].filter(w => !w.startsWith('0 ')).join(' · '),
               !isFolded && (
                 <Button
                   key="clear-earlier"
@@ -931,8 +943,7 @@ export const register: Register = on => {
   }).catch(() => ({ decision: 'deny' as const, reason: GUARD_FAILED }))
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Read', e)
-    await racing($, e.agentId, 'read')
+    await stepping($, e.agentId, 'Read', e, 'read')
     let called: { deny?: string; isError?: boolean } | undefined
     try {
       called = await next(e)
@@ -944,8 +955,7 @@ export const register: Register = on => {
   })
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Edit', e)
-    await racing($, e.agentId, 'edit')
+    await stepping($, e.agentId, 'Edit', e, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
     try {
       called = await next(e)
@@ -958,8 +968,7 @@ export const register: Register = on => {
   })
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     if (!desktop) return next(e)
-    await stepping($, e.agentId, 'Write', e)
-    await racing($, e.agentId, 'edit')
+    await stepping($, e.agentId, 'Write', e, 'edit')
     let called: Awaited<ReturnType<typeof next>> | undefined
     try {
       called = await next(e)
@@ -978,9 +987,8 @@ export const register: Register = on => {
     const id = (e as { tool_use_id?: string }).tool_use_id
     const startedAt = await $.clock.now()
     if (id) inFlight.set(id, e.command)
-    await stepping($, e.agentId, 'Bash', e)
     const kind: CallKind = isTestCommand(e.command) ? 'test' : 'command'
-    await racing($, e.agentId, kind)
+    await stepping($, e.agentId, 'Bash', e, kind)
     let raceDone = false
     try {
       const called = await next(e)
@@ -1216,7 +1224,7 @@ export const register: Register = on => {
               'Also show',
               'Tap to show or hide',
               pills([rowPill('tasks', 'Tasks'), rowPill('live', 'Activity'), rowPill('toolbar', 'Toolbar')]),
-              <Text key="rows-note" dimColor>Activity is the race on a wide window, else a one-line strip of what Claude is doing. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
+              <Text key="rows-note" dimColor>Activity is the line of what Main is doing; the race follows Subagents. With the toolbar hidden, /sabai-settings brings you back here.</Text>,
             )}
           </Box>,
         )}

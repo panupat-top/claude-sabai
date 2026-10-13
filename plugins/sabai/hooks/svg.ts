@@ -461,7 +461,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   const lead = running[0]
   const line = lead && progressOf(lead)
   const title = lead ? lead.description || lead.type : failed || stopped ? [`${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ') : `All ${ended.length} done`
-  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : plural(lead.requests ?? 0, 'request')) : ''
+  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : lead.requests === undefined ? '' : plural(lead.requests, 'request')) : ''
   // The right side, laid out from the edge: time, then failed, done and running counts.
   const s = summary([...runs], now)
   const time = clock(s.ms)
@@ -1391,7 +1391,9 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   b += tile(1, 'TOKENS', tokens(spent))
   b += tile(2, 'TIME', clock(end - start))
   const H = y + Math.ceil(3 / cols) * (th + 8) + 4
-  const alt = `${plural(runs.length, 'member')}: ${shown.map(a => `${a.description || a.type} ${agentMood(a, now, windowOf(a))}`).join(', ')}; ${plural(calls, 'call')}${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
+  const subagents = runs.filter(a => !isMain(a)).length
+  const who = [runs.some(isMain) ? 'Main' : '', subagents ? plural(subagents, 'subagent') : ''].filter(Boolean).join(' and ')
+  const alt = `${who} on the timeline: ${shown.map(a => `${a.description || a.type} ${agentMood(a, now, windowOf(a))}`).join(', ')}; ${plural(calls, 'call')}${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
   return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt, running)
 }
 
@@ -1463,7 +1465,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const time = clock(elapsed(a, now))
   const since = Math.max(0, quietFor(a, now))
   const effort = effortLabel(a.effort)
-  const meta = [isMain(a) ? '' : a.type, a.teammate ? 'teammate' : '', modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const meta = [isMain(a) ? 'main conversation' : a.type, a.teammate ? 'teammate' : '', modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
   const doing = a.doing?.at(-1)
   const last = a.calls?.at(-1)
   const latest = doing ? { mark: '▶', ink: 'm', title: doing.title } : last ? { mark: last.ok ? '✓' : '✗', ink: last.ok ? 'c-ok' : 'c-alert', title: last.title } : undefined
@@ -1691,8 +1693,8 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const tallyW = monoWidth(tally, 10.5)
   const body =
     `<rect class="p" width="${W}" height="40" rx="8"/>` +
-    `<text class="t" x="12" y="17" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` +
-    `<text class="m" x="${W - 10}" y="17" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(W - tallyW > 160 ? tally : '')}</text>` +
+    `<text class="t" x="12" y="17" font-family="${SANS}" font-size="12" font-weight="600">${xml(fit(title, 12, W - 24))}</text>` +
+    `<text class="m" x="${W - 10}" y="17" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(12 + textWidth(title, 12) + 16 + tallyW + 10 <= W ? tally : '')}</text>` +
     `<text class="m" x="12" y="32" font-family="${SANS}" font-size="11">${xml(fit(what, 11, W - 24))}</text>`
   return paneDrawing(look, W, 40, body, `${title}: ${tally}. ${what}`)
 }

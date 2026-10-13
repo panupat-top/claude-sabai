@@ -162,6 +162,9 @@ test('the crew row walks one Clawd per running agent, names the latest, and coun
   expect(mixed?.alt).toBe('Subagents: 1 done, 1 failed; 1 done · 1 failed')
   expect(mixed?.source.match(/>1<\/text>/g)?.length).toBe(2)
   expect(bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [], now: 0 } })).toBeUndefined()
+  // A run kept from before requests were counted shows no count rather than a false 0.
+  const kept = bandSvg(undefined, [], 800, { mood: 'idle', skin: 'auto', style: 'dither', crew: { runs: [crewRun('k', { requests: undefined })], now: 1000 } })
+  expect(kept?.source).not.toContain('0 requests')
 })
 
 test('a dithered band stays inside the engine limits at any width, its dots widening instead of multiplying', () => {

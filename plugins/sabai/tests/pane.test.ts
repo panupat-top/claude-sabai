@@ -151,7 +151,7 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
   // Ends marked: done, stopped; the one at work rides its bar to now.
   expect([d.source.includes('>✓<'), d.source.includes('>✋<'), d.source.includes('>now<')]).toEqual([true, true, true])
   expect(d.source).toContain('class="run"')
-  expect(d.alt).toBe('3 members: task a working, task b done, task c stopped; 27 calls, 3 failed; 153k tokens; 29s')
+  expect(d.alt).toBe('3 subagents on the timeline: task a working, task b done, task c stopped; 27 calls, 3 failed; 153k tokens; 29s')
   expect([d.source.includes('>27<'), d.source.includes('>153k<'), d.source.includes('>FILES<')]).toEqual([true, true, false])
   const all = crewSvg(list.slice(1), 530, 90_000)
   // Settled: the axis ends at the crew's own end, and nothing moves.
@@ -224,6 +224,11 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')
   // A dynamic workflow's run is named so; a turn's group needs no name.
   expect(earlierSvg([busy('w', { status: 'done', endedAt: 28_000, crew: 'wf:r1' })], 454).alt).toMatch(/^\d\d:\d\d · workflow run · 1 subagent:/)
+  // A tally that would run into the longer title is left out.
+  const narrow = earlierSvg([1, 2, 3].map(i => busy(`w${i}`, { status: i === 2 ? 'failed' : 'done', reason: i === 2 ? 'error' : 'answer', endedAt: 240_000, crew: 'wf:r1' })), 362).source
+  expect(narrow).not.toContain('✓ 2 · ✗ 1')
+  // A title too long for a narrow row is cut, never drawn past its card.
+  expect(earlierSvg(Array.from({ length: 12 }, (_, i) => busy(`n${i}`, { status: 'done', endedAt: 9000, crew: 'wf:r1' })), 200).source).toMatch(/>[^<]*…</)
 })
 
 test('an earlier crew crowns its MVP: done without a failed call, the most files changed, then the quickest', () => {
