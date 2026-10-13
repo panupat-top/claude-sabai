@@ -386,7 +386,7 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
     { id: 'q', who: 'Plan the race', type: 'Plan', step: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
   ], { done: 1, fails: 1, elapsedMs: 102_000, more: 1 }), 300, 0)
   expect(part.height).toBe(24 + 4 * 22 + 16 + 6)
-  for (const s of ['>3 agents<', '> · 1 done<', '>✗ 1<', '>1:42<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>0:31<', '>2/4<', '>· quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
+  for (const s of ['>3 agents<', '>· 1 done<', '>✗ 1<', '>1:42<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>0:31<', '>2/4<', '>· quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   // A quiet agent's stripe and words are amber; a tripped one's red; Main's in Clawd's colour.
   expect(part.body).toMatch(/class="c-warn"[^>]*>· quiet 47s</)
@@ -405,6 +405,23 @@ test('a just-finished agent hops among confetti on a flashing row, then folds to
   expect(later).toMatch(/class="c-ok"[^>]*>· Done</)
   // Main waiting fades its stripe; it wears the captain's cap.
   expect(later).toContain('opacity=".35"')
+})
+
+test('the header tells done, failed and stopped agents apart; a stopped row is muted, not failed', () => {
+  const part = racePart(lookOf('auto'), race([
+    {},
+    { id: 'o', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out' },
+    { id: 's', who: 'Halted', type: 'Plan', step: 'Stopped', mood: 'stopped', state: 'stopped' },
+    { id: 'd', who: 'Finished', type: 'Plan', step: 'Done', mood: 'done', state: 'finished' },
+  ], { agents: 0, done: 1, failed: 1, stopped: 1 }), 300, 0)
+  expect(part.body).toContain('>1 done · 1 failed · 1 stopped<')
+  expect(part.body).toMatch(/class="c-alert"[^>]*>· Failed</)
+  expect(part.body).toMatch(/class="m"[^>]*>· Stopped</)
+  expect(part.body).toContain('<g opacity=".55"')
+  expect(part.alt).toContain('Race: 1 done, 1 failed, 1 stopped, 0:01;')
+  // A long tally is cut before the header's figures.
+  const long = racePart(lookOf('auto'), race([{}], { agents: 12, done: 123, failed: 45, stopped: 67, fails: 890, elapsedMs: 6_000_000 }), 300, 0).body
+  expect(long).toMatch(/>[^<]*…</)
 })
 
 test('a row’s words stay inside the box, a long step cut for its failures, plan and time', () => {
