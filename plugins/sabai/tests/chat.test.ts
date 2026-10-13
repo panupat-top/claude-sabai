@@ -70,7 +70,7 @@ const call = (tool: string, input: Record<string, unknown>, output: unknown, mor
 
 test('a command is a step titled by what it was for, with the command as its detail', () => {
   const s = call('Bash', { command: 'npm run build\nnpm test', description: 'build the app' }, { stdout: '', stderr: '' }, { durationMs: 4210 })
-  expect(s).toEqual({ icon: 'terminal', tone: 'ok', title: 'Build the app', detail: '$ npm run build', time: '4.2s', result: [{ text: '✓ done', tone: 'ok' }] })
+  expect(s).toEqual({ icon: 'terminal', tone: 'muted', title: 'Build the app', detail: '$ npm run build', time: '4.2s', result: [{ text: '✓ Done', tone: 'ok' }] })
   expect(call('Bash', { command: 'x' }, {}, { durationMs: 45_000 })?.time).toBe('🐢 45s')
   expect(call('Bash', { command: 'ls -la' }, {})?.title).toBe('ls -la')
 })
@@ -80,7 +80,7 @@ test('a command ends failed, interrupted, in the background, or still running', 
   expect(call('Bash', { command: 'x' }, {}, { isInterrupted: true })).toMatchObject({ icon: 'stop', result: [{ text: 'interrupted' }] })
   expect(call('Bash', { command: 'dev' }, { backgroundTaskId: 'b1' })).toMatchObject({ result: [{ text: 'in the background' }] })
   const running = call('Bash', { command: 'sleep 9' }, undefined, { isRunning: true, durationMs: 100 })
-  expect(running).toMatchObject({ result: [{ text: 'running…' }] })
+  expect(running).toMatchObject({ result: [{ text: 'Running…' }] })
   expect(running?.time).toBeUndefined()
 })
 
@@ -118,12 +118,12 @@ test('a failed, interrupted or running Edit, Write or Read says so, with the err
   })
   expect(call('Read', { file_path: 'missing.ts' }, 'File does not exist.', { isErrored: true })).toMatchObject({ tone: 'bad', title: 'Read missing.ts' })
   expect(call('Write', { file_path: 'c.ts', content: 'a' }, undefined, { isInterrupted: true })).toMatchObject({ icon: 'stop', result: [{ text: 'interrupted' }] })
-  expect(call('Read', { file_path: 'x.ts' }, undefined, { isRunning: true })).toMatchObject({ title: 'Reading x.ts', result: [{ text: 'running…' }] })
-  expect(call('Edit', { file_path: 'x.ts', new_string: 'a' }, undefined, { isRunning: true })?.result).toEqual([{ text: 'running…', tone: 'muted' }])
+  expect(call('Read', { file_path: 'x.ts' }, undefined, { isRunning: true })).toMatchObject({ title: 'Reading x.ts', result: [{ text: 'Running…' }] })
+  expect(call('Edit', { file_path: 'x.ts', new_string: 'a' }, undefined, { isRunning: true })?.result).toEqual([{ text: 'Running…', tone: 'muted' }])
 })
 
 test('test counts come only from a command that runs tests; go counts top-level tests once', () => {
-  expect(call('Bash', { command: 'tail ci.log' }, { stdout: 'Tests:       1 failed, 2 passed, 3 total' })).toMatchObject({ icon: 'terminal', result: [{ text: '✓ done' }] })
+  expect(call('Bash', { command: 'tail ci.log' }, { stdout: 'Tests:       1 failed, 2 passed, 3 total' })).toMatchObject({ icon: 'terminal', result: [{ text: '✓ Done' }] })
   expect(call('Bash', { command: 'cd x && npx vitest run' }, { stdout: '      Tests  4 passed (4)' })?.icon).toBe('flask')
   expect(testResult('--- PASS: TestA (0.00s)\n    --- PASS: TestA/sub (0.00s)\n--- FAIL: TestB (0.01s)')).toEqual({ runner: 'go', passed: 1, failed: 1, skipped: 0 })
   const t = performance.now()

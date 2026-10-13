@@ -171,7 +171,7 @@ const lines = (text: string) => {
 }
 
 const parts = (path: string) => path.split(/[\\/]/).filter(Boolean)
-const basename = (path: string) => parts(path).pop() ?? path
+export const basename = (path: string) => parts(path).pop() ?? path
 // A file's folder for a detail line: its last two parts, cut from the left.
 const folderOf = (path: string) => {
   const dirs = parts(path).slice(0, -1)
@@ -224,7 +224,7 @@ export function stepOf(c: Call): Step | undefined {
   const time = c.isRunning || c.durationMs === undefined ? undefined : `${c.durationMs >= 30_000 ? '🐢 ' : ''}${seconds(c.durationMs)}`
   const timed = time ? { time } : {}
   const error = c.isErrored && typeof c.output === 'string' ? errorLine(c.output) : ''
-  const running: Part[] = [{ text: 'running…', tone: 'muted' }]
+  const running: Part[] = [{ text: 'Running…', tone: 'muted' }]
   if (c.tool === 'Bash') {
     const command = bare(firstLine(input.command ?? ''))
     const description = firstLine(input.description ?? '')
@@ -246,7 +246,7 @@ export function stepOf(c: Call): Step | undefined {
       const skipped: Part[] = tests.skipped ? [{ text: ` · ${tests.skipped} skipped`, tone: 'muted' }] : []
       return { ...base, tone: 'ok', result: [{ text: `✓ ${tests.passed} passed`, tone: 'ok' }, ...skipped], meter }
     }
-    return { ...base, tone: 'ok', result: [{ text: '✓ done', tone: 'ok' }] }
+    return { ...base, tone: 'muted', result: [{ text: '✓ Done', tone: 'ok' }] }
   }
   const path = clean(input.file_path ?? '')
   if (!path) return undefined
@@ -368,7 +368,7 @@ export function logged(log: TurnLog, c: Logged): TurnLog {
   return { ...log, files: { ...log.files, [c.path]: { added: was.added + added, removed: was.removed + removed } } }
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 export type Receipt = {
   tone: Tone

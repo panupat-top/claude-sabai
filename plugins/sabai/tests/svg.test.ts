@@ -261,7 +261,7 @@ test('the detail starts after the title it follows, measured by its letters', ()
 // Review fixes (2026-10-11).
 test('a very long title is cut in linear time', () => {
   const t = performance.now()
-  stepSvg({ icon: 'terminal', tone: 'ok', title: 'x'.repeat(20_000), detail: 'd', result: [{ text: '✓ done', tone: 'ok' }] })
+  stepSvg({ icon: 'terminal', tone: 'ok', title: 'x'.repeat(20_000), detail: 'd', result: [{ text: '✓ Done', tone: 'ok' }] })
   expect(performance.now() - t).toBeLessThan(50)
 })
 
@@ -365,9 +365,9 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
   const live = { elapsedMs: 102_000, files: 0, commands: 0 }
   const d = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live })!
   expect(d.source).toMatch(/scale\(3\)/)
-  expect(d.source).toContain('>working<')
+  expect(d.source).toContain('>Working<')
   expect(d.source).toContain('>1m 42s<')
-  expect(d.alt.startsWith('Clawd: working, 1m 42s')).toBe(true)
+  expect(d.alt.startsWith('Clawd: Working, 1m 42s')).toBe(true)
   // Under 480 px, or compact, or Clawd hidden: not this layout.
   expect(bandSvg(undefined, LIST, 470, { hero: true })!.source).not.toMatch(/scale\(3\)/)
   expect(bandSvg(undefined, LIST, 900, { hero: true, density: 'compact' })!.source).not.toMatch(/scale\(3\)/)
@@ -387,21 +387,21 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
     { id: 'q', who: 'Plan the race', type: 'Plan', step: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
   ], { done: 1, fails: 1, elapsedMs: 102_000, more: 1 }), 300, 0)
   expect(part.height).toBe(24 + 4 * 22 + 16 + 6)
-  for (const s of ['>3 agents<', '>· 1 done<', '>✗ 1<', '>1:42<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>0:31<', '>2/4<', '>· quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
+  for (const s of ['>3 agents<', '>· 1 done<', '>✗ 1<', '>1m 42s<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>31s<', '>2/4<', '>· Quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   // A quiet agent's stripe and words are amber; a tripped one's red; Main's in Clawd's colour.
-  expect(part.body).toMatch(/class="c-warn"[^>]*>· quiet 47s</)
+  expect(part.body).toMatch(/class="c-warn"[^>]*>· Quiet 47s</)
   expect(part.body).toMatch(/class="c-alert"[^>]*>· bun test failed</)
-  expect(part.body).toContain(`fill="${look.bar('tasks', 'warn')}"`)
+  expect(part.body).toContain('fill="var(--kl-warn)"')
   // Gone: the turn's worked calls, a lane's ✓ tally, the track, its footprints and flags.
   for (const s of ['✓', 'class="flag', 'class="scroll"', 'sabai-tr-', 'OUCH']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  expect(part.alt).toBe('Race: 3 agents, 1 done, 1 failed call, 1:42; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: quiet 47s; 1 more in the Agents pane')
+  expect(part.alt).toBe('Race: 3 agents, 1 done, 1 failed call, 1m 42s; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: Quiet 47s; 1 more in the Agents pane')
 })
 
 test('a just-finished agent hops among confetti on a flashing row, then folds to a check', () => {
-  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'finished' }]), 300, 0).body
-  for (const s of ['class="flash"', 'class="cf"', 'class="hop', '>· Done! 🎉<']) expect([s, fresh.includes(s)]).toEqual([s, true])
-  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'finished' }]), 300, 0).body
+  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'finished' }]), 300, 0).body
+  for (const s of ['class="flash"', 'class="cf"', 'class="hop', '>· Done 🎉<']) expect([s, fresh.includes(s)]).toEqual([s, true])
+  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'finished' }]), 300, 0).body
   for (const s of ['class="flash"', 'class="cf"', 'class="hop', '🎉']) expect([s, later.includes(s)]).toEqual([s, false])
   expect(later).toMatch(/class="c-ok"[^>]*>· Done</)
   // Main waiting fades its stripe; it wears the captain's cap.
@@ -410,15 +410,15 @@ test('a just-finished agent hops among confetti on a flashing row, then folds to
 
 test('a just-failed agent falls on a red-flashing row with no confetti, then folds to a cross', () => {
   const look = lookOf('auto')
-  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out', ...(fresh ? { fresh } : {}) }]), 300, 0).body
+  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out', ...(fresh ? { fresh } : {}) }]), 300, 0).body
   const now = row(true)
-  expect(now).toContain(`class="flash" x="2" y="47" width="296" height="20" rx="6" fill="${look.bar('tasks', 'alert')}"`)
+  expect(now).toContain('class="flash" x="2" y="47" width="296" height="20" rx="6" fill="var(--kl-fail)"')
   for (const s of ['class="out', '>· Failed<']) expect([s, now.includes(s)]).toEqual([s, true])
   expect(now).not.toContain('class="cf"')
   const later = row(false)
   expect(later).not.toContain('class="flash"')
   expect(later).not.toContain('class="out')
-  expect(later).toContain(`stroke="${look.bar('tasks', 'alert')}"`)
+  expect(later).toContain('stroke="var(--kf-fail)"')
   // The name keeps its ink, as a done agent's does; the step says it failed.
   expect(later).toMatch(/class="t"[^>]*>Broke</)
   expect(later).toMatch(/class="c-alert"[^>]*>· Failed</)
@@ -434,8 +434,8 @@ test('the header tells done, failed and stopped agents apart; a stopped row is m
   expect(part.body).toContain('>1 done · 1 failed · 1 stopped<')
   expect(part.body).toMatch(/class="c-alert"[^>]*>· Failed</)
   expect(part.body).toMatch(/class="m"[^>]*>· Stopped</)
-  expect(part.body).toContain('<g opacity=".55"')
-  expect(part.alt).toContain('Race: 1 done, 1 failed, 1 stopped, 0:01;')
+  expect(part.body).toContain('>✋</text>')
+  expect(part.alt).toContain('Race: 1 done, 1 failed, 1 stopped, 1s;')
   // A long tally is cut before the header's figures.
   const long = racePart(lookOf('auto'), race([{}], { agents: 12, done: 123, failed: 45, stopped: 67, fails: 890, elapsedMs: 6_000_000 }), 300, 0).body
   expect(long).toMatch(/>[^<]*…</)
@@ -482,7 +482,7 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, LIST, 600, opts)!
   expect(mid.alt).not.toContain('Race:')
-  expect(mid.alt).toContain('Clawd: working, 1m 42s; Working: Editing svg.ts')
+  expect(mid.alt).toContain('Clawd: Working, 1m 42s; Working: Editing svg.ts')
   expect(mid.alt).toContain('Agents:')
   expect(bandSvg(undefined, LIST, 400, opts)!.source).not.toMatch(/scale\(3\)/)
   // Clawd hidden: no panel, the race stays.
@@ -514,19 +514,19 @@ test('in the comfortable band the race box’s words take the card’s ink', () 
 
 test('the Clawd panel shows his headline and why, the failing count in alert ink', () => {
   const sad = bandSvg(undefined, LIST, 900, { hero: true, mood: 'sad', clawdLine: '2 failed' })!
-  expect(sad.source).toContain('>tests failing<')
+  expect(sad.source).toContain('>Tests failing<')
   expect(sad.source).toMatch(/class="c-alert"[^>]*>2 failed</)
-  expect(sad.alt.startsWith('Clawd: tests failing, 2 failed')).toBe(true)
-  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn' })!
-  expect(idle.source).toContain('>ready<')
+  expect(sad.alt.startsWith('Clawd: Tests failing, 2 failed')).toBe(true)
+  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'Your turn' })!
+  expect(idle.source).toContain('>Ready<')
   expect(Number(idle.source.match(/height="(\d+)"/)![1])).toBeGreaterThanOrEqual(112)
 })
 
 test('background work left running takes Clawd\'s line while it is the person\'s turn, not while he works', () => {
-  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'your turn', running: 2 })!
+  const idle = bandSvg(undefined, LIST, 900, { hero: true, mood: 'idle', clawdLine: 'Your turn', running: 2 })!
   expect(idle.source).toMatch(/<circle class="d0"[^>]*\/><text class="c-ok"[^>]*>2 running</)
-  expect(idle.source).not.toContain('your turn')
-  expect(idle.alt.startsWith('Clawd: ready, 2 running')).toBe(true)
+  expect(idle.source).not.toContain('Your turn')
+  expect(idle.alt.startsWith('Clawd: Ready, 2 running')).toBe(true)
   expect(bandSvg(undefined, LIST, 900, { hero: true, mood: 'sleeping', clawdLine: 'idle 9m', running: 1 })!.source).toContain('>1 running<')
   const working = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '0:12', running: 1 })!
   expect(working.source).not.toContain('running<')
@@ -536,8 +536,8 @@ test('background work left running takes Clawd\'s line while it is the person\'s
 test('a working turn with no call in flight says it is thinking, so the live strip never stands empty', () => {
   const live = { elapsedMs: 6000, files: 0, commands: 2 }
   const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '6s', live })!
-  expect(hero.source).toMatch(/<circle class="m d1"[\s\S]*class="m"[^>]*>thinking</)
-  expect(bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '6s', live: { ...live, step: { icon: 'read', title: 'Read svg.ts' } } })!.source).not.toContain('>thinking<')
+  expect(hero.source).toMatch(/<circle class="m d1"[\s\S]*class="m"[^>]*>Thinking</)
+  expect(bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', clawdLine: '6s', live: { ...live, step: { icon: 'read', title: 'Read svg.ts' } } })!.source).not.toContain('>Thinking<')
 })
 
 test('the live strip trails the turn\'s calls as tiles, a failure in alert, then its lines and tests; the step shows its own time', () => {
@@ -546,8 +546,10 @@ test('the live strip trails the turn\'s calls as tiles, a failure in alert, then
   const live = { elapsedMs: 42_000, step: { icon: 'read' as const, title: 'Read svg.ts' }, stepMs: 4200, trail, calls: 20, lines: { added: 42, removed: 8 }, files: 2, commands: 3, test: { passed: 12, failed: 0 } }
   const d = bandSvg(undefined, LIST, 1240, { hero: true, mood: 'working', clawdLine: '42s', live })!
   expect((d.source.match(/href="#sabai-ic-/g) ?? []).length).toBe(5)
-  expect(d.source).toContain('<path id="sabai-ic-fail"')
-  expect(d.source).toMatch(/<g class="d0"><rect[^>]*\/><use href="#sabai-ic-read"/)
+  expect(d.source).toMatch(/fill="var\(--kb-fail\)"\/><use href="#sabai-ic-terminal" stroke="var\(--kf-fail\)"/)
+  expect(d.source).toContain('<g id="sabai-ic-terminal"')
+  expect(d.source).toMatch(/svg\{[^}]*--kb-fail:#f3a2a2/)
+  expect(d.source).toMatch(/<g class="d0"><rect[^>]*\/><use href="#sabai-ic-book-open"/)
   expect(d.source).toMatch(/>Read svg\.ts<\/text><text class="m"[^>]*>4s</)
   expect(d.source).toContain('>+16<')
   expect(d.source).toMatch(/class="c-ok"[^>]*>\+42</)
@@ -808,13 +810,13 @@ test('a ring at 0% draws its track and no dot', () => {
 })
 
 test('a slow step’s tortoise time sits clear of its pill', () => {
-  const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }], time: '🐢 1m 5s' })
+  const d = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ Done', tone: 'ok' }], time: '🐢 1m 5s' })
   const pill = d.source.match(/<rect class="k-ok" opacity="[\d.]+" x="([\d.]+)" y="4" width="([\d.]+)"/)!
   const time = endSpans(d.source, 15.5)[0]!
   expect(Number(pill[1]) + Number(pill[2]) <= time[0]).toBe(true)
   // A plain time keeps the column, so pills line up from row to row.
-  const plain = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }], time: '1.2s' })
-  const none = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ done', tone: 'ok' }] })
+  const plain = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ Done', tone: 'ok' }], time: '1.2s' })
+  const none = stepSvg({ icon: 'terminal', tone: 'ok', title: 'Run', detail: '', result: [{ text: '✓ Done', tone: 'ok' }] })
   const pillX = (src: string) => src.match(/<rect class="k-ok" opacity="[\d.]+" x="([\d.]+)"/)![1]
   expect(pillX(plain.source)).toBe(pillX(none.source))
 })

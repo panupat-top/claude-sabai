@@ -59,10 +59,11 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
     - **Rows**: one card with a row each.
 - **The race**, while subagents work (Claude working alone keeps the line of what he is doing now):
   - the header counts the agents running, then those done, failed and stopped, the turn's failed calls (`✗`) and the time;
-  - a row for `Main` (in his captain's cap; `waiting on 3` while his agents work), then one per subagent, named by its task: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
-  - an agent that has said nothing for 30 s dozes and reads `quiet 47s`; a failed call trips it for a moment;
-  - an agent that just failed falls on a red-flashing row, then folds to a red cross (`✗ … · Failed`); one you stopped stands faded and reads `Stopped`;
-  - an agent that just finished hops among confetti on a flashing row (`Done! 🎉`), then folds to a green check;
+  - a row for `Main` (in his captain's cap; `Waiting on 3` while his agents work), then one per subagent, named by its task: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
+  - an agent that has said nothing for 30 s dozes and reads `Quiet 47s`; a failed call trips it for a moment;
+  - an agent that just failed falls on a red-flashing row, then folds to a red cross (`✗ … · Failed`); one you stopped folds to a hand (`✋ … · Stopped`);
+  - an agent that just finished hops among confetti on a flashing row (`Done 🎉`), then folds to a green check;
+  - each finished, failed or stopped agent wears the same mark everywhere, in the race, the crew row and the agents panel: a check, a cross or a hand on a soft green, red or grey disc. The band's and panel's colours are one pastel set, softer tiles with deep glyphs in light mode and deep tiles with bright glyphs in dark;
   - more agents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Agents for all` counts any left over. The details live in the agents panel.
 
   Turning **Activity** off in Settings hides the race.
@@ -76,7 +77,7 @@ The info row sits above the band on a card of its own, everything from the left 
 Press the Agents icon or type `/sabai-agents`. Each of Claude's turns is a **crew**: Claude and the agents that turn started. The panel has three boxes:
 - **Now**, the crew at work, its title saying how many are running, done, failed or stopped:
   - a timeline: each member a bar from its start to its end on one time axis in its mood's colour, a Clawd riding the end of each bar still at work and ✓, ✗ or ✋ at the end of the others; then three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
-  - a lane for Claude (in his captain's cap, with a **main** badge), then one per agent (in its type's hat): a stripe in its mood's colour, its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**. A lane that has ended wears a badge on its Clawd: a green ✓, a red ✗, or ✋ for one you stopped; for its first seconds the lane is tinted green or red.
+  - a lane for Main (in his captain's cap), then one per agent (in its type's hat): a stripe in its mood's colour, its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**. A lane that has ended wears a badge on its Clawd: a green ✓, a red ✗, or ✋ for one you stopped; for its first seconds the lane is tinted green or red.
 - **Viewing**, the lane you opened with **View**: the lane is ringed and tinted, its Clawd waves and its button reads **Viewing**. Press it again, or **✕ Close**, to close the view. With none viewed, Viewing invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
   - its head: its task and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type, model and effort in small print;
   - **Asked to**: the first line of what it was asked, **▸ More** for the rest;

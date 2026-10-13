@@ -1,11 +1,11 @@
 import type { ActKind, AgentRun, BarStyle, CallKind, UsageStyle } from '../types'
-import { FULL_AT, isMain, agentMood, clock, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
+import { FULL_AT, isMain, agentMood, clock, quietFor, contextPercent, effortLabel, elapsed, filesOf, modelName, progressOf, summary, thaiLine, toolsOf, typeEmoji, typeStyle } from './agents'
 import type { AgentMood } from './agents'
 import type { Lane, Race } from './agents'
 import type { Accessory, Chip, Meter, Mood, Progress, Trick } from './model'
-import { countdown, paceOf, resetClock, tokens, value } from './model'
+import { countdown, hhmm, paceOf, resetClock, tokens, value } from './model'
 import type { CalloutKind, Receipt, Step, StepIcon, Tone } from './chat'
-import { stepText } from './chat'
+import { basename, plural, stepText } from './chat'
 import { icon } from './icons'
 import type { IconKind } from './icons'
 import { STROKES } from './strokes'
@@ -46,7 +46,7 @@ export const CHAT_INK: Record<Tone, readonly [string, string]> = {
   ok: ['#116329', '#56d364'],
   bad: ['#a40e26', '#ff8a80'],
   warn: ['#7d4e00', '#e3b341'],
-  edit: ['#0550ae', '#79c0ff'],
+  edit: ['#231f80', '#d6d3ff'],
   read: ['#0a6158', '#3ccbbb'],
 }
 // How strongly a result pill is tinted with its ink: the ink must still read on the tint.
@@ -60,11 +60,7 @@ export const MOTION =
   '.d2{animation-duration:.9s;animation-delay:-.6s}.d3{animation-duration:.7s;animation-delay:-.2s}' +
   '@keyframes tw{0%,100%{opacity:1}50%{opacity:.3}}' +
   '.ripple{transform-box:fill-box;transform-origin:center;animation:rp 1s ease-out infinite}@keyframes rp{0%{transform:scale(.6);opacity:.9}100%{transform:scale(2.2);opacity:0}}' +
-  // A pop that starts and ends at full size: an image's animation can sit frozen on its first
-  // frame (a hidden window), so no motion here may begin by hiding what it moves.
-  '.pop{transform-box:fill-box;transform-origin:center;animation:pop .45s ease-out 2}@keyframes pop{50%{transform:scale(1.45)}}' +
   '.cf{animation:cf 1s ease-out infinite}@keyframes cf{50%{transform:translateY(-3px)}}' +
-  '.shake{animation:sh .4s ease-in-out 2}@keyframes sh{25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}' +
   SPRITE_CSS +
   '@media (prefers-reduced-motion: reduce){*{animation:none!important}}'
 
@@ -196,9 +192,42 @@ function leanCss(look: Look, names: readonly string[]): string {
   return at < 0 ? rules(look.css) : `${rules(look.css.slice(0, at))}${DARK}${rules(look.css.slice(at + DARK.length))}}`
 }
 
+// The pastel palette of statuses and call kinds: each hue's tile ground (kb), the glyph on it (kf)
+// and its lines and bars (kl), each [light, dark]. Drawings paint it as `var(--kb-ok)` and so on,
+// so they follow the OS's light/dark switch; each carries only the variables it uses (paletteCss).
+// A glyph reads at 5:1 or more on its ground in both modes (checked by the tests).
+export const PALETTE = {
+  read: { kb: ['#8fd8cb', '#1f5b53'], kf: ['#083f39', '#a3f0e4'], kl: ['#8fd8cb', '#5cc2b2'] },
+  edit: { kb: ['#b6b2f9', '#3b3780'], kf: ['#231f80', '#d6d3ff'], kl: ['#b6b2f9', '#9a95f2'] },
+  command: { kb: ['#cfcec7', '#4a4a46'], kf: ['#2e2e2a', '#ecebe5'], kl: ['#cfcec7', '#8d8c86'] },
+  ok: { kb: ['#9cdcab', '#255c33'], kf: ['#0f4a22', '#a8f0b6'], kl: ['#9cdcab', '#6cc985'] },
+  web: { kb: ['#efc77c', '#66501a'], kf: ['#4d3300', '#fbe0a0'], kl: ['#efc77c', '#d9ad55'] },
+  skill: { kb: ['#f2b49a', '#6b3420'], kf: ['#6e2a12', '#ffc9b0'], kl: ['#f2b49a', '#e8936f'] },
+  fail: { kb: ['#f3a2a2', '#6e2a2d'], kf: ['#701016', '#ffbdbd'], kl: ['#f3a2a2', '#e58585'] },
+  stop: { kb: ['#d6d5cf', '#4a4a46'], kf: ['#3a3a36', '#e2e1db'], kl: ['#d6d5cf', '#7a7a75'] },
+  warn: { kb: ['#f5cf98', '#6b4a18'], kf: ['#5e3800', '#ffd9a0'], kl: ['#f5cf98', '#e0a85c'] },
+} as const
+export type Hue = keyof typeof PALETTE
+const kb = (h: Hue) => `var(--kb-${h})`
+const kf = (h: Hue) => `var(--kf-${h})`
+const kl = (h: Hue) => `var(--kl-${h})`
+function paletteCss(body: string): string {
+  const used = [...new Set([...body.matchAll(/var\(--(k[bfl])-(\w+)\)/g)].map(m => [m[1], m[2]] as [keyof (typeof PALETTE)[Hue], Hue]))].filter(([, h]) => h in PALETTE)
+  const names = [...new Map(used.map(u => [u.join('-'), u])).values()]
+  if (!names.length) return ''
+  const decl = (i: 0 | 1) => names.map(([t, h]) => `--${t}-${h}:${PALETTE[h][t][i]}`).join(';')
+  return `svg{${decl(0)}}${DARK}svg{${decl(1)}}}`
+}
+// Each call kind's Lucide icon, once per drawing in its defs, placed by every tile that shows it.
+const CALL_ICON: Record<ActKind, StrokeKind> = { read: 'book-open', search: 'search', edit: 'square-pen', command: 'terminal', test: 'flask-conical', web: 'globe', mcp: 'plug', skill: 'lightbulb', other: 'terminal' }
+function iconDefs(body: string): string {
+  const ids = [...new Set([...body.matchAll(/href="#sabai-ic-([\w-]+)"/g)].map(m => m[1] as StrokeKind))]
+  return ids.length ? `<defs>${ids.map(k => `<g id="sabai-ic-${k}" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${STROKES[k]}</g>`).join('')}</defs>` : ''
+}
+
 // `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
 const svg = (look: Look, w: number, h: number, body: string, still = false) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${SURFACE_INK}${still ? '' : MOTION}</style>${body}</svg>`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${SURFACE_INK}${still ? '' : MOTION}${paletteCss(body)}</style>${iconDefs(body)}${body}</svg>`
 
 const ROW_H = 20
 const GAP = 8
@@ -231,6 +260,9 @@ function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Acces
       : ''
   return sprite('tasks', x, y, mode, look.clawd, undefined, accessory) + confetti
 }
+
+// A hat rises above Clawd, so his row or panel leaves room for it.
+const hatted = (a?: Accessory) => a === 'newyear' || a === 'xmas' || a === 'nightcap'
 
 // The tasks row: Clawd, the title, the pixel bar with its n/total pill, the percent.
 // Clawd shows the session's mood: walking while the turn works, blinking while it waits.
@@ -404,7 +436,9 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   const newest = [...runs].reverse()
   const running = newest.filter(a => a.status === 'running')
   const ended = newest.filter(a => a.status !== 'running')
-  const failed = ended.filter(a => a.status === 'failed').length
+  const stopped = ended.filter(a => a.reason === 'aborted').length
+  const failed = ended.filter(a => a.status === 'failed').length - stopped
+  const done = ended.length - failed - stopped
   const step = (spriteSize('tasks').width + PROP_W) * CREW_SCALE + 3
   // As many Clawds as leave room for the words and counts on a narrow band.
   const room = Math.max(1, Math.min(CREW_MAX, Math.floor((W - 200) / step)))
@@ -426,20 +460,21 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   if (more > 0) x += monoWidth(`+${more}`, 11) + 8
   const lead = running[0]
   const line = lead && progressOf(lead)
-  const title = lead ? lead.description || lead.type : failed ? `${ended.length - failed} done · ${failed} failed` : `All ${ended.length} done`
+  const title = lead ? lead.description || lead.type : failed || stopped ? [`${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ') : `All ${ended.length} done`
   const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
   // The right side, laid out from the edge: time, then failed, done and running counts.
   const s = summary([...runs], now)
   const time = clock(s.ms)
   let rx = W - monoWidth(time, 11)
   const right: string[] = [`<text class="sm" x="${W}" y="${top + 15}" text-anchor="end" font-family="${MONO}" font-size="11">${time}</text>`]
-  const count = (n: number, status: AgentRun['status']) => {
+  const count = (n: number, status: Mark) => {
     rx -= monoWidth(String(n), 11.5) + 18
-    right.push(statusMark(look, status, rx + 4, top + 11, look.clawd, false))
+    right.push(statusMark(look, status, rx + 4, top + 11))
     right.push(`<text class="st" x="${rx + 12}" y="${top + 15}" font-family="${MONO}" font-size="11.5" font-weight="700">${n}</text>`)
   }
+  if (stopped) count(stopped, 'stopped')
   if (failed) count(failed, 'failed')
-  if (ended.length - failed) count(ended.length - failed, 'done')
+  if (done) count(done, 'done')
   if (running.length) count(running.length, 'running')
   const textW = rx - x - 12
   // Too little room for the words: leave them out rather than draw them over the counts.
@@ -452,7 +487,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
     (hasWords ? `<text class="st" x="${x}" y="${top + 15}" font-family="${SANS}" font-size="12.5" font-weight="600">${xml(titleText)}</text>` : '') +
     (hasWords && detail ? `<text class="sm" x="${x + titleW + 10}" y="${top + 15}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(20, textW - titleW - 10)))}</text>` : '') +
     right.join('')
-  const counts = [running.length ? `${running.length} running` : '', ended.length ? `${ended.length - failed} done` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(', ')
+  const counts = [running.length ? `${running.length} running` : '', done ? `${done} done` : '', failed ? `${failed} failed` : '', stopped ? `${stopped} stopped` : ''].filter(Boolean).join(', ')
   return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
@@ -465,20 +500,6 @@ const RACE_SCALE = 0.62
 const RACE_BODY = '#b9b9b4'
 // Confetti round a just-finished Clawd: offsets from his middle and their colours.
 const RACE_CONFETTI = [[-5, -3, 'context'], [3, -7, 'session'], [10, -2, 'week'], [16, -6, 'tasks'], [-2, -8, 'week']] as const
-// The calls' pixel icons, 7×7: a magnifier for a read, a pencil for an edit, a prompt for a
-// command, a flask for a passing test, and a cross for any call that failed. Each is one path at
-// its origin, a rect per run of pixels in a row.
-const TRAIL_ROWS: Record<CallKind | 'fail', string[]> = {
-  read: ['.###...', '#...#..', '#...#..', '#...#..', '.###...', '....##.', '.....##'],
-  edit: ['.....##', '....###', '...###.', '..###..', '.###...', '#.#....', '##.....'],
-  command: ['.......', '#......', '.#.....', '..#....', '.#.....', '#..####', '.......'],
-  test: ['..###..', '...#...', '...#...', '..#.#..', '.#.#.#.', '#######', '#######'],
-  fail: ['#.....#', '.#...#.', '..#.#..', '...#...', '..#.#..', '.#...#.', '#.....#'],
-}
-const TRAIL_ICONS = Object.fromEntries(
-  Object.entries(TRAIL_ROWS).map(([k, rows]) => [k, rows.flatMap((row, y) => [...row.matchAll(/#+/g)].map(m => `M${m.index} ${y}h${m[0].length}v1h-${m[0].length}z`)).join('')]),
-) as Record<CallKind | 'fail', string>
-const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`
 
 // The race: a header (how many agents run and are done, the turn's failed calls, its time), then a
 // row per member, Main first: a stripe in its mood's colour, its Clawd in its type's hat (Main in
@@ -487,7 +508,7 @@ const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms 
 // a flashing row, then folds to a check; one just failed falls on a red-flashing row, then folds to
 // a cross. Past the rows, how many more the Agents pane holds.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
-  const time = race.elapsedMs === undefined ? '' : mmss(race.elapsedMs)
+  const time = race.elapsedMs === undefined ? '' : clock(race.elapsedMs)
   const lead = race.agents ? `${race.agents} ${race.agents === 1 ? 'agent' : 'agents'}` : ''
   // The agents that ended, each way apart: a failed or stopped agent is not done.
   const ended = [race.done && `${race.done} done`, race.failed && `${race.failed} failed`, race.stopped && `${race.stopped} stopped`].filter(Boolean).join(' · ')
@@ -505,21 +526,21 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const nameX = x + 24
   // What each row says after its name, in its ink.
   const said = (l: Lane): [string, string] =>
-    l.quietMs !== undefined ? ['c-warn', `quiet ${Math.floor(l.quietMs / 1000)}s`] :
+    l.quietMs !== undefined ? ['c-warn', `Quiet ${Math.floor(l.quietMs / 1000)}s`] :
     l.state === 'out' || l.state === 'tripped' ? ['c-alert', l.step] :
     l.state === 'stopped' ? ['m', l.step] :
-    l.state === 'finished' ? ['c-ok', l.fresh ? 'Done! 🎉' : 'Done'] : ['m', l.step]
+    l.state === 'finished' ? ['c-ok', l.fresh ? 'Done 🎉' : 'Done'] : ['m', l.step]
   const rows = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * RACE_ROW
     const mid = y + RACE_ROW / 2
     const ty = mid + 3.5
     const main = l.id === 'main'
-    const color = main || !l.mood ? look.clawd : l.state === 'tripped' ? look.bar('tasks', 'alert') : moodColor(look, l.mood)
+    const color = main || !l.mood ? kl('skill') : l.state === 'tripped' ? kl('fail') : moodColor(l.mood)
     const stripe = `<rect x="4" y="${y + 3}" width="3" height="${RACE_ROW - 6}" rx="1.5" fill="${color}"${l.state === 'waiting' ? ' opacity=".35"' : ''}/>`
     // The right side from the edge: the time, the failed calls, a plan's done/total and bar.
     let edge = W - 12
     let right = ''
-    const lt = l.timeMs === undefined ? '' : mmss(l.timeMs)
+    const lt = l.timeMs === undefined ? '' : clock(l.timeMs)
     if (lt) {
       right += `<text class="m" x="${edge}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9.5">${lt}</text>`
       edge -= monoWidth(lt, 9.5) + 6
@@ -533,7 +554,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
       const bx = edge - 30
       right +=
         `<rect class="k" x="${+bx.toFixed(1)}" y="${mid - 2}" width="30" height="4" rx="2"/>` +
-        `<rect x="${+bx.toFixed(1)}" y="${mid - 2}" width="${+((30 * l.steps.done) / l.steps.total).toFixed(1)}" height="4" rx="2" fill="${look.clawd}"/>` +
+        `<rect x="${+bx.toFixed(1)}" y="${mid - 2}" width="${+((30 * l.steps.done) / l.steps.total).toFixed(1)}" height="4" rx="2" fill="${kl('skill')}"/>` +
         `<text class="m" x="${+(bx - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9">${frac}</text>`
       edge = bx - 4 - monoWidth(frac, 9) - 6
     }
@@ -543,14 +564,12 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'finished' ? ('scroll' as const) : true } : undefined
     const tool = l.state === 'running' && l.quietMs === undefined ? l.doing : undefined
     const figure =
-      l.state === 'stopped'
-        ? `<g opacity=".55" transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, 'idle', look.clawd, hat && { ...hat, prop: false }))}</g>`
-        : (l.state === 'finished' || l.state === 'out') && !l.fresh
-        ? statusMark(look, l.state === 'out' ? 'failed' : 'done', x + 8, mid, look.clawd, false)
+      l.state === 'stopped' || ((l.state === 'finished' || l.state === 'out') && !l.fresh)
+        ? statusMark(look, l.state === 'stopped' ? 'stopped' : l.state === 'out' ? 'failed' : 'done', x + 8, mid)
         : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'out' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
     const failed = l.state === 'out'
     const party = l.fresh
-      ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${failed ? look.bar('tasks', 'alert') : look.bar('context')}" opacity="${failed ? '.12' : '.14'}"/>`
+      ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${kl(failed ? 'fail' : 'ok')}" opacity=".35"/>`
       : ''
     const confetti = l.fresh && !failed
       ? RACE_CONFETTI.map(([dx, dy, k], j) => `<rect class="cf" style="animation-delay:-${j * 0.2}s" x="${x + 8 + dx}" y="${y + 10 + dy}" width="2" height="2" fill="${look.bar(k)}"/>`).join('')
@@ -579,10 +598,10 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
 }
 
 export const HERO_MIN_W = 480
-const RACE_MIN_W = 760
+export const RACE_MIN_W = 760
 const HERO_PANEL_W = 108
 // What Clawd's panel says under him for each mood.
-const MOOD_WORDS: Record<Mood, string> = { idle: 'ready', working: 'working', startled: 'blocked', sad: 'tests failing', celebrating: 'all green', sweating: 'context full', sleeping: 'napping' }
+const MOOD_WORDS: Record<Mood, string> = { idle: 'Ready', working: 'Working', startled: 'Blocked', sad: 'Tests failing', celebrating: 'All green', sweating: 'Context full', sleeping: 'Napping' }
 
 export const USAGE_STYLES: Record<UsageStyle, string> = { tiles: 'Tiles', rings: 'Rings', columns: 'Columns', rows: 'Rows' }
 const USAGE_MIN_H = 50
@@ -780,7 +799,7 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
   if (clawd) {
     const scale = 3
-    const hat = accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap' ? HAT_H * scale : 0
+    const hat = hatted(accessory) ? HAT_H * scale : 0
     const cw = spriteSize('tasks').width * scale
     const ch = spriteSize('tasks').height * scale
     const block = hat + ch + 8 + 14 + (words ? 13 : 0)
@@ -850,7 +869,6 @@ export type LiveStrip = {
 const STEP_KIND: Record<StepIcon, CallKind> = { terminal: 'command', flask: 'test', pen: 'edit', file: 'edit', read: 'read', stop: 'command' }
 const TILE = 12
 const TILE_STEP = 14
-const stepTime = (ms: number) => (ms < 60_000 ? `${Math.floor(ms / 1000)}s` : clock(ms))
 
 // The live strip: Clawd (when he stands here) and the turn's elapsed time; the call in flight as
 // its tile (blinking), its words and its own time, or three blinking dots while the turn thinks;
@@ -884,33 +902,29 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
   const fits = Math.max(0, Math.min(trail.length, Math.floor(((edge - stepX) * 0.4) / TILE_STEP), Math.floor((edge - stepX - 120) / TILE_STEP)))
   const shown = trail.slice(trail.length - fits)
   const tilesX = edge - shown.length * TILE_STEP
-  right += shown.map((c, i) => kindTile(look, c.kind, c.ok, +(tilesX + i * TILE_STEP).toFixed(1), top + 3, TILE)).join('')
+  right += shown.map((c, i) => kindTile(c.kind, c.ok, +(tilesX + i * TILE_STEP).toFixed(1), top + 3, TILE)).join('')
   const earlier = shown.length ? (live.calls ?? trail.length) - shown.length : 0
   if (earlier > 0) right += `<text class="m" x="${+(tilesX - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="10">+${earlier}</text>`
   const room = tilesX - (earlier > 0 ? monoWidth(`+${earlier}`, 10) + 8 : 0) - stepX - 10
   let left = ''
   if (live.step) {
-    const took = live.stepMs !== undefined && live.stepMs >= 1000 ? stepTime(live.stepMs) : ''
+    const took = live.stepMs !== undefined && live.stepMs >= 1000 ? clock(live.stepMs) : ''
     const title = room > 60 ? fit(live.step.title, 12, room - 22 - (took ? monoWidth(took, 11) + 8 : 0)) : ''
     left =
-      `<g class="d0">${kindTile(look, STEP_KIND[live.step.icon], true, stepX, top + 2, 16)}</g>` +
+      `<g class="d0">${kindTile(STEP_KIND[live.step.icon], true, stepX, top + 2, 16)}</g>` +
       (title ? `<text class="st" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12" font-weight="600">${xml(title)}</text>` : '') +
       (title && took ? `<text class="m" x="${+(stepX + 22 + textWidth(title, 12) + 8).toFixed(1)}" y="${ty}" font-family="${MONO}" font-size="11">${took}</text>` : '')
   } else {
     // With no call in flight the turn is thinking, so the strip never stands empty.
     left =
       [1, 2, 3].map(i => `<circle class="m d${i}" cx="${stepX + 3 + (i - 1) * 6}" cy="${top + 10}" r="2.2"/>`).join('') +
-      (room > 60 ? `<text class="m" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12">thinking</text>` : '')
+      (room > 60 ? `<text class="m" x="${stepX + 22}" y="${ty}" font-family="${SANS}" font-size="12">Thinking</text>` : '')
   }
-  const kinds = [...shown.map(c => (c.ok ? c.kind : 'fail')), ...(live.step ? [STEP_KIND[live.step.icon]] : [])] as (CallKind | 'fail')[]
-  const defs = kinds.length ? `<defs>${[...new Set(kinds)].map(k => `<path id="sabai-ic-${k}" d="${TRAIL_ICONS[k]}" fill="#ffffff"/>`).join('')}</defs>` : ''
   const body =
-    defs +
     (mood ? clawdAt(look, 0, top + (ROW_H - spriteSize('tasks').height) / 2, mood, accessory, trick) : '') +
     (time ? `<text class="st" x="${lead}" y="${ty}" font-family="${MONO}" font-size="11.5" font-weight="600">${time}</text>` : '') +
     left +
     right
-  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`
   const words = [live.files && plural(live.files, 'file'), live.commands && plural(live.commands, 'command'), live.test && (live.test.failed ? `${live.test.failed} failed` : `${live.test.passed} passed`)].filter(Boolean).join(', ')
   return { body: `<g>${body}</g>`, height: ROW_H, alt: `Working${time ? ` ${time}` : ''}${live.step ? `: ${live.step.title}` : ''}${words ? `; ${words}` : ''}` }
 }
@@ -933,8 +947,7 @@ export function bandSvg(p: Progress | undefined, list: readonly Meter[], W: numb
   // One Clawd: the tasks row holds him, else the live strip (else the top row's info card).
   const clawdInLive = !p && Boolean(live) && clawd
   // A hat rises above Clawd: when he stands in the first row, the band starts lower to show it.
-  const hatted = clawd && (accessory === 'newyear' || accessory === 'xmas' || accessory === 'nightcap')
-  if (hatted && (clawdInLive || Boolean(p))) y = HAT_H
+  if (clawd && hatted(accessory) && (clawdInLive || Boolean(p))) y = HAT_H
   if (live) add(livePart(look, live, W, y, clawdInLive ? mood : undefined, accessory, opts.trick))
   if (p) add(progressPart(look, p, W, mood, y, style, clawd, accessory, opts.trick))
   if (crew?.runs.length) add(crewPart(look, crew.runs, crew.now, W, y))
@@ -958,7 +971,7 @@ export function infoSvg(
   const { clawd } = opts
   if (info.left.length + info.right.length === 0 && !info.pending && !clawd) return undefined
   const look = lookOf(opts.skin ?? 'auto')
-  const hat = clawd && (clawd.accessory === 'newyear' || clawd.accessory === 'xmas' || clawd.accessory === 'nightcap') ? HAT_H : 0
+  const hat = clawd && hatted(clawd.accessory) ? HAT_H : 0
   const part = infoPart(info, W - INFO_PAD * 2, hat, look, clawd ? { look, ...clawd } : undefined)
   // On the card the row's words take the card's inks (as the usage cards' do), not the surface's.
   const words = part.body.replace(/class="s([tm])"/g, 'class="$1"').replace(/class="s-/g, 'class="c-')
@@ -1135,14 +1148,17 @@ function hatOf(look: Look, type: string) {
   return { hat, accent, color, hatColor: accent === 'tasks' ? look.pill : accent ? color : undefined }
 }
 
-// Running: a dot whose ring ripples out. Done: a check that pops in while fresh. Failed: a
-// cross that shakes once while fresh. `fresh` is the few seconds after an agent ends.
-function statusMark(look: Look, status: AgentRun['status'], x: number, y: number, color: string, fresh: boolean): string {
+// Running: a dot whose ring ripples out. Done, failed and stopped: a check, a cross or a hand
+// on its pastel ground, as the agents pane's badges.
+type Mark = AgentRun['status'] | 'stopped'
+function statusMark(look: Look, status: Mark, x: number, y: number): string {
   if (status === 'running')
-    return `<circle cx="${x}" cy="${y}" r="3.5" fill="${color}"/><circle class="ripple" cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${color}" stroke-width="1.2"/>`
-  if (status === 'done')
-    return `<path${fresh ? ' class="pop"' : ''} d="M${x - 5} ${y}l3.5 3.5 6.5-7" fill="none" stroke="${look.bar('context')}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`
-  return `<g${fresh ? ' class="shake"' : ''}><path d="M${x - 4} ${y - 4}l8 8M${x + 4} ${y - 4}l-8 8" stroke="${look.bar('tasks', 'alert')}" stroke-width="1.8" stroke-linecap="round"/></g>`
+    return `<circle cx="${x}" cy="${y}" r="3.5" fill="${look.clawd}"/><circle class="ripple" cx="${x}" cy="${y}" r="3.5" fill="none" stroke="${look.clawd}" stroke-width="1.2"/>`
+  const hue: Hue = status === 'done' ? 'ok' : status === 'stopped' ? 'stop' : 'fail'
+  const ground = `<circle cx="${x}" cy="${y}" r="6.5" fill="${kb(hue)}"/>`
+  if (status === 'done') return ground + `<path d="M${x - 3} ${y}l2 2 4-4.5" fill="none" stroke="${kf(hue)}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`
+  if (status === 'stopped') return ground + `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="8">✋</text>`
+  return ground + `<path d="M${x - 2.5} ${y - 2.5}l5 5M${x + 2.5} ${y - 2.5}l-5 5" stroke="${kf(hue)}" stroke-width="1.6" stroke-linecap="round"/>`
 }
 
 // A card's pixel-block bar has a fixed cell count, so a wide pane does not multiply its size.
@@ -1204,14 +1220,16 @@ function cardBar(look: Look, uid: string, x: number, y: number, w: number, ratio
 const AGENT_INKS = ['p', 'k', 't', 'm', 'c-ok', 'c-alert', 'c-warn', 'c-context', 'c-session', 'c-week', 'c-tasks'] as const
 const SM_INK = `.sm{fill:${TEXT.m[0]}}${DARK}.sm{fill:${TEXT.m[1]}}}`
 // The sprites' stylesheet as its top-level rules and keyframes.
+// The sprites' motion and the race's flash, cut into rules so a pane drawing takes only those it uses.
+const MOVES = SPRITE_CSS + RACE_MOTION
 const SPRITE_RULES = (() => {
   const out: string[] = []
   let depth = 0
   let from = 0
-  for (let i = 0; i < SPRITE_CSS.length; i++) {
-    if (SPRITE_CSS[i] === '{') depth++
-    else if (SPRITE_CSS[i] === '}' && --depth === 0) {
-      out.push(SPRITE_CSS.slice(from, i + 1))
+  for (let i = 0; i < MOVES.length; i++) {
+    if (MOVES[i] === '{') depth++
+    else if (MOVES[i] === '}' && --depth === 0) {
+      out.push(MOVES.slice(from, i + 1))
       from = i + 1
     }
   }
@@ -1234,11 +1252,8 @@ const paneDrawing = (look: Look, W: number, H: number, drawn: string, alt: strin
     .replace(new RegExp(`<text class="([^"]+)"([^>]*?) font-family="${MONO}"`, 'g'), '<text class="$1 mo"$2')
     .replace(new RegExp(`<text ([^>]*?)font-family="${MONO}"`, 'g'), '<text class="mo" $1')
   const inks = AGENT_INKS.filter(c => body.includes(`class="${c}"`) || body.includes(`class="${c} `))
-  // Each call kind's icon once, used by every tile that shows it.
-  const icons = [...new Set([...body.matchAll(/href="#sabai-ic-([\w]+)"/g)].map(m => m[1]! as CallKind | 'fail'))]
-  const defs = icons.length ? `<defs>${icons.map(k => `<path id="sabai-ic-${k}" d="${TRAIL_ICONS[k]}" fill="#ffffff"/>`).join('')}</defs>` : ''
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>text{font-family:${SANS}}.mo{font-family:${MONO}}${leanCss(look, inks)}${body.includes('class="sm"') ? SM_INK : ''}${moving ? motionOf(body) : ''}</style>${defs}${body}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>text{font-family:${SANS}}.mo{font-family:${MONO}}${leanCss(look, inks)}${body.includes('class="sm"') ? SM_INK : ''}${moving ? motionOf(body) : ''}${paletteCss(body)}</style>${iconDefs(body)}${body}</svg>`,
     width: W,
     height: H,
     alt,
@@ -1249,14 +1264,15 @@ const paneDrawing = (look: Look, W: number, H: number, drawn: string, alt: strin
 const MOOD_SPRITE: Record<AgentMood, string> = { working: 'run', thinking: 'idle', quiet: 'sleep', context: 'sweat', failed: 'dizzy', stopped: 'idle', done: 'idle' }
 const MOOD_INK: Record<AgentMood, string> = { working: 'm', thinking: 'm', quiet: 'c-warn', context: 'c-context', failed: 'c-alert', stopped: 'm', done: 'c-ok' }
 const TROUBLE: readonly AgentMood[] = ['quiet', 'context', 'failed']
-const moodColor = (look: Look, mood: AgentMood) =>
-  mood === 'failed' ? look.bar('tasks', 'alert') : mood === 'quiet' ? look.bar('tasks', 'warn') : mood === 'done' ? look.bar('context') : mood === 'stopped' ? RACE_BODY : look.clawd
+const moodColor = (mood: AgentMood) => kl(mood === 'failed' ? 'fail' : mood === 'quiet' ? 'warn' : mood === 'done' ? 'ok' : mood === 'stopped' ? 'stop' : 'skill')
 export function moodLabel(a: AgentRun, now: number, window?: number): string {
   const mood = agentMood(a, now, window)
-  return mood === 'quiet' ? `quiet ${Math.floor((now - (a.lastActiveAt ?? a.startedAt)) / 1000)}s` : mood === 'context' ? `ctx ${contextPercent(a, window)}%` : mood
+  const said = mood === 'quiet' ? `quiet ${Math.floor(quietFor(a, now) / 1000)}s` : mood === 'context' ? `context ${contextPercent(a, window)}%` : mood
+  return said[0]!.toUpperCase() + said.slice(1)
 }
 // Whether a run's drawing moves: at work, or in the few seconds after it ended.
-const moving = (a: AgentRun, now: number) => a.status === 'running' || (a.endedAt !== undefined && now - a.endedAt < HOP_MS)
+const justEnded = (a: AgentRun, now: number) => a.endedAt !== undefined && now - a.endedAt < HOP_MS
+const moving = (a: AgentRun, now: number) => a.status === 'running' || justEnded(a, now)
 
 // Clawd in the run's hat and mood, 31×20 at scale 1 (his tool held at his right).
 const CLAWD_W = spriteSize('tasks').width + PROP_W
@@ -1280,7 +1296,7 @@ export function asPaths(sprite: string): string {
 }
 function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: number, y: number, scale: number, trick = ''): string {
   const { hat, hatColor } = hatOf(look, a.type)
-  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
+  const fresh = justEnded(a, now)
   const mode = (fresh && mood === 'done' ? 'hop' : fresh && mood === 'failed' ? 'out' : MOOD_SPRITE[mood]) + (trick ? ` ${trick}` : '')
   const prop = a.status === 'running' ? true : a.status === 'done' ? ('scroll' as const) : false
   // Claude himself wears the captain's cap, not a type's hat.
@@ -1297,31 +1313,17 @@ const trackBar = (x: number, y: number, w: number, h: number, ratio: number, col
   (ratio > 0 ? `<rect x="${x}" y="${y}" width="${Math.max(h, Math.round(w * Math.min(1, ratio)))}" height="${h}" rx="${h / 2}" fill="${color}"/>` : '')
 const label = (x: number, y: number, s: string, extra = '') => `<text class="m" x="${x}" y="${y}" font-family="${MONO}" font-size="9" font-weight="700" letter-spacing=".08em"${extra}>${xml(s)}</text>`
 const secs = (ms: number) => (ms < 50 ? '' : ms < 10_000 ? `${(ms / 1000).toFixed(1)}s` : clock(ms))
-const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`
 
-// A call's kind as a tile's fill and the pixel icon on it.
-function kindPaint(look: Look, kind: ActKind, ok: boolean): { paint: string; icon: CallKind | 'fail' } {
-  if (!ok) return { paint: `fill="${look.bar('tasks', 'alert')}"`, icon: 'fail' }
-  if (kind === 'read' || kind === 'search') return { paint: `fill="${look.bar('context')}"`, icon: 'read' }
-  if (kind === 'edit') return { paint: `fill="${look.bar('session')}"`, icon: 'edit' }
-  if (kind === 'test') return { paint: 'class="c-ok"', icon: 'test' }
-  if (kind === 'web' || kind === 'mcp') return { paint: `fill="${look.bar('week')}"`, icon: 'command' }
-  if (kind === 'skill') return { paint: `fill="${look.clawd}"`, icon: 'command' }
-  return { paint: 'class="m"', icon: 'command' }
-}
-const kindTile = (look: Look, kind: ActKind, ok: boolean, x: number, y: number, size = 14) => {
-  const { paint, icon: i } = kindPaint(look, kind, ok)
-  const s = (size - 4) / 7
-  return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="3" ${paint}/><use href="#sabai-ic-${i}" transform="translate(${x + 2},${y + 2}) scale(${s.toFixed(2)})"/>`
+// A call as a tile: its kind's Lucide icon on its pastel ground, a failed call's on the failure's.
+const KIND_HUE: Record<ActKind, Hue> = { read: 'read', search: 'read', edit: 'edit', command: 'command', test: 'ok', web: 'web', mcp: 'web', skill: 'skill', other: 'command' }
+const kindTile = (kind: ActKind, ok: boolean, x: number, y: number, size = 14) => {
+  const hue = ok ? KIND_HUE[kind] : 'fail'
+  return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="3" fill="${kb(hue)}"/><use href="#sabai-ic-${CALL_ICON[kind]}" stroke="${kf(hue)}" transform="translate(${x + 2},${y + 2}) scale(${((size - 4) / 24).toFixed(3)})"/>`
 }
 
 // The viewed run's Clawd stands in a soft light of his colour.
 const spotlight = (id: string, look: Look, cx: number, cy: number, rx: number, ry: number) =>
   `<defs><radialGradient id="sabai-spot-${id}"><stop offset="0" stop-color="${look.clawd}" stop-opacity=".32"/><stop offset="1" stop-color="${look.clawd}" stop-opacity="0"/></radialGradient></defs><ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#sabai-spot-${id})"/>`
-// Main's badge after its name, `y` its text's baseline.
-const MAIN_BADGE_W = 34
-const mainBadge = (look: Look, x: number, y: number) =>
-  `<rect x="${x.toFixed(1)}" y="${y - 11}" width="${MAIN_BADGE_W}" height="15" rx="7.5" fill="${look.clawd}" fill-opacity=".16"/><text class="c-tasks" x="${(x + MAIN_BADGE_W / 2).toFixed(1)}" y="${y}" text-anchor="middle" font-family="${SANS}" font-size="9.5" font-weight="700">main</text>`
 
 // The overview of the crews at work: each member a bar on one time axis, from its start to its
 // end in its mood's colour, a Clawd riding the end of each one still at work and a mark at the
@@ -1350,7 +1352,7 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
     b += `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 't'}" x="${PAD + 6}" y="${y + 15}" font-family="${SANS}" font-size="11.5" font-weight="${a.status === 'running' ? 600 : 500}">${xml(fit(a.description || a.type, 11.5, nameW))}</text>`
     const s = xs(a.startedAt)
     const e = Math.max(s + 6, xs(a.status === 'running' ? now : (a.endedAt ?? now)))
-    b += `<rect x="${s.toFixed(1)}" y="${y + 7}" width="${(e - s).toFixed(1)}" height="10" rx="5" fill="${moodColor(look, mood)}"${a.status === 'running' ? '' : ' fill-opacity=".55"'}/>`
+    b += `<rect x="${s.toFixed(1)}" y="${y + 7}" width="${(e - s).toFixed(1)}" height="10" rx="5" fill="${moodColor(mood)}"${a.status === 'running' ? '' : ' fill-opacity=".55"'}/>`
     b +=
       a.status === 'running'
         ? agentClawd(look, a, mood, now, e - 6, y - 1, 0.8)
@@ -1362,7 +1364,7 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
     y += 14
   }
   // The axis: the crew's start, its middle, and now (or its end).
-  b += `<text class="m" x="${x0}" y="${y + 10}" font-family="${MONO}" font-size="9">0:00</text>`
+  b += `<text class="m" x="${x0}" y="${y + 10}" font-family="${MONO}" font-size="9">0s</text>`
   b += `<text class="m" x="${((x0 + x1) / 2).toFixed(1)}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="9">${clock(span / 2)}</text>`
   b += `<text class="m" x="${x1}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9">${running ? 'now' : clock(span)}</text>`
   y += 20
@@ -1387,8 +1389,8 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
   b += tile(1, 'TOKENS', tokens(spent))
   b += tile(2, 'TIME', clock(end - start))
   const H = y + Math.ceil(3 / cols) * (th + 8) + 4
-  const alt = `${plural(runs.length, 'member')}: ${shown.map(a => `${a.description || a.type} ${agentMood(a, now, windowOf(a))}`).join(', ')}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
-  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="12"/>` + b, alt, running)
+  const alt = `${plural(runs.length, 'member')}: ${shown.map(a => `${a.description || a.type} ${agentMood(a, now, windowOf(a))}`).join(', ')}; ${plural(calls, 'call')}${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
+  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="8"/>` + b, alt, running)
 }
 
 // One agent as a lane: a stripe in its mood's colour, Clawd in his mood, the task (Main's with
@@ -1400,16 +1402,16 @@ export const AGENT_LANE_H = 42
 function endBadge(look: Look, a: AgentRun, mood: AgentMood, now: number, W: number, H: number): { tint: string; badge: string } {
   if (a.status === 'running') return { tint: '', badge: '' }
   const stopped = mood === 'stopped'
-  const color = mood === 'done' ? look.bar('context') : stopped ? RACE_BODY : look.bar('tasks', 'alert')
-  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
-  const tint = fresh && !stopped ? `<rect x="5" y="2" width="${W - 7}" height="${H - 4}" rx="6" fill="${color}" opacity="${mood === 'done' ? '.14' : '.12'}"/>` : ''
+  const hue: Hue = mood === 'done' ? 'ok' : stopped ? 'stop' : 'fail'
+  const fresh = justEnded(a, now)
+  const tint = fresh && !stopped ? `<rect class="flash" x="5" y="2" width="${W - 7}" height="${H - 4}" rx="6" fill="${kl(hue)}" opacity=".35"/>` : ''
   const cx = 12 + CLAWD_W - 4
   const cy = (H + CLAWD_H) / 2 - 2
   const glyph =
-    mood === 'done' ? `<path d="M${cx - 2.5} ${cy}l1.7 1.7 3.2-3.6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>` :
+    mood === 'done' ? `<path d="M${cx - 2.5} ${cy}l1.7 1.7 3.2-3.6" fill="none" stroke="${kf(hue)}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>` :
     stopped ? `<text x="${cx}" y="${cy + 2.8}" text-anchor="middle" font-size="7.5">✋</text>` :
-    `<path d="M${cx - 2.1} ${cy - 2.1}l4.2 4.2M${cx + 2.1} ${cy - 2.1}l-4.2 4.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`
-  return { tint, badge: `<circle class="p" cx="${cx}" cy="${cy}" r="7.7"/><circle cx="${cx}" cy="${cy}" r="6.5" fill="${color}"/>` + glyph }
+    `<path d="M${cx - 2.1} ${cy - 2.1}l4.2 4.2M${cx + 2.1} ${cy - 2.1}l-4.2 4.2" stroke="${kf(hue)}" stroke-width="1.5" stroke-linecap="round"/>`
+  return { tint, badge: `<circle class="p" cx="${cx}" cy="${cy}" r="7.7"/><circle cx="${cx}" cy="${cy}" r="6.5" fill="${kb(hue)}"/>` + glyph }
 }
 
 export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
@@ -1425,7 +1427,7 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const barX = right - timeW - 12 - (p ? monoWidth(`${p.done}/${p.total}`, 10) + 6 : 0) - barW
   const textX = 12 + CLAWD_W + 8
   const size = selected ? 13.2 : 12.5
-  const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX - (isMain(a) ? MAIN_BADGE_W + 6 : 0)
+  const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX
   const name = fit(a.description || a.type, size, textRoom)
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
   const H = AGENT_LANE_H
@@ -1436,17 +1438,16 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
       ? `<rect x=".75" y=".75" width="${W - 1.5}" height="${H - 1.5}" rx="7.5" fill="${look.clawd}" fill-opacity=".08" stroke="${look.clawd}" stroke-width="1.5"/>` +
         spotlight(uid, look, 12 + CLAWD_W / 2, H / 2 + 2, 26, 20)
       : '') +
-    `<rect y="6" width="4" height="${H - 12}" rx="2" fill="${moodColor(look, mood)}"/>` +
+    `<rect y="6" width="4" height="${H - 12}" rx="2" fill="${moodColor(mood)}"/>` +
     end.tint +
     agentClawd(look, a, mood, now, 12, (H - CLAWD_H) / 2, 1, selected ? 'wave' : '') +
     end.badge +
     `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="${size}" font-weight="${selected ? 800 : 600}">${xml(name)}</text>` +
-    (isMain(a) ? mainBadge(look, textX + textWidth(name, size) + 6, 17) : '') +
     `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
-    (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(look, mood), style) : '') +
+    (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(mood), style) : '') +
     (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
     `<text class="t" x="${right}" y="17" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>`
-  return paneDrawing(look, W, H, body, `${a.description || a.type}${isMain(a) ? ' (main)' : ''}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
+  return paneDrawing(look, W, H, body, `${a.description || a.type}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
 }
 
 // The detail's head, a line for each thing: Clawd large in his mood, waving in a soft light,
@@ -1458,7 +1459,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const mood = agentMood(a, now, window)
   const tag = moodLabel(a, now, window)
   const time = clock(elapsed(a, now))
-  const since = Math.max(0, now - (a.lastActiveAt ?? a.startedAt))
+  const since = Math.max(0, quietFor(a, now))
   const effort = effortLabel(a.effort)
   const meta = [isMain(a) ? '' : a.type.replace(/-purpose$/, ''), modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
   const doing = a.doing?.at(-1)
@@ -1471,24 +1472,23 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const tx = 14 + CLAWD_W * scale + 14
   const right = W - 14
   const timeW = monoWidth(time, 13) + 12
-  const name = fit(`${typeEmoji(a.type)} ${a.description || a.type}`, 15, right - tx - timeW - (isMain(a) ? MAIN_BADGE_W + 8 : 0))
+  const name = fit(`${typeEmoji(a.type)} ${a.description || a.type}`, 15, right - tx - timeW)
   const tagW = textWidth(tag, 10.5) + 18
   const p = progressOf(a)
   const pct = contextPercent(a, window)
   const meters: [string, string, number | undefined, string][] = [
-    ['STEPS', p ? `${p.done}/${p.total}` : a.status === 'done' ? 'done' : '—', p ? p.done / p.total : a.status === 'done' ? 1 : 0, moodColor(look, mood)],
+    ['STEPS', p ? `${p.done}/${p.total}` : a.status === 'done' ? 'done' : '—', p ? p.done / p.total : a.status === 'done' ? 1 : 0, moodColor(mood)],
     ['CONTEXT', pct === undefined ? tokens(a.contextTokens) : `${tokens(a.contextTokens)} · ${pct}%`, pct === undefined ? 0 : pct / 100, (pct ?? 0) >= FULL_AT ? look.bar('tasks', 'warn') : look.bar('context')],
     ['TOKENS', tokens(a.spent ?? a.contextTokens), undefined, ''],
   ]
   const mw = (right - 14 - 16 * 2) / 3
   const body =
-    `<rect class="p" width="${W}" height="${H}" rx="10"/>` +
+    `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
     spotlight(`head-${a.id.replace(/\W/g, '_')}`, look, 14 + CLAWD_W, 20 + CLAWD_H, CLAWD_W * 1.25, CLAWD_H * 1.15) +
     agentClawd(look, a, mood, now, 14, 20, scale, 'wave') +
     `<text class="t" x="${tx}" y="30" font-family="${SANS}" font-size="15" font-weight="700">${xml(name)}</text>` +
-    (isMain(a) ? mainBadge(look, tx + textWidth(name, 15) + 8, 29) : '') +
     `<text class="t" x="${right}" y="30" text-anchor="end" font-family="${MONO}" font-size="13" font-weight="600">${time}</text>` +
-    `<rect x="${tx}" y="42" width="${tagW.toFixed(1)}" height="18" rx="9" fill="${moodColor(look, mood)}" fill-opacity=".16"/>` +
+    `<rect x="${tx}" y="42" width="${tagW.toFixed(1)}" height="18" rx="9" fill="${moodColor(mood)}" fill-opacity=".16"/>` +
     `<text class="${MOOD_INK[mood]}" x="${tx + 9}" y="55" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(tag)}</text>` +
     (latest
       ? `<text class="${latest.ink}" x="${tx + tagW + 10}" y="55" font-family="${SANS}" font-size="11.5">${latest.mark}</text>` +
@@ -1506,7 +1506,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
       .join('') +
     `<text class="m" x="14" y="${H - 12}" font-family="${SANS}" font-size="10.5">${xml(fit(meta, 10.5, right - 14 - (heard ? textWidth(heard, 10.5) + 12 : 0)))}</text>` +
     (heard ? `<text class="m" x="${right}" y="${H - 12}" text-anchor="end" font-family="${SANS}" font-size="10.5">${heard}</text>` : '')
-  const alt = `${a.description || a.type}${isMain(a) ? ' (main)' : ''}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest.title}` : ''}`
+  const alt = `${a.description || a.type}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest.title}` : ''}`
   return paneDrawing(look, W, H, body, alt, moving(a, now))
 }
 
@@ -1514,7 +1514,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
 export function toolsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
   const look = lookOf(skin)
   const { builtin, skills, mcp } = toolsOf(a)
-  const rows = ([['BUILT-IN', builtin, RACE_BODY], ['SKILLS', skills, look.clawd], ['MCP', mcp, look.bar('week')]] as const).filter(r => r[1].length)
+  const rows = ([['BUILT-IN', builtin, kl('command')], ['SKILLS', skills, kl('skill')], ['MCP', mcp, kl('web')]] as const).filter(r => r[1].length)
   if (!rows.length) return undefined
   const x0 = 84
   let y = 8
@@ -1560,7 +1560,7 @@ export function stepsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
     const current = !finished && i === rows.length - 1
     b += current
       ? `<circle cx="16" cy="${y}" r="5.5" fill="none" stroke="${look.clawd}" stroke-width="2"/><circle cx="16" cy="${y}" r="2" fill="${look.clawd}"/>`
-      : `<circle cx="16" cy="${y}" r="6" fill="${look.bar('context')}"/><path d="M13 ${y}l2 2.2 4-4.4" stroke="#ffffff" stroke-width="1.5" fill="none"/>`
+      : `<circle cx="16" cy="${y}" r="6" fill="${kb('ok')}"/><path d="M13 ${y}l2 2.2 4-4.4" stroke="${kf('ok')}" stroke-width="1.5" fill="none"/>`
     b += `<text class="${current ? 't' : 'm'}" x="30" y="${y + 4}" font-family="${SANS}" font-size="12"${current ? ' font-weight="600"' : ''}>${xml(fit(note, 12, W - 40))}</text>`
   })
   if (more) b += `<text class="m" x="30" y="${rows.length * 20 + 16}" font-family="${SANS}" font-size="11">${plural(more, 'more step')} planned</text>`
@@ -1579,7 +1579,7 @@ export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max =
   let b = ''
   const row = (kind: ActKind, title: string, end: string, ok: boolean) => {
     b +=
-      kindTile(look, kind, ok, 10, y + 4) +
+      kindTile(kind, ok, 10, y + 4) +
       `<text class="t" x="32" y="${y + 15}" font-family="${MONO}" font-size="11.5">${xml(fitMono(title, 11.5, W - 32 - 70))}</text>` +
       end
     y += 22
@@ -1587,7 +1587,7 @@ export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max =
   for (const c of calls)
     row(c.kind, c.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">${secs(c.ms)}</text><text class="${c.ok ? 'c-ok' : 'c-alert'}" x="${W - 10}" y="${y + 15}" text-anchor="end" font-family="${SANS}" font-size="12">${c.ok ? '✓' : '✗'}</text>`, c.ok)
   for (const d of doing)
-    row(d.kind, d.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">running…</text><circle cx="${W - 15}" cy="${y + 11}" r="4" fill="none" stroke="${look.clawd}" stroke-width="2" stroke-dasharray="12 6"/>`, true)
+    row(d.kind, d.title, `<text class="m" x="${W - 28}" y="${y + 15}" text-anchor="end" font-family="${MONO}" font-size="10.5">Running…</text><circle cx="${W - 15}" cy="${y + 11}" r="4" fill="none" stroke="${look.clawd}" stroke-width="2" stroke-dasharray="12 6"/>`, true)
   const H = y + 6
   // Each title cut short in the alt, which the pane's tree carries whole.
   const said = (t: string) => fit(t, 1, 45)
@@ -1605,7 +1605,6 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
   if (!all.length) return undefined
   const changed = all.filter(f => f.file.edits > 0)
   const read = all.filter(f => f.file.edits === 0)
-  const base = (p: string) => p.split('/').pop() ?? p
   const dir = (p: string) => (p.includes('/') ? `${p.slice(0, p.lastIndexOf('/'))}/` : '')
   let y = 0
   let b = ''
@@ -1616,8 +1615,8 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
   if (changed.length) {
     head(`Changed · ${changed.length}`)
     for (const { path, file } of changed) {
-      const tint = file.created ? look.bar('context') : look.bar('session')
-      const name = fitMono(base(path), 12.5, W - 200)
+      const tint = kl(file.created ? 'ok' : 'edit')
+      const name = fitMono(basename(path), 12.5, W - 200)
       const nameW = monoWidth(name, 12.5)
       const n = Math.max(1, file.added + file.removed)
       const greens = Math.round((5 * file.added) / n)
@@ -1626,7 +1625,7 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
       b +=
         `<rect class="k" fill-opacity=".4" x="8" y="${y}" width="${W - 16}" height="34" rx="7"/><rect x="8" y="${y}" width="3" height="34" rx="1.5" fill="${tint}"/>` +
         `<text class="t" x="20" y="${y + 15}" font-family="${MONO}" font-size="12.5" font-weight="600">${xml(name)}</text>` +
-        (file.created ? `<rect x="${26 + nameW}" y="${y + 5}" width="30" height="13" rx="3" fill="${look.bar('context')}" fill-opacity=".18"/><text class="c-ok" x="${41 + nameW}" y="${y + 15}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="700">NEW</text>` : '') +
+        (file.created ? `<rect x="${26 + nameW}" y="${y + 5}" width="30" height="13" rx="3" fill="${kb('ok')}"/><text fill="${kf('ok')}" x="${41 + nameW}" y="${y + 15}" text-anchor="middle" font-family="${SANS}" font-size="9" font-weight="700">NEW</text>` : '') +
         `<text class="m" x="20" y="${y + 28}" font-family="${MONO}" font-size="10">${xml(fitMono(dir(path), 10, W - 150))}</text>` +
         `<text x="${W - 70}" y="${y + 16}" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="600"><tspan class="c-ok">+${file.added}</tspan> <tspan class="c-alert">−${file.removed}</tspan></text>` +
         cells +
@@ -1637,7 +1636,7 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
   if (read.length) {
     head(`Read · ${read.length}`)
     for (const { path, file } of read.slice(0, READ_SHOWN)) {
-      const name = fitMono(base(path), 12, W * 0.5)
+      const name = fitMono(basename(path), 12, W * 0.5)
       b +=
         `<circle cx="16" cy="${y + 8}" r="3" fill="${look.bar('context')}"/><text class="t" x="26" y="${y + 12}" font-family="${MONO}" font-size="12">${xml(name)}</text>` +
         `<text class="m" x="${32 + monoWidth(name, 12)}" y="${y + 12}" font-family="${MONO}" font-size="10">${xml(fitMono(dir(path), 10, Math.max(10, W - 80 - monoWidth(name, 12))))}</text>` +
@@ -1659,7 +1658,7 @@ export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
   const look = lookOf(skin)
   const x = 16 + CLAWD_W * 1.6 + 14
   const body =
-    `<rect class="p" width="${W}" height="64" rx="10"/>` +
+    `<rect class="p" width="${W}" height="64" rx="8"/>` +
     `<g transform="translate(16,14) scale(1.6)">${asPaths(sprite('tasks', 0, HAT_H, 'sleep', look.clawd))}</g>` +
     `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">Pick an agent</text>` +
     `<text class="m" x="${x}" y="46" font-family="${SANS}" font-size="11.5">${xml(fit('Press View on a lane to see its work.', 11.5, W - x - 12))}</text>`
@@ -1675,7 +1674,7 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const start = Math.min(...crew.map(a => a.startedAt))
   const end = Math.max(...crew.map(a => a.endedAt ?? a.startedAt))
   const at = new Date(start)
-  const hhmm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`
+  const time = hhmm(at)
   const failed = runs.filter(a => a.status === 'failed' && a.reason !== 'aborted').length
   const stopped = runs.filter(a => a.reason === 'aborted').length
   const done = runs.filter(a => a.status === 'done').length
@@ -1684,7 +1683,7 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const changed = (a: AgentRun) => Object.values(a.files ?? {}).filter(f => f.edits > 0).length
   const mvp = runs.length > 1 ? runs.filter(a => a.status === 'done' && !a.callFails).sort((x, y) => changed(y) - changed(x) || elapsed(x, end) - elapsed(y, end))[0] : undefined
   const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
-  const title = `${hhmm} · ${plural(runs.length, 'agent')}`
+  const title = `${time} · ${plural(runs.length, 'agent')}`
   const what = runs.map(a => `${a === mvp ? '👑 ' : ''}${a.description || a.type}`).join(' · ')
   const tallyW = monoWidth(tally, 10.5)
   const body =
@@ -1734,7 +1733,7 @@ const TOOL_SIZE = 16
 
 // Each icon sits on a tile of the band's card, as tall as the info row's, so the top row reads as
 // one strip. The shape is a mask over a rect, so it takes the skin's fill inks like the cards' words.
-const TOOL_H = 22
+const TOOL_H = INFO_H
 const TOOL_PAD = 5
 export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm', skin = 'auto'): Drawing {
   const ink = tone === 'm' ? 'm' : `c-${tone}`
@@ -1749,27 +1748,6 @@ export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' |
 }
 
 const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }
-// A semibold proportional face's width, by kind of character: near enough to set the next
-// word after it without overlap, and to cut a title short of the right column.
-// Combining marks (Thai vowels and tones) take no width; CJK and pictographs a full em.
-const charWidth = (c: string) =>
-  /\p{M}/u.test(c) ? 0
-  : /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Extended_Pictographic}]/u.test(c) ? 1
-  : /[il.,:;'|!]/.test(c) ? 0.3 : /[fjrt() -]/.test(c) ? 0.4 : /[mwMW]/.test(c) ? 0.9 : /[A-Z]/.test(c) ? 0.7 : 0.6
-const sansWidth = (s: string, size: number) => [...s].reduce((w, c) => w + size * charWidth(c), 0)
-// One pass: keep characters while they and an ellipsis fit.
-const fitSans = (s: string, size: number, maxW: number) => {
-  if (sansWidth(s, size) <= maxW) return s
-  const room = maxW - size * 0.6
-  let w = 0
-  let out = ''
-  for (const c of s) {
-    w += size * charWidth(c)
-    if (w > room) break
-    out += c
-  }
-  return `${out || [...s][0]}…`
-}
 
 // One tool call as a minimal step on one line: a small stroke icon in its tool's colour, a
 // title saying what it was about, then what it did, dim; at the right a meter, the result in a
@@ -1806,8 +1784,8 @@ export function stepSvg(step: Step): Drawing {
   }
   const time = step.time ? `<text class="k-muted" x="${STEP_W - 2}" y="15.5" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(step.time)}</text>` : ''
   const room = x - 20 - 10
-  const title = fitSans(step.title, 12, Math.min(room, room * 0.7 + 60))
-  const titleW = sansWidth(title, 12)
+  const title = fit(step.title, 12, Math.min(room, room * 0.7 + 60), 1)
+  const titleW = textWidth(title, 12)
   const detailRoom = room - titleW - 10
   const detail = detailRoom > 40 ? fitMono(step.detail, 10.5, detailRoom) : ''
   const motion = step.tone === 'ok' ? ' an-pop' : step.tone === 'bad' ? ' an-shake' : ''
@@ -1836,7 +1814,7 @@ export function receiptSvg(r: Receipt): Drawing {
   if (r.files) groups.push([{ text: `${r.files.count} file${r.files.count === 1 ? '' : 's'} `, tone: 'muted' }, { text: `+${r.files.added}`, tone: 'ok' }, { text: ` −${r.files.removed}`, tone: 'bad' }])
   if (r.test) groups.push([r.test.failed ? { text: `${r.test.failed} of ${r.test.passed + r.test.failed} failed`, tone: 'bad' } : { text: `${r.test.passed} passed`, tone: 'ok' }])
   if (r.commands) groups.push([{ text: `${r.commands.count} command${r.commands.count === 1 ? '' : 's'}`, tone: 'muted' }, ...(r.commands.failed ? [{ text: ` · ${r.commands.failed} failed`, tone: 'bad' as Tone }] : [])])
-  const headW = sansWidth(r.headline, 12)
+  const headW = textWidth(r.headline, 12)
   let x = 20 + headW
   let words = ''
   for (const g of groups) {

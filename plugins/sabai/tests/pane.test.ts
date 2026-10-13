@@ -102,7 +102,7 @@ test('Thai lines carry the real numbers, stay put between redraws, and name a ro
   expect(thaiLine(run('a', { lastActiveAt: at - 45_000 }), at)).toContain('45 วิ')
   expect(thaiLine(run('a', { contextTokens: 172_000, lastActiveAt: at }), at, 200_000)).toContain('86%')
   expect(thaiLine(run('a', { status: 'failed', reason: 'aborted', progress: { done: 2, total: 3 } }), at)).toBe('หยุดตามที่สั่ง ✋ ทำไป 2/3 ขั้น')
-  expect(thaiLine(run('a', { status: 'done', startedAt: 0, endedAt: 16_000 }), at)).toContain('0:16')
+  expect(thaiLine(run('a', { status: 'done', startedAt: 0, endedAt: 16_000 }), at)).toContain('16s')
   expect(thaiLine(run('a', { status: 'done', summary: 'pending', endedAt: 9000 }), at)).toContain('กำลังสรุป')
   expect(thaiLine(run('a', { rounds: [{}], doing: [{ kind: 'edit', title: 'Edit x', target: 'x' }] }), at)).toBe('รอบ 2 · กำลังแก้ x ✍️')
   const quiet = run('q', { lastActiveAt: at - 40_000 })
@@ -159,10 +159,10 @@ test('the overview lays the crew on one time axis, a Clawd riding each bar at wo
   expect(crewSvg(list, 260, 30_000).height).toBeGreaterThan(d.height)
 })
 
-test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main wears its badge and cap; still once settled', () => {
+test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd waves; Main is named so and wears its cap; still once settled', () => {
   const lane = laneSvg(busy('a'), 454, 30_000, 'raised', undefined, true)
   expect(lane.source).toContain('กำลังอ่าน svg.ts')
-  expect(lane.source).toContain('<rect y="6" width="4" height="30" rx="2" fill="#D97757"/>')
+  expect(lane.source).toContain('<rect y="6" width="4" height="30" rx="2" fill="var(--kl-skill)"/>')
   expect(lane.source).toContain('stroke="#D97757" stroke-width="1.5"')
   expect(lane.source).toContain('class="run wave"')
   expect(lane.source).toContain('font-weight="800"')
@@ -170,34 +170,34 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
   expect(laneSvg(busy('a'), 454, 30_000, 'raised').source).not.toContain('wave')
   const quiet = laneSvg(busy('q', { doing: [], lastActiveAt: 0 }), 454, 60_000)
   expect(quiet.source).toMatch(/class="c-warn"[^>]*>เงียบไป 60 วิ/)
-  expect(quiet.source).toContain(`<rect y="6" width="4" height="30" rx="2" fill="#f08a3c"/>`)
+  expect(quiet.source).toContain(`<rect y="6" width="4" height="30" rx="2" fill="var(--kl-warn)"/>`)
   expect(laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source).not.toContain('@keyframes')
-  const main = laneSvg(busy('main:1', { type: 'main', description: 'Claude' }), 454, 30_000)
-  expect([main.source.includes('>main</text>'), main.source.includes('#3a5899'), main.alt.startsWith('Claude (main):')]).toEqual([true, true, true])
+  const main = laneSvg(busy('main:1', { type: 'main', description: 'Main' }), 454, 30_000)
+  expect([main.source.includes('>Main<'), main.source.includes('#3a5899'), main.alt.startsWith('Main:')]).toEqual([true, true, true])
 })
 
 test('an ended lane wears a badge on its Clawd: a check, a cross or a hand; just ended, its lane is tinted', () => {
-  const look = lookOf('raised')
   const ended = (status: AgentRun['status'], reason?: AgentRun['reason']) => run('e', { status, endedAt: 10_000, ...(reason ? { reason } : {}) })
   const later = 60_000
   expect(laneSvg(run('r'), 400, later, 'raised').source).not.toContain('<circle cx="')
   const done = laneSvg(ended('done'), 400, later, 'raised').source
-  expect(done).toContain(`r="6.5" fill="${look.bar('context')}"`)
+  expect(done).toContain('r="6.5" fill="var(--kb-ok)"')
   const failed = laneSvg(ended('failed', 'error'), 400, later, 'raised').source
-  expect(failed).toContain(`r="6.5" fill="${look.bar('tasks', 'alert')}"`)
+  expect(failed).toContain('r="6.5" fill="var(--kb-fail)"')
   expect(laneSvg(ended('failed', 'aborted'), 400, later, 'raised').source).toContain('>✋</text>')
   // Settled, no tint; in its first seconds a failed lane is tinted red and its Clawd falls.
-  expect(failed).not.toContain('opacity=".12"')
+  expect(failed).not.toContain('class="flash"')
   const fresh = laneSvg(ended('failed', 'error'), 400, 11_000, 'raised').source
-  expect(fresh).toContain(`fill="${look.bar('tasks', 'alert')}" opacity=".12"`)
+  expect(fresh).toContain('class="flash" x="5" y="2"')
+  expect(fresh).toContain('fill="var(--kl-fail)" opacity=".35"')
   expect(fresh).toContain('class="out')
-  expect(laneSvg(ended('done'), 400, 11_000, 'raised').source).toContain(`fill="${look.bar('context')}" opacity=".14"`)
+  expect(laneSvg(ended('done'), 400, 11_000, 'raised').source).toContain('fill="var(--kl-ok)" opacity=".35"')
 })
 
 test('the detail draws its head a line for each thing, then its tools, steps, calls and files', () => {
   const a = busy('a', { effort: 'high', lastActiveAt: 25_000 })
   const head = agentHeadSvg(a, 530, 30_000, 'raised', 200_000)
-  expect(head.source).toContain('>working<')
+  expect(head.source).toContain('>Working<')
   expect(head.source).toContain('>Read svg.ts<')
   expect(head.source).toContain('31k · 16%')
   expect(head.source).toContain('>TOKENS<')
@@ -206,7 +206,7 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   expect(head.source).toContain('>active 5s ago<')
   // A quiet agent's tag already counts its silence.
   const quiet = agentHeadSvg(busy('q', { doing: [], lastActiveAt: 0 }), 530, 60_000, 'raised')
-  expect([quiet.source.includes('>quiet 60s<'), quiet.source.includes('active')]).toEqual([true, false])
+  expect([quiet.source.includes('>Quiet 60s<'), quiet.source.includes('active')]).toEqual([true, false])
   const tools = toolsSvg(a, 530)!.source
   expect([tools.includes('>BUILT-IN<'), tools.includes('>SKILLS<'), tools.includes('sabai · step'), tools.includes('>×3<')]).toEqual([true, true, true, true])
   expect(toolsSvg(run('none'), 530)).toBeUndefined()
@@ -214,7 +214,7 @@ test('the detail draws its head a line for each thing, then its tools, steps, ca
   expect([steps.includes('>scanning<'), steps.includes('>1 more step planned<')]).toEqual([true, true])
   // How many calls are left out is the box's title's to say.
   const calls = activitySvg(a, 530)!.source
-  expect([calls.includes('earlier call'), calls.includes('$ ls /nope'), calls.includes('running…')]).toEqual([false, true, true])
+  expect([calls.includes('earlier call'), calls.includes('$ ls /nope'), calls.includes('Running…')]).toEqual([false, true, true])
   const files = filesSvg(a, 530)!.source
   expect([files.includes('Changed · 1'), files.includes('>NEW<'), files.includes('Read · 1'), files.includes('>2×<')]).toEqual([true, true, true, true])
   expect(earlierSvg([busy('x', { status: 'done', endedAt: 28_000, startedAt: 1000 })], 454).source).toContain('✓ 1 · 27s · 51k')

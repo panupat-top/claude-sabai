@@ -4,7 +4,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
 import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
-import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
+import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
 import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
@@ -114,12 +114,14 @@ const SKIN_PANE = 'sabai-skins'
 const PICK_W = 220
 const USAGE_PICK_W = 132
 // What the settings show of the chat's touches: an edit, a test run and a turn's receipt.
-const SAMPLE_EDIT: Step = { icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/sabai/hooks/', result: [{ text: '+3 −2', tone: 'text' }], meter: { good: 3, bad: 2 } }
+const SAMPLE_EDIT: Step = { icon: 'pen', tone: 'edit', title: 'Edited svg.ts', detail: '…/sabai/hooks/', result: [{ text: '+3', tone: 'ok' }, { text: ' −2', tone: 'bad' }], meter: { good: 3, bad: 2 } }
 const SAMPLE_TEST: Step = { icon: 'flask', tone: 'ok', title: 'Run the tests', detail: '$ bun test', result: [{ text: '✓ 159 passed', tone: 'ok' }], meter: { good: 159, bad: 0 }, time: '5.4s' }
 const SAMPLE_RECEIPT: Receipt = { tone: 'ok', headline: 'All green', files: { count: 3, added: 40, removed: 12 }, test: { passed: 159, failed: 0 }, commands: { count: 4, failed: 0 } }
 
 // The desktop's toolbar icons are links a press answers (onLinkPress); this address is never opened.
 const TOOL_HREF = 'https://sabai.invalid/'
+// A drawing's width from the surface's columns (the code font's advance, 8.25 px), within an Svg's limits.
+const widthOf = (columns: number | undefined, min: number, fallback: number) => Math.max(min, Math.min(4096, Math.round((columns || fallback) * 8.25)))
 // What the desktop adds round each icon's image (its chip), as it looks on screen.
 const TOOL_CHIP = 8
 
@@ -593,7 +595,7 @@ export const register: Register = on => {
     const main = await read($, mainModel)
     const window = (await read($, usage))?.contextWindow
     const { Box, Button, Markdown, Svg, Text } = $.ui.resolve(e)
-    const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
+    const W = widthOf(e.props.bodyColumns, 240, 40)
     const look = lookOf(skinName)
 
     // Each main turn just before its crew's first agent; one with no agents (the turn at work)
@@ -679,7 +681,7 @@ export const register: Register = on => {
       return (
         <Box key={`lanes-${key}`} flexDirection="column" rowGap={1}>
           {drawn}
-          {left > 0 && <Text dimColor>{`+ ${left} more`}</Text>}
+          {left > 0 && <Text dimColor>{`+${left} more`}</Text>}
         </Box>
       )
     }
@@ -766,7 +768,7 @@ export const register: Register = on => {
     // Crews under their day's label, shown only when the earlier crews span more than one day.
     const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
     const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
-    const tally = [`✓${past.filter(a => a.status === 'done').length}`, stopped ? `✋${stopped}` : '', failed ? `✗${failed}` : ''].filter(Boolean).join(' ')
+    const tally = [`✓ ${past.filter(a => a.status === 'done').length}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : ''].filter(Boolean).join(' · ')
     // How the crew at work stands, for its box's title.
     const standing = [
       ['running', runs.filter(a => a.status === 'running').length],
@@ -783,7 +785,7 @@ export const register: Register = on => {
           {laneList}
         </Box>
         <Box key="detail" borderStyle="round" borderColor={selected ? look.clawd : 'subtle'} paddingX={1} flexDirection="column" rowGap={1}>
-          {boxHead('Viewing', selected ? (isMain(selected) ? 'Claude' : selected.description || selected.type) : '', selected && <Button key="close-detail" label="✕ Close" onPress={() => update($, selectedAgent, () => null)} />)}
+          {boxHead('Viewing', selected ? (isMain(selected) ? 'Main' : selected.description || selected.type) : '', selected && <Button key="close-detail" label="✕ Close" onPress={() => update($, selectedAgent, () => null)} />)}
           {shown ?? image('detail-empty', empty)}
           {stuck && (
             <Box flexDirection="row" alignItems="center" columnGap={1}>
@@ -1043,7 +1045,7 @@ export const register: Register = on => {
     const armed = await read($, resetArmed)
     const known = await read($, env)
     const { Box, Button, Svg, Text } = $.ui.resolve(e)
-    const W = Math.max(240, Math.min(4096, Math.round((e.props.bodyColumns || 40) * 8.25)))
+    const W = widthOf(e.props.bodyColumns, 240, 40)
     // One group: a bordered card with its mark, title and what it is about, its On/Off at the right
     // when the part can be hidden, then its rows (left out while the part is off, unless they reach
     // past it).
@@ -1370,7 +1372,7 @@ export const register: Register = on => {
     await update($, turnStartedAt, () => began)
     // The turn's own run for the pane; earlier turns stay only where their crew had agents.
     const withAgents = new Set((await read($, agents)).map(crewOf))
-    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Claude', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, steps: 0, crew: `turn:${began}`, lastActiveAt: began }
+    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, steps: 0, crew: `turn:${began}`, lastActiveAt: began }
     // A turn starting means the one before has ended, whether or not its end was seen.
     const ended = (m: AgentRun): AgentRun => (m.status === 'running' ? { ...m, status: 'done', reason: 'answer', endedAt: began } : m)
     await update($, mains, l => [...l.filter(m => withAgents.has(crewOf(m))).slice(1 - CREWS_KEPT).map(ended), main])
@@ -1444,9 +1446,9 @@ export const register: Register = on => {
     if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !shownPrefs.guard) return next(e)
     const last = await read($, lastTurnAt)
     const mood = moodOf({ log: turn, contextPercent: measured?.contextPercent, now: at, isWorking: e.props.isWorking, lastTurnAt: last })
-    const W = Math.max(200, Math.min(4096, Math.round((e.props.bodyColumns || 100) * 8.25)))
+    const W = widthOf(e.props.bodyColumns, 200, 100)
     // The race shows beside Clawd only in the comfortable band from 760 px (heroBand's rule).
-    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= 760
+    const raceShown = Boolean(raceNow) && shownPrefs.density !== 'compact' && W >= RACE_MIN_W
     // While the turn works its time stands under Clawd's word, unless the race beside him shows it.
     const clawdLine = mood === 'working' && began !== 0 && !raceShown ? clock(Math.max(0, at - began)) : moodLine(mood, {
       caught: caughtCount,
