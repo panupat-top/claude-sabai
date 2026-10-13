@@ -1375,15 +1375,15 @@ const runTile = (a: AgentRun, mood: AgentMood): StatusTile =>
   mood === 'working' ? { call: a.doing!.at(-1)!.kind } : mood === 'done' ? (a.summary === 'pending' ? 'summing' : 'done') : mood
 function statusTile(s: StatusTile, x: number, y: number, size = 16): string {
   // A frameless duotone: the glyph's shape filled with its hue's soft tint inside its deep outline.
-  const glyphAt = (hue: Hue, glyph: StrokeKind) => `<use href="#sabai-du-${glyph}" fill="${kb(hue)}" stroke="${kf(hue)}" transform="translate(${x},${y}) scale(${(size / 24).toFixed(3)})"/>`
+  const glyphAt = (hue: Hue, k: StrokeKind) => glyph(k, hue, x, y, size)
   if (typeof s === 'object') return `<g class="st-pulse">${glyphAt(KIND_HUE[s.call], CALL_ICON[s.call])}</g>`
   if (s === 'thinking' || s === 'summing') {
     const hue: Hue = s === 'summing' ? 'ok' : 'command'
     const dot = (i: number) => `<circle class="st-b${i}" cx="${+(x + size / 2 + (i - 2) * size * 0.32).toFixed(1)}" cy="${+(y + size / 2).toFixed(1)}" r="${+(size * 0.14).toFixed(2)}" fill="${kf(hue)}"/>`
     return dot(1) + dot(2) + dot(3)
   }
-  const [hue, glyph, motion] = STATUS_GLYPH[s]
-  return motion ? `<g class="${motion}">${glyphAt(hue, glyph)}</g>` : glyphAt(hue, glyph)
+  const [hue, shape, motion] = STATUS_GLYPH[s]
+  return motion ? `<g class="${motion}">${glyphAt(hue, shape)}</g>` : glyphAt(hue, shape)
 }
 
 // The viewed run's Clawd stands in a soft light of his colour.
@@ -1469,8 +1469,7 @@ const USES_ROW = 17
 
 // A skill's lightbulb or an MCP server's plug, in its hue; a call using it now pulses.
 function useIcon(kind: 'skill' | 'mcp', x: number, y: number, size: number, live = false): string {
-  const hue: Hue = kind === 'mcp' ? KIND_HUE.mcp : KIND_HUE.skill
-  const g = `<use href="#sabai-du-${CALL_ICON[kind]}" fill="${kb(hue)}" stroke="${kf(hue)}" transform="translate(${x},${y}) scale(${(size / 24).toFixed(3)})"/>`
+  const g = glyph(CALL_ICON[kind], KIND_HUE[kind], x, y, size)
   return live ? `<g class="st-pulse">${g}</g>` : g
 }
 // The skills and MCP servers a run called as chips on their hue's ground, its glyph ink for the
@@ -1550,6 +1549,21 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
 // beside the task (Main's with its badge) and its time; his mood as a tag and his call in flight
 // or latest; three meters (steps, context, tokens); and what runs it (type, model, effort) as a
 // footnote, with when he was last heard from while that says something his tag does not.
+// A model's family in its own hue: Opus violet, Sonnet amber, Haiku green, Fable salmon, others grey.
+const FAMILY_HUE: Record<string, Hue> = { opus: 'edit', sonnet: 'web', haiku: 'ok', fable: 'skill' }
+const familyHue = (model: string): Hue => FAMILY_HUE[modelName(model).split(' ')[0]!] ?? 'stop'
+// A Lucide shape as a duotone in a hue, without motion; the gauge in outline, since filled its open
+// arc closes into a half disc that hides the needle.
+const glyph = (k: StrokeKind, hue: Hue, x: number, y: number, size: number) =>
+  `<use href="#sabai-du-${k}" fill="${k === 'gauge' ? 'none' : kb(hue)}" stroke="${kf(hue)}" transform="translate(${+x.toFixed(1)},${+y.toFixed(1)}) scale(${(size / 24).toFixed(3)})"/>`
+// A head's model (a robot) and effort (a gauge) from `x`, the effort cut to what is left.
+function runsOn(x: number, right: number, model: string, effort: string, hue: Hue): string {
+  const ex = x + 18 + textWidth(model, 11.5) + 12
+  return (
+    glyph('bot', hue, x, 44, 14) + `<text class="m" x="${x + 18}" y="55" font-family="${SANS}" font-size="11.5">${xml(fit(model, 11.5, right - x - 18))}</text>` +
+    (effort && right - ex - 18 >= 40 ? glyph('gauge', hue, ex, 44, 14) + `<text class="m" x="${+(ex + 18).toFixed(1)}" y="55" font-family="${SANS}" font-size="11.5">${xml(fit(effort, 11.5, right - ex - 18))}</text>` : '')
+  )
+}
 export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number): Drawing {
   const look = lookOf(skin)
   const mood = agentMood(a, now, window)
@@ -1557,10 +1571,12 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const time = clock(elapsed(a, now))
   const since = Math.max(0, quietFor(a, now))
   const effort = effortLabel(a.effort)
-  const meta = [isMain(a) ? 'main conversation' : a.type, a.teammate ? 'teammate' : '', modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
-  const doing = a.doing?.at(-1)
-  const last = a.calls?.at(-1)
-  const latest = doing ? { mark: '▶', ink: 'm', title: doing.now ?? doing.title } : last ? { mark: last.ok ? '✓' : '✗', ink: last.ok ? 'c-ok' : 'c-alert', title: last.title } : undefined
+  const meta = [isMain(a) ? 'main conversation' : a.type, a.teammate ? 'teammate' : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  // Beside the mood tag, what the run runs on: its model and its effort, each after its icon in its
+  // family's hue. Its calls are the Calls box's to list.
+  const model = modelName(a.model).replace(/^./, c => c.toUpperCase())
+  const effortWord = effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : ''
+  const hue = familyHue(a.model)
   // A quiet agent's tag already counts its silence.
   const heard = a.status === 'running' && mood !== 'quiet' ? `active ${clock(since)} ago` : ''
   const H = 128
@@ -1587,10 +1603,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
     `<rect x="${tx}" y="42" width="${tagW.toFixed(1)}" height="18" rx="9" fill="${moodColor(mood)}" fill-opacity=".16"/>` +
     statusTile(runTile(a, mood), tx + 5, 44, 14) +
     `<text class="${MOOD_INK[mood]}" x="${tx + 23}" y="55" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(tag)}</text>` +
-    (latest
-      ? `<text class="${latest.ink}" x="${tx + tagW + 10}" y="55" font-family="${SANS}" font-size="11.5">${latest.mark}</text>` +
-        `<text class="m" x="${tx + tagW + 24}" y="55" font-family="${SANS}" font-size="11.5">${xml(fit(latest.title, 11.5, right - tx - tagW - 24))}</text>`
-      : '') +
+    runsOn(tx + tagW + 10, right, model, effortWord, hue) +
     meters
       .map(([n, value, ratio, color], i) => {
         const x = 14 + i * (mw + 16)
@@ -1603,7 +1616,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
       .join('') +
     `<text class="m" x="14" y="${H - 12}" font-family="${SANS}" font-size="10.5">${xml(fit(meta, 10.5, right - 14 - (heard ? textWidth(heard, 10.5) + 12 : 0)))}</text>` +
     (heard ? `<text class="m" x="${right}" y="${H - 12}" text-anchor="end" font-family="${SANS}" font-size="10.5">${heard}</text>` : '')
-  const alt = `${a.description || a.type}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest.title}` : ''}`
+  const alt = `${a.description || a.type}: ${tag}, ${[isMain(a) ? 'main conversation' : a.type, a.teammate ? 'teammate' : '', model, effortWord, a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')}, ${time}`
   return paneDrawing(look, W, H, body, alt, moving(a, now))
 }
 
