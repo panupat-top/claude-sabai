@@ -9,7 +9,7 @@ export type MeterKind = 'context' | 'session' | 'week'
 // `left` is what is left of the context window (`256.5k left`).
 // `pending` marks a skeleton: the engine has not answered yet, so it has no reading to show.
 export type Meter = { kind: MeterKind; label: string; percent: number; amount?: string; left?: string; resetsInMs?: number; level?: 'warn' | 'alert'; pending?: true }
-const METER_LABELS: Record<MeterKind, string> = { context: 'Context', session: '5H Limit', week: '7D All' }
+const METER_LABELS: Record<MeterKind, string> = { context: 'Context', session: 'Session limit', week: 'Weekly limit' }
 
 export const toUsage = (u: {
   context: { percent?: number; tokens?: number; window: number }
@@ -56,8 +56,9 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
     const left = used !== undefined && size ? `${about}${tokens(Math.max(0, size - used))} left` : undefined
     out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount, ...(left ? { left } : {}) }))
   }
-  add('session', '5H Limit', 'five_hour')
-  add('week', '7D All', 'seven_day')
+  // Claude Code's own words for the five-hour and seven-day windows.
+  add('session', METER_LABELS.session, 'five_hour')
+  add('week', METER_LABELS.week, 'seven_day')
   return out
 }
 
@@ -268,6 +269,7 @@ export function raced(log: RaceLog, member: string, call: { kind: CallKind; ok: 
     fails: log.fails + (call.ok ? 0 : 1),
     failed: call.ok ? log.failed : { ...log.failed, [member]: failsOf(log, member) + 1 },
     fellAt: call.ok ? log.fellAt : { ...log.fellAt, [member]: at },
+    lastAt: { ...log.lastAt, [member]: at },
     scoredAt: call.kind === 'test' && call.ok ? { ...log.scoredAt, [member]: at } : log.scoredAt,
     total: log.total + 1,
   }

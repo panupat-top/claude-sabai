@@ -35,7 +35,7 @@ test('TodoWrite replaces the list', () => {
   expect(progress(list)).toEqual({ done: 1, total: 2, title: 'Doing b' })
 })
 
-test('meters run context, 5H and 7D from the engine, with reset countdowns', () => {
+test('meters run context, the session and weekly limits from the engine, with reset countdowns', () => {
   const usage = toUsage({
     context: { percent: 42.6, tokens: 434_512, window: 1_000_000 },
     rateLimits: [
@@ -46,14 +46,14 @@ test('meters run context, 5H and 7D from the engine, with reset countdowns', () 
   })
   expect(meters(usage, NOW).map(m => [m.label, value(m), m.resetsInMs === undefined ? '-' : countdown(m.resetsInMs)])).toEqual([
     ['Context', '434.5k / 1M (43%)', '-'],
-    ['5H Limit', '100%', '2h 49m'],
-    ['7D All', '4%', '6d 2h'],
+    ['Session limit', '100%', '2h 49m'],
+    ['Weekly limit', '4%', '6d 2h'],
   ])
   // Before the engine has answered at all, a still placeholder per meter shown, with no number.
   expect(meters(null, NOW).map(m => [m.label, value(m), m.pending])).toEqual([
     ['Context', 'loading', true],
-    ['5H Limit', 'loading', true],
-    ['7D All', 'loading', true],
+    ['Session limit', 'loading', true],
+    ['Weekly limit', 'loading', true],
   ])
   expect(meters(null, NOW, { show: { week: false } }).map(m => m.kind)).toEqual(['context', 'session'])
   expect(usageNote(null, meters(null, NOW))).toBeUndefined()
@@ -224,10 +224,10 @@ test('a lane with no progress names its latest call, and tallies its failures, m
   log = { ...log, said: { main: 'Edited svg.ts', a: 'Run the tests', p: 'Read x.ts' } }
   const r = raceOf(log, [run('a'), run('p', { progress: { done: 1, total: 2, note: 'half' } })], undefined, now + 5000, true, now)!
   expect(r.lanes.map(l => [l.who, l.line, l.count, l.fails])).toEqual([
-    // Main between calls names its latest; a reported step still wins over the latest call.
-    ['Main', 'Edited svg.ts', 0, 0],
+    // Between calls a lane says how long it has thought; a reported step still wins.
+    ['Main', 'Thinking 5s', 0, 0],
     ['p', 'half', 0, 0],
-    ['a', 'Run the tests', 2, 1],
+    ['a', 'Thinking 1m 45s', 2, 1],
   ])
   // A call in flight names itself; Main not working waits whatever it last did.
   expect(raceOf(log, [run('a')], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.line).toBe('Editing a.ts')

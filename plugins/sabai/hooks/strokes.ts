@@ -2,9 +2,13 @@
 // pqoqubbw/icons (https://github.com/pqoqubbw/icons, MIT) animates; svg.ts gives them its own
 // CSS animations. A part a whole-icon animation should not move carries its own class.
 
-export type StrokeKind = 'shield-check' | 'flask-conical' | 'book-open' | 'terminal' | 'square-pen' | 'file-plus' | 'circle-check' | 'circle-x' | 'ban' | 'party-popper' | 'info' | 'lightbulb' | 'badge-alert' | 'triangle-alert' | 'octagon-x' | 'fold-vertical' | 'bot' | 'settings' | 'globe' | 'plug' | 'search'
+export type StrokeKind = 'shield-check' | 'flask-conical' | 'book-open' | 'terminal' | 'square-pen' | 'file-plus' | 'circle-check' | 'circle-x' | 'ban' | 'party-popper' | 'info' | 'lightbulb' | 'badge-alert' | 'triangle-alert' | 'octagon-x' | 'fold-vertical' | 'bot' | 'settings' | 'globe' | 'plug' | 'search' | 'hourglass' | 'moon' | 'gauge' | 'circle-stop'
 
 export const STROKES: Record<StrokeKind, string> = {
+  "circle-stop": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><rect x=\"9\" y=\"9\" width=\"6\" height=\"6\" rx=\"1\"/>",
+  "hourglass": "<path d=\"M5 22h14\"/><path d=\"M5 2h14\"/><path d=\"M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22\"/><path d=\"M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2\"/>",
+  "moon": "<path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/>",
+  "gauge": "<path d=\"m12 14 4-4\"/><path d=\"M3.34 19a10 10 0 1 1 17.32 0\"/>",
   "globe": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20\"/><path d=\"M2 12h20\"/>",
   "plug": "<path d=\"M12 22v-5\"/><path d=\"M9 8V2\"/><path d=\"M15 8V2\"/><path d=\"M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z\"/>",
   "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>",

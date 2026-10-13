@@ -7,7 +7,7 @@ import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf,
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, plural, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
+import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isReadOnly, isTestCommand, logged, plural, receiptOf, receiptText, seedOf, splitCallouts, stepOf, testResult } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
@@ -27,7 +27,7 @@ const DEFAULT_PREFS: Prefs = {
   limits: true,
   guard: false,
   steps: true,
-  chat: { spinner: true, tools: true, tests: true, callouts: true, receipt: true },
+  chat: { tools: true, tests: true, callouts: true, receipt: true },
   guardRules: DEFAULT_GUARD_RULES,
   show: { folder: true, gitUser: true, branch: true, node: true, context: true, session: true, week: true, clawd: true },
   warnAt: 70,
@@ -139,6 +139,11 @@ let canCompact = false
 // The mod works only in a session the desktop draws on; a terminal or -p session is left alone:
 // no band, panes, chat rows, commands, tool, prompt section, guard or notifications.
 let desktop = false
+// The second clock while it runs: it starts with work and stops itself once nothing works.
+let ticking: { cancel: () => void } | undefined
+// Haiku summaries asking now, and those waiting their turn: at most SUMMARIES_AT_ONCE ask at once.
+let asking = 0
+const waiting: (() => void)[] = []
 
 // One line of a command's output, or nothing when it fails or is missing: a chip without a
 // value is simply not drawn.
@@ -192,6 +197,22 @@ async function checkBranch($: EngineInterface) {
     return
   }
   if ((await line($, ['git', 'branch', '--show-current'])) !== lastBranch) await readRepo($)
+}
+
+// The main turn's and the subagents' clocks count by the second only while one works: an idle
+// session reads nothing each second. Work starting starts it (turn.start, agent.spawn, a finished
+// subagent sent more work); it stops itself once nothing works.
+function tickWhileWorking($: EngineInterface) {
+  if (ticking) return
+  ticking = $.clock.every(1000, () => {
+    void (async () => {
+      // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
+      const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
+      if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) return tick($)
+      ticking?.cancel()
+      ticking = undefined
+    })()
+  })
 }
 
 async function tick($: EngineInterface) {
@@ -268,17 +289,17 @@ async function logCall($: EngineInterface, agentId: string | undefined, called: 
   await update($, turnLog, l => logged(l, call))
 }
 
-// A call of a raced tool starts: in the member's race lane its kind is in flight and its name kept
-// as it reads once done, in one write; the main turn's call in flight goes to the live strip (a
-// subagent's calls leave it alone).
+// A call starts: in the member's race lane its kind is in flight and what it is doing said in the
+// pane's words (actOf), in one write; the main turn's call in flight goes to the live strip (a
+// subagent's calls leave it alone), one with no row of its own (an MCP tool) by those words.
 async function stepping($: EngineInterface, agentId: string | undefined, tool: string, input: unknown, kind: CallKind) {
   const member = agentId ?? 'main'
-  const said = stepOf({ tool, input, isRunning: false, isErrored: false, isInterrupted: false })?.title
-  await update($, race, r => ({ ...r, ...(said ? { said: { ...r.said, [member]: said } } : {}), doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
+  const said = actOf(tool, input).now
+  await update($, race, r => ({ ...r, said: { ...r.said, [member]: said }, doing: { ...r.doing, [member]: [...doingOf(r, member), kind] } }))
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   const at = await $.clock.now()
-  await update($, liveCall, () => (s ? { icon: s.icon, title: s.title, at } : null))
+  await update($, liveCall, () => (s ? { icon: s.icon, title: s.title, at } : { icon: 'terminal', title: said, at }))
 }
 
 // A call that never came back (it threw): only its in-flight mark is cleared.
@@ -327,12 +348,14 @@ const updateRuns = ($: EngineInterface, main: boolean, fn: (l: AgentRun[]) => Ag
 async function logAgentCall<R extends { deny?: string; isError?: boolean; result?: unknown }>($: EngineInterface, main: boolean, agentId: string, tool: string, input: unknown, run: () => Promise<R>): Promise<R> {
   if (UNLOGGED.has(tool)) return run()
   const act = actOf(tool, input)
-  // Main's own calls run in its lane through the race's hooks alone, as before.
-  const raced = RACED.has(tool) || main
+  // The race's own hooks run the raced tools; any other runs in its member's lane from here,
+  // Main's included, so the band and the pane count the same calls.
+  const raced = RACED.has(tool)
+  const member = main ? undefined : agentId
   const kind: CallKind = act.kind === 'read' || act.kind === 'edit' || act.kind === 'command' || act.kind === 'test' ? act.kind : act.kind === 'search' || act.kind === 'web' ? 'read' : 'command'
   const start = await $.clock.now()
   await updateRuns($, main, l => calling(l, agentId, act, start))
-  if (!raced) await racing($, agentId, kind)
+  if (!raced) await stepping($, member, tool, input, kind)
   let result: R | undefined
   try {
     result = await run()
@@ -360,7 +383,23 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
       const next = called(l, agentId, act, end, end - start, ok)
       return file ? touched(next, agentId, file.path, file.change) : next
     })
-    if (!raced) await racing($, agentId, kind, result ?? UNFINISHED, ok)
+    if (!raced) {
+      await unstep($, member)
+      await racing($, member, kind, result ?? UNFINISHED, ok)
+    }
+  }
+}
+
+// Many subagents ending together would ask Haiku all at once; the rest wait for a turn.
+const SUMMARIES_AT_ONCE = 2
+async function inTurn<T>(ask: () => Promise<T>): Promise<T> {
+  if (asking >= SUMMARIES_AT_ONCE) await new Promise<void>(go => waiting.push(go))
+  asking++
+  try {
+    return await ask()
+  } finally {
+    asking--
+    waiting.shift()?.()
   }
 }
 
@@ -369,7 +408,7 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
 async function summarize($: EngineInterface, agentId: string) {
   const run = (await read($, agents)).find(a => a.agentId === agentId)
   if (!run || run.summary !== 'pending') return
-  const r = await $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS }).catch(() => undefined)
+  const r = await inTurn(() => $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS })).catch(() => undefined)
   const bullets = r?.isAnswered ? summaryOf(r.text) : undefined
   // Only on the round it read: more work and a quicker end meanwhile wait for their own. An answer
   // that comes after a reload has no module left to write to; the new one asks again.
@@ -442,14 +481,8 @@ async function setUp($: EngineInterface) {
   for (const { agentId, summary } of await read($, agents)) if (agentId && summary === 'pending') $.clock.after(1, () => void summarize($, agentId))
   // Keeps the reset countdowns and the branch fresh between responses.
   $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
-  // Running subagents' clocks count by the second; quiet when none runs.
-  $.clock.every(1000, () => {
-    void (async () => {
-      // Read from state, which outlives a reload mid-turn: the turn started after the last one ended.
-      const mainWorking = (await read($, turnStartedAt)) > (await read($, lastTurnAt))
-      if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
-    })()
-  })
+  // Work that outlived a reload keeps its clocks counting.
+  tickWhileWorking($)
   // git and node last, and not waited on: a slow repository must not hold the session. Each read
   // lands on its own, so a slow one (a version manager's `node` shim) holds back only itself. One
   // that ends after a reload has no module left to write to.
@@ -535,6 +568,7 @@ export const register: Register = on => {
       lastActiveAt: at,
     }
     await update($, agents, list => spawned(list, run))
+    tickWhileWorking($)
     await update($, now, () => at)
     return started
   })
@@ -560,6 +594,8 @@ export const register: Register = on => {
       const at = await $.clock.now()
       const crew = `turn:${await read($, turnStartedAt)}`
       await update($, agents, list => stepped(list, agentId, used.model || e.model, used, e.effort, at, crew))
+      // A finished subagent sent more work runs again.
+      tickWhileWorking($)
     }
     return result
   })
@@ -776,7 +812,7 @@ export const register: Register = on => {
               summary === undefined ? '' : 'by Haiku',
               <Box flexDirection="column">
                 <Text dimColor>{factsLine(a, at)}</Text>
-                {summary === 'pending' && <Text dimColor>Haiku กำลังสรุป…</Text>}
+                {summary === 'pending' && <Text dimColor>Haiku is summing up…</Text>}
                 {Array.isArray(summary) && <Markdown text={summary.map(l => `- ${l}`).join('\n')} />}
                 {a.status === 'failed' && <Text>{resultText(a)}</Text>}
               </Box>,
@@ -906,7 +942,7 @@ export const register: Register = on => {
     if (p.limits) {
       const at = await read($, now)
       for (const l of e.rateLimits) {
-        const label = l.kind === 'five_hour' ? '5H' : l.kind === 'seven_day' ? '7D' : undefined
+        const label = l.kind === 'five_hour' ? 'Session' : l.kind === 'seven_day' ? 'Weekly' : undefined
         const key = `${l.kind}:${l.resetsAt ?? ''}`
         if (!label || l.percentUsed < p.alertAt || (await read($, warned)).includes(key)) continue
         await update($, warned, keys => [...keys, key].slice(-20))
@@ -1235,7 +1271,7 @@ export const register: Register = on => {
           'Context, 5H and 7D',
           <Box flexDirection="column" rowGap={2}>
             {part('style', 'Style', '', picks('usage', Object.keys(USAGE_STYLES) as UsageStyle[], u => USAGE_STYLES[u], p.usageStyle, u => usageSketch(u, current, USAGE_PICK_W, u === p.usageStyle), u => setPrefs($, x => ({ ...x, usageStyle: u }))))}
-            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', '5H'), showPill('week', '7D')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
+            {part('limits', 'Limits', 'Which ones show', pills([showPill('context', 'Context'), showPill('session', 'Session'), showPill('week', 'Weekly')]), thresholdRow('warn', 'Amber at', [60, 70, 80], p.warnAt), thresholdRow('alert', 'Red at', [85, 90, 95], p.alertAt))}
           </Box>,
           rowPower('usage'),
         )}
@@ -1286,7 +1322,6 @@ export const register: Register = on => {
             {chatToggle('tests', 'Test results', 'Pass and fail counts on test runs (with Tool summaries)')}
             {chatToggle('callouts', 'Callouts', 'Notes and warnings as coloured boxes; Claude is told it may use them')}
             {chatToggle('receipt', 'Turn receipt', 'A line under each working turn: files, tests, commands')}
-            {chatToggle('spinner', 'Spinner words', 'Thai words while Claude works')}
           </Box>,
         )}
         {group(
@@ -1421,6 +1456,7 @@ export const register: Register = on => {
     const shown = (await read($, agents)).filter(a => a.status === 'running' || began - (a.endedAt ?? 0) < RACE_LINGER_MS)
     await update($, race, r => nextTurnRace(r, new Set(shown.map(a => a.agentId ?? a.id))))
     await update($, turnStartedAt, () => began)
+    tickWhileWorking($)
     // The turn's own run for the pane; earlier turns stay only where their crew had agents.
     const withAgents = new Set((await read($, agents)).map(crewOf))
     const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, requests: 0, crew: `turn:${began}`, lastActiveAt: began }
@@ -1428,13 +1464,6 @@ export const register: Register = on => {
     const ended = (m: AgentRun): AgentRun => (m.status === 'running' ? { ...m, status: 'done', reason: 'answer', endedAt: began } : m)
     await update($, mains, l => [...l.filter(m => withAgents.has(crewOf(m))).slice(1 - CREWS_KEPT).map(ended), main])
     return next(e)
-  })
-
-  // Thai words in the spinner, in place of the desktop's generic word; one that names the step stays.
-  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    if (e.surface !== 'desktop' || !isGenericWord(e.props.word) || !(await read($, prefs)).chat.spinner) return next(e)
-    // The spinner's word is picked once per turn, from its start, so redraws and reloads keep it.
-    return next({ ...e, props: { ...e.props, word: spinnerWord(e.props.mode, seedOf(String(await read($, turnStartedAt)))) } })
   })
 
   on('prompt.compose', async ($, e, next) => {
@@ -1483,6 +1512,8 @@ export const register: Register = on => {
           ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}),
           ...(step ? { step } : {}),
           ...(stepped?.at !== undefined ? { stepMs: Math.max(0, at - stepped.at) } : {}),
+          // Between calls, timed as the race times Main; a turn of unknown start with no call yet has none.
+          ...(!step && (began !== 0 || raceLog.lastAt?.main) ? { thinkingMs: Math.max(0, at - Math.max(raceLog.lastAt?.main ?? 0, began)) } : {}),
           trail: raceLog.calls.main ?? [],
           calls: countOf(raceLog, 'main'),
           lines: { added: edits.reduce((n, f) => n + f.added, 0), removed: edits.reduce((n, f) => n + f.removed, 0) },
