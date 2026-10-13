@@ -2,7 +2,7 @@
 
 [Claude Code](https://claude.com/claude-code) mods. The one mod, **sabai**, shows at a glance what Claude is doing:
 - a pixel-art status band above the prompt;
-- a panel for subagents;
+- a pane for subagents;
 - tool calls in the chat as easy-to-read steps.
 
 It works in the desktop app's Code tab only. In a terminal session it stays out of the way entirely (no band, no chat changes, no extra tool or prompt text, no guard), so the terminal runs as light as Claude Code itself.
@@ -44,7 +44,7 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
   - `context full` · `84% · compact?`;
   - `napping` · `idle 20m`.
 
-  While background work Claude started is still running (a shell or a monitor; agents run in the race), his line says so on your turn, `● 1 running` with a pulsing dot, until each ends or is stopped.
+  While background tasks Claude started are still running (a shell or a monitor; subagents run in the race), his line says so on your turn, `● 1 background` with a pulsing dot, until each ends or is stopped.
 
   He waves when a turn ends, yawns after a quiet couple of minutes, looks at the race while it runs and up at a limit running high. He dresses for the hour and the holidays: coffee in the morning (6–11), a nightcap at night (22–5), a pumpkin on 31 October, a flower shirt for Songkran (13–15 April), a Santa hat on 24–25 December and a party hat at New Year.
 - **The middle:**
@@ -58,35 +58,35 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
     - **Columns**: a pixel column filling from the bottom;
     - **Rows**: one card with a row each.
 - **The race**, while subagents work (Claude working alone keeps the line of what he is doing now):
-  - the header counts the agents running, then those done, failed and stopped, the turn's failed calls (`✗`) and the time;
-  - a row for `Main` (in his captain's cap; `Waiting on 3` while his agents work), then one per subagent, named by its task: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
-  - an agent that has said nothing for 30 s dozes and reads `Quiet 47s`; a failed call trips it for a moment;
-  - an agent that just failed falls on a red-flashing row, then folds to a red cross (`✗ … · Failed`); one you stopped folds to a hand (`✋ … · Stopped`);
-  - an agent that just finished hops among confetti on a flashing row (`Done 🎉`), then folds to a green check;
-  - each finished, failed or stopped agent wears the same mark everywhere, in the race, the crew row and the agents panel: a check, a cross or a hand on a soft green, red or grey disc. The band's and panel's colours are one pastel set, softer tiles with deep glyphs in light mode and deep tiles with bright glyphs in dark;
-  - more agents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Agents for all` counts any left over. The details live in the agents panel.
+  - the header counts the subagents running, then those done, failed and stopped (`3 running · 1 done`, as the Subagents pane counts them), the turn's failed calls (`✗`) and the time;
+  - a row for `Main`, the main conversation (in his captain's cap; `Waiting on 3` while his subagents work), then one per subagent, named by its description: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
+  - a subagent that has said nothing for 30 s dozes and reads `Quiet 47s`; a failed call trips it for a moment;
+  - a subagent that just failed falls on a red-flashing row, then folds to a red cross (`✗ … · Failed`); one you stopped folds to a hand (`✋ … · Stopped`);
+  - a subagent that just finished hops among confetti on a flashing row (`Done 🎉`), then folds to a green check;
+  - each finished, failed or stopped subagent wears the same mark everywhere, in the race, the subagents row and the Subagents pane: a check, a cross or a hand on a soft green, red or grey disc. The band's and pane's colours are one pastel set, softer tiles with deep glyphs in light mode and deep tiles with bright glyphs in dark;
+  - more subagents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Subagents for all` counts any left over. The details live in the Subagents pane.
 
   Turning **Activity** off in Settings hides the race.
 
 On a narrower window the race gives way to a line of what Claude is doing now and a row of small Clawds for the subagents. Below 480 px the band stacks its rows. The **compact** density keeps the stacked band, with the usage limits in your style at its shortest.
 
-The info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Guard** (a green shield, while the guard is on, with what it caught; it opens the settings), **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no agents run; on a window under 480 px the icons drop their figures), **Agents** (a robot, counting the agents at work in Clawd's clay) and **Settings** (a gear).
+The info row sits above the band on a card of its own, everything from the left with Node at its full version, and the toolbar shares its line as icons at the right: **Guard** (a green shield, while the guard is on, with what it caught; it opens the settings), **Compact** (a fold, with the context percentage once it reaches the amber mark, in amber or red while no subagents run; on a window under 480 px the icons drop their figures), **Subagents** (a robot, counting the subagents running in Clawd's clay) and **Settings** (a gear).
 
-### The agents panel
+### The Subagents pane
 
-Press the Agents icon or type `/sabai-agents`. Each of Claude's turns is a **crew**: Claude and the agents that turn started. The panel has three boxes:
-- **Now**, the crew at work, its title saying how many are running, done, failed or stopped:
+Press the Subagents icon or type `/sabai-agents`. The pane shows the subagents by the **turn** that started them (or the **workflow run**, for a dynamic workflow's), together with Main, the main conversation, in that turn. It has three boxes:
+- **Now**, the turn at work, its title counting its subagents running, done, failed or stopped:
   - a timeline: each member a bar from its start to its end on one time axis in its mood's colour, a Clawd riding the end of each bar still at work and ✓, ✗ or ✋ at the end of the others; then three tiles: calls (with failures), tokens (the new ones each request sent and got back; cache reads are left out) and time;
-  - a lane for Main (in his captain's cap; `Waiting on N` once his turn ends while his crew's agents still work, as in the band), then one per agent (in its type's hat): a stripe in its mood's colour, its Clawd, its task, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**. A lane that has ended wears a badge on its Clawd: a green ✓, a red ✗, or ✋ for one you stopped; for its first seconds the lane is tinted green or red.
-- **Viewing**, the lane you opened with **View**: the lane is ringed and tinted, its Clawd waves and its button reads **Viewing**. Press it again, or **✕ Close**, to close the view. With none viewed, Viewing invites you to pick one and names an agent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
-  - its head: its task and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type, model and effort in small print;
-  - **Asked to**: the first line of what it was asked, **▸ More** for the rest;
-  - **Summary** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then, for an agent, two to four lines Haiku writes in Thai from its report;
-  - **Plan** (the steps it reported), **Tools** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
-  - **Report** (Claude's **Answer**, for Claude), with earlier rounds when an agent was sent more work after finishing.
-- **Earlier**: the last crews before this one that had agents, folded to one line while a crew is at work. Each line crowns its MVP 👑: the agent that finished without a failed call, changed the most files, and was quickest. **▸ Show** a crew to see its lanes; crews are grouped by day when they span more than one; **Clear** drops them.
+  - a lane for Main (in his captain's cap; `Waiting on N` once his turn ends while its subagents still work, as in the band), then one per subagent (in its type's hat): a stripe in its mood's colour, its Clawd, its description, a line in Thai saying what it is doing with the real numbers in it (`กำลังอ่าน svg.ts 📖`, `เงียบไป 45 วิ… หลับอยู่หรือเปล่า 😴`), its progress and time, and **View**. A lane that has ended wears a badge on its Clawd: a green ✓, a red ✗, or ✋ for one you stopped; for its first seconds the lane is tinted green or red.
+- **Viewing**, the lane you opened with **View**: the lane is ringed and tinted, its Clawd waves and its button reads **Viewing**. Press it again, or **✕ Close**, to close the view. With none viewed, Viewing invites you to pick one and names a subagent that needs a look (quiet, or its context nearly full), with **View it**. A viewed run shows:
+  - its head: its description and time; its mood and its call in flight or latest; steps, context and tokens as meters; and its type, model and effort in small print;
+  - **Asked to**: the first line of its prompt, **▸ More** for the rest;
+  - **Summary** once it finishes: what sabai counted (files read and changed, calls, time, tokens), then, for a subagent, two to four lines Haiku writes in Thai from its report;
+  - **Progress** (the steps it reported, or its task list), **Tools** (built-in tools, skills and MCP tools, with how often each was called), **Calls** (its latest, each with its time and whether it worked; **All calls** for up to 60), **Files** (those it changed first, with `+N −M` and NEW for a file it created, then those it only read);
+  - **Report** (an **Answer** for Main), with earlier rounds when a subagent was sent more work after finishing.
+- **Earlier**: the last turns before this one that had subagents, folded to one line while a turn is at work. Each line crowns its MVP 👑: the subagent that finished without a failed call, changed the most files, and was quickest. **▸ Show** a turn to see its lanes; turns are grouped by day when they span more than one; **Clear** drops them.
 
-A turn that called nothing and started no agents (a quick reply) is not kept as a crew. An agent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done. Claude is never quiet: writing a long answer is quiet work.
+A turn that called nothing and started no subagents (a quick reply) is not kept. A subagent's mood: working, thinking, quiet (nothing heard for 30 seconds, maybe stuck), context nearly full (80 %, known only when it runs on Claude's own model), failed, stopped (you stopped it) or done. Main is never quiet: writing a long answer is quiet work; once its turn ends while its subagents run, it is waiting.
 
 ### In the conversation
 
@@ -139,10 +139,10 @@ Groups run from what you see most to what you set once. A part of the band with 
 | Usage | On or off; style (Tiles, Rings, Columns, Rows), each a sketch with its button; each limit (Context, 5H, 7D); amber and red thresholds (60/70/80, 85/90/95) |
 | Info row | On or off; each part: Folder, Branch, Git user, Node, with the row as it reads |
 | Clawd | On or off; Hats and props, Tricks (waves, yawns, looks) |
-| Agents | Race lanes or the crew row, on or off; Step reports: agents report their own progress to their lane and the agents panel (on; from the next session); Thai summary: Haiku sums up each finished agent's report in Thai in the agents panel (on) |
+| Subagents | Race lanes or the subagents row, on or off; Step reports: subagents report their own progress to their lane and the Subagents pane (on; from the next session); Thai summary: Haiku sums up each finished subagent's report in Thai in the Subagents pane (on) |
 | Conversation | A sample of each touch that is on; Tool summaries, Test results, Callouts, Turn receipt, Spinner words (all on) |
 | Guard | Off by default. Each rule is set to Block, Ask (opens the permission dialog; in auto mode the classifier decides) or Off: deleting the whole disk or home folder (Block), force-pushing to `main`/`master` (Ask), reading `.env` files (Block), discarding uncommitted work with `git reset --hard`, `git clean -f`, a forced `git checkout`/`switch`, or `git checkout`/`restore .` (Ask) |
-| Notifications | Turn ended: when a turn of a minute or more ends or an agent fails; Limit warnings: once per window when 5H or 7D passes your red mark (on) |
+| Notifications | Turn ended: when a turn of a minute or more ends or a subagent fails; Limit warnings: once per window when 5H or 7D passes your red mark (on) |
 
 **Reset to defaults**, at the bottom, asks for a second press, then puts the settings (the guard off), the look and the bar style back.
 
@@ -163,7 +163,7 @@ Restart Claude Code after either one.
 
 ## Privacy
 
-sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests of its own. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads. With **Thai summary** on, a finished agent's task, report, file names and failed calls are sent to Haiku through Claude Code's own API client (your session's account) to be summed up; turn it off in Settings › Agents to send nothing.
+sabai reads only what Claude Code gives a mod, and runs `git` and `node --version` in your project folder. It reads no other files, uses no credentials and makes no network requests of its own. Callouts add one line to Claude's system prompt; nothing else changes what Claude reads. With **Thai summary** on, a finished subagent's description, prompt, report, file names and failed calls are sent to Haiku through Claude Code's own API client (your session's account) to be summed up; turn it off in Settings › Agents to send nothing.
 
 ## Troubleshooting
 
@@ -174,9 +174,9 @@ sabai reads only what Claude Code gives a mod, and runs `git` and `node --versio
 | No Node or branch in the info row | `node` is not on Claude Code's `PATH`, or the folder is not a git repository |
 | Thai spinner words rarely show | The desktop usually names the step itself; the words replace only its generic `Working` |
 | Nothing of sabai in a terminal session | By design: the mod works only where the desktop draws |
-| An agent shows no steps, only its calls | That agent type is not given the step tool (e.g. claude-code-guide) |
-| No Thai summary under a finished agent | Thai summary is off, the agent failed or was stopped, or Haiku gave no answer in 20 seconds |
-| No context meter or "context" mood for an agent | It runs on another model than Claude's, whose context window Claude Code does not report |
+| A subagent shows no steps, only its calls | That subagent type is not given the step tool (e.g. claude-code-guide) |
+| No Thai summary under a finished subagent | Thai summary is off, the subagent failed or was stopped, or Haiku gave no answer in 20 seconds |
+| No context meter or "context" mood for a subagent | It runs on another model than Main's, whose context window Claude Code does not report |
 
 ## Contributing
 

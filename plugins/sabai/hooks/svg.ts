@@ -461,7 +461,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   const lead = running[0]
   const line = lead && progressOf(lead)
   const title = lead ? lead.description || lead.type : failed || stopped ? [`${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ') : `All ${ended.length} done`
-  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : `${lead.steps} ${lead.steps === 1 ? 'step' : 'steps'}`) : ''
+  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : plural(lead.steps, 'request')) : ''
   // The right side, laid out from the edge: time, then failed, done and running counts.
   const s = summary([...runs], now)
   const time = clock(s.ms)
@@ -488,7 +488,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
     (hasWords && detail ? `<text class="sm" x="${x + titleW + 10}" y="${top + 15}" font-family="${MONO}" font-size="11">${xml(fitMono(detail, 11, Math.max(20, textW - titleW - 10)))}</text>` : '') +
     right.join('')
   const counts = [running.length ? `${running.length} running` : '', done ? `${done} done` : '', failed ? `${failed} failed` : '', stopped ? `${stopped} stopped` : ''].filter(Boolean).join(', ')
-  return { body, height: CREW_H, alt: `Agents: ${counts}; ${lead ? lead.description || lead.type : title}` }
+  return { body, height: CREW_H, alt: `Subagents: ${counts}; ${lead ? lead.description || lead.type : title}` }
 }
 
 // The race's motion, carried only by the race box: a just-finished agent's row flashes.
@@ -588,12 +588,12 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     return party + stripe + figure + confetti + `<text class="${nameClass}" x="${nameX}" y="${ty}" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(name)}</text>` + badge + step + right
   })
   let height = RACE_HEAD + race.lanes.length * RACE_ROW
-  const more = race.more ? `<text class="m" x="${x}" y="${top + height + 10}" font-family="${SANS}" font-size="10">+${race.more} more · open Agents for all</text>` : ''
+  const more = race.more ? `<text class="m" x="${x}" y="${top + height + 10}" font-family="${SANS}" font-size="10">+${race.more} more · open Subagents for all</text>` : ''
   if (race.more) height += 16
   const alt = [
     `Race: ${[lead, ...ended.split(' · '), race.fails ? `${race.fails} failed ${race.fails === 1 ? 'call' : 'calls'}` : '', time].filter(Boolean).join(', ')}`,
     ...race.lanes.map(l => `${l.who}${l.many ? ` ×${l.many}` : ''} ${l.state}: ${said(l)[1]}${l.steps ? ` (${l.steps.done}/${l.steps.total})` : ''}${l.fails ? `, ${l.fails} failed` : ''}`),
-    ...(race.more ? [`${race.more} more in the Agents pane`] : []),
+    ...(race.more ? [`${race.more} more in the Subagents pane`] : []),
   ].join('; ')
   return { body: `<style>${RACE_MOTION}</style>` + head + rows.join('') + more, height: height + 6, alt }
 }
@@ -795,7 +795,8 @@ function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, op
   let panel = ''
   // The race's header carries the turn's time, so beside it Clawd keeps his own line.
   // Background work left running stands in for his line while it is the person's turn.
-  const running = opts.running && (mood === 'idle' || mood === 'sleeping') ? `${opts.running} running` : ''
+  // Background tasks (shells, monitors): "in background" would not fit Clawd's panel beside the dot.
+  const running = opts.running && (mood === 'idle' || mood === 'sleeping') ? `${opts.running} background` : ''
   const words = running || (mood === 'working' && live?.elapsedMs !== undefined && !race ? clock(live.elapsedMs) : (clawdLine ?? ''))
   const wordsClass = mood === 'sad' ? 'c-alert' : 'm'
   if (clawd) {
@@ -1462,7 +1463,7 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
   const time = clock(elapsed(a, now))
   const since = Math.max(0, quietFor(a, now))
   const effort = effortLabel(a.effort)
-  const meta = [isMain(a) ? '' : a.type.replace(/-purpose$/, ''), modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const meta = [isMain(a) ? '' : a.type, modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
   const doing = a.doing?.at(-1)
   const last = a.calls?.at(-1)
   const latest = doing ? { mark: '▶', ink: 'm', title: doing.title } : last ? { mark: last.ok ? '✓' : '✗', ink: last.ok ? 'c-ok' : 'c-alert', title: last.title } : undefined
@@ -1661,9 +1662,9 @@ export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
   const body =
     `<rect class="p" width="${W}" height="64" rx="8"/>` +
     `<g transform="translate(16,14) scale(1.6)">${asPaths(sprite('tasks', 0, HAT_H, 'sleep', look.clawd))}</g>` +
-    `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">Pick an agent</text>` +
+    `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">Pick one to view</text>` +
     `<text class="m" x="${x}" y="46" font-family="${SANS}" font-size="11.5">${xml(fit('Press View on a lane to see its work.', 11.5, W - x - 12))}</text>`
-  return paneDrawing(look, W, 64, body, 'Pick an agent. Press View on a lane to see its work.')
+  return paneDrawing(look, W, 64, body, 'Pick one to view. Press View on a lane to see its work.')
 }
 
 // An earlier crew in one line: when it started and how many it had, what they were about (its
@@ -1684,7 +1685,7 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const changed = (a: AgentRun) => Object.values(a.files ?? {}).filter(f => f.edits > 0).length
   const mvp = runs.length > 1 ? runs.filter(a => a.status === 'done' && !a.callFails).sort((x, y) => changed(y) - changed(x) || elapsed(x, end) - elapsed(y, end))[0] : undefined
   const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
-  const title = `${time} · ${plural(runs.length, 'agent')}`
+  const title = `${time} · ${plural(runs.length, 'subagent')}`
   const what = runs.map(a => `${a === mvp ? '👑 ' : ''}${a.description || a.type}`).join(' · ')
   const tallyW = monoWidth(tally, 10.5)
   const body =

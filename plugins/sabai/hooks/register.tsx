@@ -213,7 +213,7 @@ async function togglePane($: EngineInterface, id: string, title: string, focus =
 
 async function toggleAgents($: EngineInterface): Promise<boolean> {
   await tick($)
-  return togglePane($, PANE, 'Agents')
+  return togglePane($, PANE, 'Subagents')
 }
 
 async function setBar($: EngineInterface, style: string) {
@@ -411,7 +411,7 @@ async function setUp($: EngineInterface) {
       .register({
         name: 'step',
         description:
-          'For subagents: report progress on your own task to the agents panel. Right after reading your brief, call it with `total` ' +
+          'For subagents: report progress on your own work to the Subagents pane. Right after reading your brief, call it with `total` ' +
           '(your plan in 3-8 steps) and `done: 0`; call it again as each step finishes, with `note` naming the step in progress. Silent and cheap.',
         inputSchema: {
           type: 'object',
@@ -425,7 +425,7 @@ async function setUp($: EngineInterface) {
         isDeferred: false,
       })
       .catch(() => undefined)
-  await $.command.register({ name: 'sabai-agents', description: 'Show or hide the panel of subagents' })
+  await $.command.register({ name: 'sabai-agents', description: 'Show or hide the Subagents pane' })
   canCompact = (await $.command.list().catch(() => [])).some(c => c.name === 'compact')
   // The clock first, so no countdown is ever measured from zero.
   await tick($)
@@ -591,7 +591,7 @@ export const register: Register = on => {
         await update($, agents, l => summarized(l, agentId, 'pending'))
         $.clock.after(1, () => void summarize($, agentId))
       }
-      if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Agent' }).catch(() => undefined)
+      if (notify && run?.status === 'failed') void $.ui.notify(`${run.description || run.type} failed: ${resultText(run)}`, { title: 'Subagent' }).catch(() => undefined)
       // The hop and confetti last a few seconds; with nothing left running, nothing else would
       // tick the clock to end them.
       $.clock.after(3100, () => void tick($))
@@ -601,7 +601,7 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: 'sabai-agents' }, async $ => ({
-    text: (await toggleAgents($)) ? 'Agents panel opened.' : 'Agents panel closed.',
+    text: (await toggleAgents($)) ? 'Subagents pane opened.' : 'Subagents pane closed.',
   }))
 
   // The agents pane in three boxes: Now (the crews at work: a timeline, then a lane for Main and
@@ -769,7 +769,7 @@ export const register: Register = on => {
                 {a.status === 'failed' && <Text>{resultText(a)}</Text>}
               </Box>,
             )}
-          {steps && fits(steps) && part('plan', 'Plan', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
+          {steps && fits(steps) && part('plan', 'Progress', p ? `${Math.min(p.done, p.total)} of ${p.total} done` : '', image(`detail-steps-${a.id}`, steps))}
           {tools && fits(tools) && part('tools', 'Tools', `${kinds} ${kinds === 1 ? 'kind' : 'kinds'}`, image(`detail-tools-${a.id}`, tools))}
           {calls && fits(calls) && part('calls', 'Calls', shownCalls >= n ? String(n) : `latest ${shownCalls} of ${n}`, image(`detail-calls-${a.id}`, calls), n > 8 ? fold('calls', 'Latest calls', 'All calls') : undefined)}
           {files && fits(files) && part('files', 'Files', `${changed} changed · ${kept.length - changed} read`, image(`detail-files-${a.id}`, files))}
@@ -1255,11 +1255,11 @@ export const register: Register = on => {
         {group(
           'agents',
           '✻',
-          'Agents',
+          'Subagents',
           'Race lanes, or a row of small Clawds',
           <Box flexDirection="column" rowGap={1}>
-            {flag('steps', 'Step reports', 'Agents report their progress to their lane and the agents panel; from the next session')}
-            {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished agent’s report in Thai, in the agents panel')}
+            {flag('steps', 'Step reports', 'Subagents report their progress to their lane and the Subagents pane; from the next session')}
+            {flag('agentSummary', 'Thai summary', 'Haiku sums up each finished subagent’s report in Thai, in the Subagents pane')}
           </Box>,
           rowPower('crew'),
           true,
@@ -1311,7 +1311,7 @@ export const register: Register = on => {
           'Notifications',
           'Outside the band',
           <>
-            {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or an agent fails')}
+            {flag('notify', 'Turn ended', 'A turn of a minute or more ends, or a subagent fails')}
             {flag('limits', 'Limit warnings', 'Once per window, when 5H or 7D passes red')}
           </>,
         )}
@@ -1528,7 +1528,7 @@ export const register: Register = on => {
       if (canCompact)
         tools.push({ kind: 'compact', label: lvl ? `Compact, context at ${Math.round(ctx!)}%` : 'Compact', count: lvl && roomy ? `${Math.round(ctx!)}%` : undefined, tone: lvl && working === 0 ? lvl : 'm', press: () => void $.clock.after(0, () => void $.command.run({ command: 'compact' })) })
       tools.push(
-        { kind: 'agents', label: working > 0 ? `Agents, ${working} working` : 'Agents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
+        { kind: 'agents', label: working > 0 ? `Subagents, ${working} running` : 'Subagents', count: working > 0 && roomy ? String(working) : undefined, tone: working > 0 ? 'tasks' : 'm', press: () => void toggleAgents($) },
         { kind: 'settings', label: 'Settings', count: undefined, tone: 'm', press: openSettings },
       )
     }

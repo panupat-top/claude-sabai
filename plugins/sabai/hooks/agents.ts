@@ -162,7 +162,7 @@ export function summary(list: AgentRun[], now: number): { running: number; done:
   return { running, done: list.length - running - failed, failed, context: list.reduce((n, a) => n + a.contextTokens, 0), ms: Math.max(0, end - start) }
 }
 
-const FAILURE: Record<string, string> = { aborted: 'Stopped before it finished.', refusal: 'Declined the task.', error: 'Ended with an error.' }
+const FAILURE: Record<string, string> = { aborted: 'Stopped before it finished.', refusal: 'Declined the work.', error: 'Ended with an error.' }
 export const resultText = (a: AgentRun): string => a.result ?? (a.status === 'failed' ? (FAILURE[a.reason ?? 'error'] ?? 'Ended with an error.') : 'No report.')
 
 export const elapsed = (a: AgentRun, now: number): number => Math.max(0, (a.endedAt ?? now) - a.startedAt)
@@ -184,7 +184,7 @@ export type LaneState = 'out' | 'stopped' | 'finished' | 'tripped' | 'scored' | 
 export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
 export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
-const laneName = (type: string) => (type === 'general-purpose' ? 'General' : type.includes(':') ? type.split(':').pop()! : type)
+const laneName = (type: string) => (type.includes(':') ? type.split(':').pop()! : type)
 
 // The race as drawn: Main and the newest agents, each in its state, with the header's counts;
 // nothing without agents (the live strip tells the main turn alone) or while nothing works.
@@ -404,11 +404,11 @@ const LINES: Record<'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'd
   thinking: [() => 'ขอคิดแป๊บ… 🤔', () => 'กำลังเรียบเรียงความคิด 💭', () => 'คิดก่อนลงมือ 🤔'],
   quiet: [f => `เงียบไป ${f.quiet} วิ… หลับอยู่หรือเปล่า 😴`, f => `${f.quiet} วิแล้วยังเงียบ ลองเข้าไปดูหน่อย 👀`],
   context: [f => `หัวจะระเบิดแล้ว 🤯 ctx ${f.ctx}%`, f => `ความจำใกล้เต็ม ctx ${f.ctx}% 🧠`],
-  failed: [f => `งานนี้พัง 🩹 ดู report ก่อนนะ`, f => `สะดุดล้ม ${f.fails} ครั้ง 🩹`],
+  failed: [f => `งานนี้พัง 🩹 ดูรายงานก่อนนะ`, f => `สะดุดล้ม ${f.fails} ครั้ง 🩹`],
   stopped: [f => `หยุดตามที่สั่ง ✋${f.steps ? ` ทำไป ${f.steps} ขั้น` : ''}`],
   done: [f => `เสร็จใน ${f.time} เรียบร้อย ✨`, f => `งานเสร็จ ส่งรายงานแล้ว 📬 (${f.time})`],
   fast: [f => `เสร็จใน ${f.time} ไวเหมือนโกหก ⚡`, f => `${f.time} เสร็จแล้ว ไวมาก ⚡`],
-  waiting: [f => `รอ agent อีก ${f.waiting} ตัว ⏳`],
+  waiting: [f => `รอ subagent อีก ${f.waiting} ตัว ⏳`],
 }
 // What the working Clawd says he is doing, by his call's kind.
 const DOING: Record<ActKind, (target: string) => string> = {
@@ -440,7 +440,7 @@ export function thaiLine(a: AgentRun, now: number, window?: number): string {
   }
   if (mood === 'working') {
     const d = a.doing!.at(-1)!
-    return round + (d.title.startsWith('Agent') ? `รอ agent "${d.target}" อยู่ 🤝` : DOING[d.kind](d.target))
+    return round + (d.title.startsWith('Agent') ? `รอ subagent "${d.target}" อยู่ 🤝` : DOING[d.kind](d.target))
   }
   if (mood === 'done') {
     if (a.summary === 'pending') return 'เสร็จแล้ว! กำลังสรุปให้อ่าน… 📝'
@@ -468,8 +468,8 @@ export function summaryPrompt(a: AgentRun): string {
   const files = filesOf(a).slice(0, 12).map(({ path, file }) => (file.edits ? `${path} (+${file.added} −${file.removed}${file.created ? ', new' : ''})` : `${path} (read)`))
   const failed = (a.calls ?? []).filter(c => !c.ok).slice(-5).map(c => c.title)
   return [
-    `Task: ${a.description}`,
-    a.brief ? `Brief: ${a.brief}` : '',
+    `Description: ${a.description}`,
+    a.brief ? `Prompt: ${a.brief}` : '',
     `Calls: ${a.callCount ?? 0}, failed: ${a.callFails ?? 0}${failed.length ? ` (${failed.join('; ')})` : ''}`,
     files.length ? `Files: ${files.join(', ')}` : 'Files: none',
     `Report:\n${a.result ?? '(none)'}`,

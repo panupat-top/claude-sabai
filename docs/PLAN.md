@@ -52,6 +52,18 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 เรียงตามลำดับที่ควรทำ: งานเล็กที่ต่อจากของที่มีอยู่ก่อน แล้วค่อยงานใหญ่ · งานที่เสร็จแล้วดูใน §5
 
+### P1 — คำศัพท์ให้ตรงกับ docs ทางการ (2.21.0)
+
+ตัดสินใจ 2026-10-13: D1 กลุ่มของ subagent เรียกตามที่มา **turn** / **workflow run** (docs ไม่มีคำเรียกกลุ่ม; ในโค้ดยังชื่อ `crew`) · D2 pane และตัวนับใช้ **Subagents** / subagent · D3 คง **done** (= completed ของ docs) · D4 คงป้าย **Main** (= main conversation) · ตารางคำศัพท์อยู่ใน CLAUDE.md › Glossary
+
+| ขั้น | งาน | รายละเอียด |
+|---|---|---|
+| 1 | Glossary | ✅ ตารางใน CLAUDE.md |
+| 2 | ข้อความ UI ✅ | subagent แทน agent ในประโยค/ตัวนับ · ชื่อ pane Subagents · pane ไม่ใช้ panel · general-purpose · งานของ subagent = description/prompt ไม่ใช่ task · request แทน step ของ model · ส่วน Plan ใน Viewing เป็น Progress · ใต้ Clawd `N background` (คำว่า "in background" ไม่พอดีกับช่อง 108 px) · แถว crew ของ band เป็นแถว Subagents (Settings, README, plugin.json) · ไทยใช้ "รายงาน" · แก้ test |
+| 3 | Logic | L1 alt ของ race อ่าน state ดิบ (out/tripped/finished) · L2 race อยู่ใต้ toggle Activity แต่ subagent อยู่ใต้ Agents ให้รวมไว้กลุ่ม Subagents · L3 กลุ่มของ workflow ไม่มีป้าย · L4 teammate (agent teams) ไม่ใช่ subagent ตาม docs ต้องตรวจก่อนว่า engine ส่ง `agent.spawn` มาไหม · L5 `now` ในโค้ด pane ชนกับ atom นาฬิกา · L6 `LaneState` out/finished ให้ตรงกับ Failed/Done |
+| 4 | ชื่อในโค้ด | `AgentRun.steps` → requests ฯลฯ ไม่แตะ key ของ atom (state ไม่หายตอน reload) |
+| 5 | Design | preview: หัวกล่อง This turn / Earlier turns / Workflow run, tooltip ของ Main, แถว Subagents ใน band → เลือก → ทำ → ตรวจบน desktop |
+
 ### P1 — แก้ bug (2.20.x)
 
 ตรวจโค้ดของ 2.20.0 เมื่อ 2026-10-13 (V1–V5 ของ review หลัง 2.14.1 และของค้างจาก 2.19/2.20) · V4e ("0 agents") แก้ไปแล้วทางอ้อม เพราะ Main ที่ไม่มี agent ไม่ตกไปอยู่ใน Earlier

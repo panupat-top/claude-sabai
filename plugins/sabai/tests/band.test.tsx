@@ -255,12 +255,12 @@ test('Clawd counts the background work the main conversation starts, until it en
   await call({ tool: 'Bash', command: 'sub', description: '', run_in_background: true, agentId: 'agent-x' })
   await call({ tool: 'Monitor', description: 'watch', timeout_ms: 60_000, command: 'tail -f log' })
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 3 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 3 background/)
   const notify = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } } as never)
   await notify('<task-notification><task-id>m1</task-id><event>line</event></task-notification>')
   await notify('<task-notification><task-id>b1</task-id><status>completed</status></task-notification>')
   await settle()
-  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 2 running/)
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: Ready, 2 background/)
   await call({ tool: 'TaskStop', task_id: 'b2' })
   await notify('<task-notification><task-id>m1</task-id><status>killed</status></task-notification>')
   await settle()
@@ -315,7 +315,7 @@ test('a fresh load shows every meter with its countdown, and the toolbar', async
   expect(desktop.words).toContain('stock row')
   // The desktop's toolbar is icons, not Buttons: compact (the one command it keeps), agents, settings.
   expect(desktop.buttons).toBe(0)
-  expect(desktop.tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect(desktop.tools).toEqual(['Compact', 'Subagents', 'Settings'])
 })
 
 test('before the engine has a plan reading, 5H and 7D stay hidden', async ($, on) => {
@@ -455,9 +455,9 @@ test('/sabai-agents opens the panel and closes it again', async ($, on) => {
   engine(on)
   const open = panes(on)
   await start($)
-  expect((await agentsCommand($)).text).toBe('Agents panel opened.')
+  expect((await agentsCommand($)).text).toBe('Subagents pane opened.')
   expect([...open]).toEqual(['sabai-agents'])
-  expect((await agentsCommand($)).text).toBe('Agents panel closed.')
+  expect((await agentsCommand($)).text).toBe('Subagents pane closed.')
   expect([...open]).toEqual([])
 })
 
@@ -526,7 +526,7 @@ test('the toolbar opens the agents and skins panels and counts running agents', 
   await spawn($, 'read')
   // While agents work the icon counts them in Clawd's clay.
   const agents = (await toolsOf(ui)).find(t => t.key === 'tool-agents')
-  expect(agents?.alt).toBe('Agents, 2 working')
+  expect(agents?.alt).toBe('Subagents, 2 running')
   expect(agents?.icon).toContain('>2</text>')
   expect(agents?.icon).toContain('<rect class="c-tasks"')
 })
@@ -826,7 +826,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
-  expect((await altsOf(ui)).find(a => /^\d\d:\d\d · 1 agent: ✓ 1/.test(a))).toContain('old')
+  expect((await altsOf(ui)).find(a => /^\d\d:\d\d · 1 subagent: ✓ 1/.test(a))).toContain('old')
   // One day's crews carry no day label.
   expect(await ui.find({ type: 'Text', text: 'TODAY' })).toBeUndefined()
   const show = (await ui.findAll({ type: 'Button' })).find(b => String(b.props.key).startsWith('show-'))!
@@ -849,7 +849,7 @@ test('View opens an agent in Viewing and a second press or Close shuts it; with 
   await finish($, 'b')
   const ui = await mountPane($, 'desktop')
   // Nothing viewed: the invitation, and nobody needs a look yet.
-  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Pick an agent'))).toBe(true)
+  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Pick one to view'))).toBe(true)
   expect(await headOf(ui)).toBeUndefined()
   await ui.press({ key: 'view-agent-b' })
   expect((await headOf(ui))?.props.alt).toMatch(/^b:/)
@@ -906,7 +906,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   expect(await laneOf(ui, 'helper')).toBeDefined()
   // Its turn over while its agent runs, Main waits on it, as the band says; no check yet.
-  expect((await laneOf(ui, 'Main'))?.props.alt).toMatch(/^Main: Waiting on 1, .*รอ agent อีก 1 ตัว/)
+  expect((await laneOf(ui, 'Main'))?.props.alt).toMatch(/^Main: Waiting on 1, .*รอ subagent อีก 1 ตัว/)
   await ui.unmount()
   // A turn of Main's alone puts the crew in Earlier, and Clear drops it.
   await finish($, 'helper')
@@ -985,7 +985,7 @@ test('a workflow agent says so in its detail, and its brief shows a line that Mo
     parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
   })
   const ui = await viewed(await mountPane($, 'desktop'), 'fan out')
-  expect((await headOf(ui))?.props.alt).toContain('general · Sonnet 5.5 · background · workflow')
+  expect((await headOf(ui))?.props.alt).toContain('general-purpose · Sonnet 5.5 · background · workflow')
   expect(await ui.find({ type: 'Text', text: 'Count the hooks.…' })).toBeDefined()
   expect((await ui.find({ key: 'fold-brief' }))?.props.label).toBe('▸ More')
   await ui.press({ key: 'fold-brief' })
@@ -1111,7 +1111,7 @@ test('the crew row leaves the band a minute after the last agent ends', async ($
   await start($)
   await spawn($, 'quick job')
   await $.turn.complete({ turnId: 't', agentId: 'agent-quick job', answer: 'ok', durationMs: 10, isAborted: false, reason: 'answer' })
-  expect((await shown($, 'desktop')).words).toContain('Agents: 1 done')
+  expect((await shown($, 'desktop')).words).toContain('Subagents: 1 done')
   await clock.advance(90_000)
   expect((await shown($, 'desktop')).words).not.toContain('Agents:')
   expect((await shown($, 'terminal')).words).not.toMatch(/All 1 done/)
@@ -1873,7 +1873,7 @@ test('settings are eight bordered groups in order: look, usage, info row, Clawd,
   await start($)
   const pane = await mountPane($, 'desktop', 'sabai-skins')
   const cards = (await pane.findAll({ type: 'Box' })).filter(b => b.props.borderStyle === 'round')
-  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications']
+  const titles = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications']
   expect(cards.length).toBe(titles.length)
   const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
   const order = titles.map(t => words.indexOf(`  ${t}`))
@@ -2007,7 +2007,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   const all = await labels()
   for (const l of ['● Tasks', '● Activity', '● Toolbar', '● Folder', '● Context', '● Hats and props', '● Tricks', 'Dither', 'Reset to defaults']) expect([l, all.includes(l)]).toEqual([l, true])
   const text = JSON.stringify(await pane.drawn())
-  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Agents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
+  const order = ['Look', 'Usage', 'Info row', 'Clawd', 'Subagents', 'Conversation', 'Guard', 'Notifications'].map(g => text.indexOf(`  ${g}`))
   expect(order.every(i => i >= 0)).toBe(true)
   expect(order).toEqual([...order].sort((a, b) => a - b))
   await pane.press({ key: 'pref-show-folder' })
@@ -2180,7 +2180,7 @@ test('a Write over an existing file counts its diff in the receipt, a new file e
 test('with every row but the toolbar hidden, the toolbar stays', async ($, on) => {
   engine(on, { store: { prefs: { rows: { info: false, tasks: false, usage: false, live: false, crew: false, toolbar: true } } } })
   await start($)
-  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Agents', 'Settings'])
+  expect((await shown($, 'desktop')).tools).toEqual(['Compact', 'Subagents', 'Settings'])
 })
 
 test('the desktop shows the guard while it is on, with the info row hidden too', async ($, on) => {

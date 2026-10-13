@@ -98,7 +98,7 @@ test('a finished run keeps its reason and a cut answer; Result text never comes 
   expect(finished([run('b')], 'b', 'refusal', 9000)[0]?.status).toBe('failed')
   expect(resultText(run('c', { status: 'done', reason: 'answer' }))).toBe('No report.')
   expect(resultText(run('d', { status: 'failed', reason: 'aborted' }))).toBe('Stopped before it finished.')
-  expect(resultText(run('e', { status: 'failed', reason: 'refusal' }))).toBe('Declined the task.')
+  expect(resultText(run('e', { status: 'failed', reason: 'refusal' }))).toBe('Declined the work.')
   expect(resultText(run('f', { status: 'failed', reason: 'error' }))).toBe('Ended with an error.')
   expect(resultText(run('g', { status: 'done', reason: 'answer', result: 'Found 3.' }))).toBe('Found 3.')
 })

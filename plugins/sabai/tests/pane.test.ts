@@ -97,7 +97,7 @@ test('moods: at work, thinking, quiet, context nearly full, failed, stopped and 
   // Main whose turn ended while its crew's agents run waits on them, as the band says.
   const waits = run('m', { type: 'main', waitingOn: 2, lastActiveAt: at - QUIET_MS })
   expect(agentMood(waits, at)).toBe('waiting')
-  expect(thaiLine(waits, at)).toBe('รอ agent อีก 2 ตัว ⏳')
+  expect(thaiLine(waits, at)).toBe('รอ subagent อีก 2 ตัว ⏳')
 })
 
 test('Thai lines carry the real numbers, stay put between redraws, and name a round', () => {
