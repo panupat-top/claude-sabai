@@ -3,7 +3,7 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, estimated, updated, usageNote } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, RACE_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
@@ -377,6 +377,18 @@ async function setSkin($: EngineInterface, name: string) {
   await $.store.set('skin', name)
 }
 
+// What the engine knows now. Its context reading is the last response's, so before a first response,
+// or once a compaction or /clear has made it stale, the window is the engine's local estimate
+// (`summary` sends no request) until the next response measures it. No answer is an answer too:
+// the band leaves its skeleton for the note, and keeps a reading that outlived a reload.
+async function readUsage($: EngineInterface, stale = false) {
+  const known = await $.session.usage().catch(() => undefined)
+  if (!known) return update($, usage, u => u ?? { rateLimits: [] })
+  if (!stale && known.context.percent !== undefined) return update($, usage, () => toUsage(known))
+  const breakdown = (await $.session.usage({ breakdown: 'summary' }).catch(() => undefined))?.context.breakdown
+  await update($, usage, () => estimated(toUsage(known), breakdown?.totalTokens))
+}
+
 // Everything the mod needs once the desktop draws on the session: saved choices, commands, the
 // step tool, the clocks and the info row's reads.
 async function setUp($: EngineInterface) {
@@ -414,10 +426,7 @@ async function setUp($: EngineInterface) {
   // The clock first, so no countdown is ever measured from zero.
   await tick($)
   // session.measure fires only on the next response, so a fresh load reads what is known now.
-  const known = await $.session.usage().catch(() => undefined)
-  // No answer is an answer too: the band leaves its skeleton for the note, and keeps a reading
-  // that outlived a reload.
-  await update($, usage, u => (known ? toUsage(known) : (u ?? { rateLimits: [] })))
+  await readUsage($)
   // Keeps the reset countdowns and the branch fresh between responses.
   $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
   // Running subagents' clocks count by the second; quiet when none runs.
@@ -451,10 +460,18 @@ export const register: Register = on => {
     return attached
   })
 
-  // A cleared, resumed or forked conversation does not carry this one's task list, turn, race,
-  // receipts or the guard's count.
-  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+  // A compacted conversation is smaller at once, though no response has measured it yet.
+  on('session.compact', async ($, e, next) => {
     if (!desktop) return next(e)
+    const compacted = await next(e)
+    if (compacted.messages && e.agentId === undefined && e.trigger !== 'precompute') await readUsage($, true)
+    return compacted
+  })
+
+  // A cleared or resumed conversation does not carry this one's task list, turn, race, receipts,
+  // the guard's count or its context. session.end is how the desktop tells: it raises no classic.*.
+  on('session.end', async ($, e, next) => {
+    if (!desktop || (e.reason !== 'clear' && e.reason !== 'resume')) return next(e)
     await update($, tasks, () => [])
     await update($, agents, () => [])
     await update($, mains, () => [])
@@ -467,7 +484,10 @@ export const register: Register = on => {
     await update($, guardCaught, () => 0)
     await update($, receipts, () => ({}))
     await update($, liveStep, () => null)
-    return next(e)
+    const ended = await next(e)
+    // The new conversation is read once this one has gone.
+    $.clock.after(0, () => void readUsage($, true))
+    return ended
   })
 
   on('agent.spawn', async ($, e, next) => {
