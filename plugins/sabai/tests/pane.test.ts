@@ -6,7 +6,7 @@ import {
   summaryOf, summaryPrompt, thaiLine, toolsOf, touched,
 } from '../hooks/agents'
 import { actOf } from '../hooks/chat'
-import { activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, stepsSvg, toolsSvg } from '../hooks/svg'
+import { activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, lookOf, stepsSvg, toolsSvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, steps: 0, lastActiveAt: 1000, ...extra,
@@ -174,6 +174,24 @@ test('a lane carries its mood’s stripe; viewed, it is ringed and its Clawd wav
   expect(laneSvg(busy('d', { status: 'done', endedAt: 1000 }), 454, 60_000).source).not.toContain('@keyframes')
   const main = laneSvg(busy('main:1', { type: 'main', description: 'Claude' }), 454, 30_000)
   expect([main.source.includes('>main</text>'), main.source.includes('#3a5899'), main.alt.startsWith('Claude (main):')]).toEqual([true, true, true])
+})
+
+test('an ended lane wears a badge on its Clawd: a check, a cross or a hand; just ended, its lane is tinted', () => {
+  const look = lookOf('raised')
+  const ended = (status: AgentRun['status'], reason?: AgentRun['reason']) => run('e', { status, endedAt: 10_000, ...(reason ? { reason } : {}) })
+  const later = 60_000
+  expect(laneSvg(run('r'), 400, later, 'raised').source).not.toContain('<circle cx="')
+  const done = laneSvg(ended('done'), 400, later, 'raised').source
+  expect(done).toContain(`r="6.5" fill="${look.bar('context')}"`)
+  const failed = laneSvg(ended('failed', 'error'), 400, later, 'raised').source
+  expect(failed).toContain(`r="6.5" fill="${look.bar('tasks', 'alert')}"`)
+  expect(laneSvg(ended('failed', 'aborted'), 400, later, 'raised').source).toContain('>✋</text>')
+  // Settled, no tint; in its first seconds a failed lane is tinted red and its Clawd falls.
+  expect(failed).not.toContain('opacity=".12"')
+  const fresh = laneSvg(ended('failed', 'error'), 400, 11_000, 'raised').source
+  expect(fresh).toContain(`fill="${look.bar('tasks', 'alert')}" opacity=".12"`)
+  expect(fresh).toContain('class="out')
+  expect(laneSvg(ended('done'), 400, 11_000, 'raised').source).toContain(`fill="${look.bar('context')}" opacity=".14"`)
 })
 
 test('the detail draws its head a line for each thing, then its tools, steps, calls and files', () => {

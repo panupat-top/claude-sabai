@@ -407,6 +407,22 @@ test('a just-finished agent hops among confetti on a flashing row, then folds to
   expect(later).toContain('opacity=".35"')
 })
 
+test('a just-failed agent falls on a red-flashing row with no confetti, then folds to a cross', () => {
+  const look = lookOf('auto')
+  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'out', ...(fresh ? { fresh } : {}) }]), 300, 0).body
+  const now = row(true)
+  expect(now).toContain(`class="flash" x="2" y="47" width="296" height="20" rx="6" fill="${look.bar('tasks', 'alert')}"`)
+  for (const s of ['class="out', '>· Failed<']) expect([s, now.includes(s)]).toEqual([s, true])
+  expect(now).not.toContain('class="cf"')
+  const later = row(false)
+  expect(later).not.toContain('class="flash"')
+  expect(later).not.toContain('class="out')
+  expect(later).toContain(`stroke="${look.bar('tasks', 'alert')}"`)
+  // The name keeps its ink, as a done agent's does; the step says it failed.
+  expect(later).toMatch(/class="t"[^>]*>Broke</)
+  expect(later).toMatch(/class="c-alert"[^>]*>· Failed</)
+})
+
 test('the header tells done, failed and stopped agents apart; a stopped row is muted, not failed', () => {
   const part = racePart(lookOf('auto'), race([
     {},

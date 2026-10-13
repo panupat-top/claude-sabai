@@ -175,7 +175,7 @@ export function clock(ms: number): string {
 
 export type LaneState = 'out' | 'stopped' | 'finished' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
-// agent in the seconds after it finished.
+// agent in the seconds after it finished or failed.
 export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
 export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
@@ -259,7 +259,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       ...doingFor([id]),
       mood,
       ...(mood === 'quiet' ? { quietMs: now - (a.lastActiveAt ?? a.startedAt) } : {}),
-      ...(state === 'finished' && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
+      ...((state === 'finished' || state === 'out') && now - (a.endedAt ?? 0) < FINISH_MS ? { fresh: true } : {}),
       state,
     }
   }
