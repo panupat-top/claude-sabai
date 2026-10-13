@@ -9,7 +9,7 @@ const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
 // missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3], contextTokens = 24_500, surfaces = ['desktop'] as ('terminal' | 'desktop')[] } = {}) {
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3] as (number | undefined)[], contextTokens = 24_500, estimate = undefined as number | undefined, surfaces = ['desktop'] as ('terminal' | 'desktop')[] } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -36,10 +36,11 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.complete', () => ({ text: completeText }))
-  on('session.usage', () => ({
+  on('session.usage', ($, e) => ({
     value: {
       startedAt: 0,
-      context: { window: 200000, tokens: contextTokens, percent: percents[0]! },
+      // The engine's local estimate, asked for with a breakdown.
+      context: e?.breakdown ? { window: 200000, ...(estimate === undefined ? {} : { breakdown: { totalTokens: estimate } as never }) } : { window: 200000, ...(percents[0] === undefined ? {} : { tokens: contextTokens, percent: percents[0] }) },
       rateLimits: hasLimits
         ? [
             { kind: 'five_hour', percentUsed: percents[1]!, resetsAt: '2026-10-10T02:49:00Z' },
@@ -2019,7 +2020,7 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
   allowBeneath(on)
   turnStarts(on)
   on('ui.toast', () => ({ value: undefined }))
-  on('classic.SessionStart', () => ({}) as never)
+  on('session.end', () => ({ sessionId: 's' }))
   await start($)
   await guardOn($)
   await turn($, async () => {
@@ -2028,9 +2029,41 @@ test('/clear starts over: no receipt, turn or guard count carried into the new c
   }, 'Built.')
   expect(await receiptUnder($, 'desktop', 'Built.')).toContain('Turn receipt')
   expect((await shown($, 'desktop')).words).toContain('Guard on, 1 caught')
-  await $.classic.SessionStart({ source: 'clear' } as never)
+  await $.session.end({ reason: 'clear', sessionId: 's' } as never)
   expect(await receiptUnder($, 'desktop', 'Built.')).not.toContain('Turn receipt')
   expect((await shown($, 'desktop')).words).not.toContain('caught')
+})
+
+test('a new session shows the engine\'s estimate of its context until a response measures it', async ($, on) => {
+  engine(on, { percents: [undefined, 7, 3], estimate: 18_000 })
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Context ~18k / 200k (9%); 5H Limit 7%')
+  await $.session.measure({ context: { window: 200000, tokens: 24_500, percent: 12 }, rateLimits: [], changed: ['context'] })
+  expect((await shown($, 'desktop')).words).toContain('Context 24.5k / 200k (12%)')
+})
+
+test('a compaction shows the smaller context at once; a subagent\'s or a precompute changes nothing', async ($, on) => {
+  engine(on, { percents: [82, 7, 3], contextTokens: 164_000, estimate: 30_000 })
+  const summary = [{ role: 'user', text: 'Summary', toolUses: [] }] as never
+  on('session.compact', () => ({ messages: summary }))
+  await start($)
+  expect((await shown($, 'desktop')).words).toContain('Context 164k / 200k (82%)')
+  await $.session.compact({ trigger: 'precompute', messages: summary } as never)
+  await $.session.compact({ trigger: 'auto', agentId: 'a1', messages: summary } as never)
+  expect((await shown($, 'desktop')).words).toContain('Context 164k / 200k (82%)')
+  await $.session.compact({ trigger: 'manual', messages: summary } as never)
+  expect((await shown($, 'desktop')).words).toContain('Context ~30k / 200k (15%)')
+})
+
+test('/clear drops the old context reading; with no estimate the context waits for a response', async ($, on) => {
+  const { clock } = engine(on, { percents: [82, 7, 3], contextTokens: 164_000 })
+  on('session.end', () => ({ sessionId: 's' }))
+  await start($)
+  await $.session.end({ reason: 'clear', sessionId: 's' } as never)
+  await clock.advance(1)
+  const words = (await shown($, 'desktop')).words
+  expect(words).not.toContain('Context')
+  expect(words).toContain('5H Limit 7%')
 })
 
 test('a band drawn before the first tick reads the clock, not 1970: no New Year hat', async ($, on) => {

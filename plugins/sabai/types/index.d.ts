@@ -1,6 +1,6 @@
 export type Limit = { kind: string; percentUsed: number; resetsAt?: string }
 
-export type Usage = { contextPercent?: number; contextTokens?: number; contextWindow?: number; rateLimits: Limit[] }
+export type Usage = { contextPercent?: number; contextTokens?: number; contextWindow?: number; contextEstimated?: true; rateLimits: Limit[] }
 
 // The session's surroundings: what the band's first row shows. `read` once git and node have
 // answered (or given up); until then the row is a skeleton.

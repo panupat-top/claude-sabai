@@ -21,6 +21,13 @@ export const toUsage = (u: {
   rateLimits: u.rateLimits.map(({ kind, percentUsed, resetsAt }) => ({ kind, percentUsed, resetsAt })),
 })
 
+// Before a response measures the window (a new session, or one just compacted or cleared): the
+// engine's local estimate of what fills it, or no context reading at all.
+export const estimated = (u: Usage, tokens: number | undefined): Usage => {
+  if (tokens === undefined || !u.contextWindow) return { ...u, contextPercent: undefined, contextTokens: undefined }
+  return { ...u, contextTokens: tokens, contextPercent: Math.round((tokens / u.contextWindow) * 100), contextEstimated: true }
+}
+
 // A reading the engine could not give (NaN) counts as nothing used, never "NaN%".
 const clamp = (p: number) => (Number.isFinite(p) ? Math.max(0, Math.min(100, Math.round(p))) : 0)
 const resetsIn = (resetsAt: string | undefined, now: number) => {
@@ -44,8 +51,9 @@ export function meters(usage: Usage | null, now: number, opts: { show?: Partial<
   }
   if (usage?.contextPercent !== undefined && shown('context')) {
     const { contextTokens: used, contextWindow: size } = usage
-    const amount = used !== undefined && size ? `${tokens(used)} / ${tokens(size)}` : undefined
-    const left = used !== undefined && size ? `${tokens(Math.max(0, size - used))} left` : undefined
+    const about = usage.contextEstimated ? '~' : ''
+    const amount = used !== undefined && size ? `${about}${tokens(used)} / ${tokens(size)}` : undefined
+    const left = used !== undefined && size ? `${about}${tokens(Math.max(0, size - used))} left` : undefined
     out.push(leveled({ kind: 'context', label: 'Context', percent: clamp(usage.contextPercent), amount, ...(left ? { left } : {}) }))
   }
   add('session', '5H Limit', 'five_hour')
