@@ -12,7 +12,8 @@ import { STROKES } from './strokes'
 import type { StrokeKind } from './strokes'
 import { ICON_COLORS, HAT_H, PROP_W, SPRITE_CSS, sprite, spriteSize } from './sprites'
 import type { MeterKind } from './model'
-import { SKIN_NAMES } from './themes'
+import { DARK_THEMES, DEFAULT_THEME, LIGHT_THEMES } from './themes'
+import type { BarKind, Colors, Hue, Theme } from './themes'
 
 // Desktop drawings in savvy-progress's pixel style (MIT). Each group is one SVG, so its own
 // spacing holds; in a row Box the desktop sets one beside Buttons or other drawings. Light and
@@ -20,13 +21,10 @@ import { SKIN_NAMES } from './themes'
 
 export type Drawing = { source: string; width: number; height: number; alt: string }
 
-const WARN = '#f08a3c'
-const ALERT = '#e5484d'
 const SANS = "-apple-system,BlinkMacSystemFont,'SF Pro Text','Segoe UI',sans-serif"
 const MONO = 'ui-monospace,SFMono-Regular,Menlo,monospace'
-// Text colours as [light, dark], each at least 4.5:1 on its card (checked by the tests). The
-// bars keep the brighter ICON_COLORS; text needs the darker shade on a light card.
-export const CARD = ['#f4f4f2', '#262626'] as const
+// The words drawn on the bare surface, with no card behind them, as [light, dark]: the OS's light
+// or dark, whatever the theme, each at least 4.5:1 on the desktop's surface (checked by the tests).
 export const TEXT = {
   t: ['#1f1f1f', '#ececec'],
   tasks: ['#a8490a', '#ff9d57'],
@@ -39,7 +37,7 @@ export const TEXT = {
   ok: ['#1a7f37', '#56d364'],
 } as const
 // The conversation's own ink as [light, dark]: the transcript sits on the person's theme, not on
-// a skin's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
+// a theme's card. Checked at 4.5:1 on light and dark conversations, and over a pill's tint.
 export const CHAT_INK: Record<Tone, readonly [string, string]> = {
   text: TEXT.t,
   muted: ['#5f5f5c', '#b4b4af'],
@@ -51,9 +49,6 @@ export const CHAT_INK: Record<Tone, readonly [string, string]> = {
 }
 // How strongly a result pill is tinted with its ink: the ink must still read on the tint.
 export const PILL_TINT = 0.1
-const css = (i: 0 | 1, text: Readonly<Record<string, readonly [string, string]>> = TEXT) => Object.entries(text).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v[i]}}`).join('')
-// White on this clay reads at 4.5:1; the brand clay itself is kept for the bar.
-const PILL = '#b5532f'
 // The status tiles' motion, each loop within a second and starting on a visible frame: a call in
 // flight pulses, thought's dots hop, a wait's hourglass turns, a quiet moon fades, a full gauge
 // rocks. A wrapping group carries it, as a CSS transform would replace the icon's own placement.
@@ -102,41 +97,37 @@ const noise = (x: number, y: number): number => {
   return s - Math.floor(s)
 }
 
-// How a skin paints the band: its stylesheet, a bar's colour, the pill behind white figures,
-// and Clawd's tint. No skin paints a background: the band sits on the surface's own, as `auto` does.
-export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' | 'alert') => string; pill: string; clawd: string }
+// How a theme paints the band: its stylesheet (the light theme's inks, the dark one's under the
+// dark query), a bar's and the pill's colour as variables each drawing declares for the ones it uses
+// (`themeVars`), and Clawd's tint, the same in both. No theme paints a background: the band sits
+// on the surface's own.
+export type Look = { css: string; bar: (kind: MeterKind | 'tasks', lvl?: 'warn' | 'alert') => string; pill: string; clawd: string; vars: readonly [Record<string, string>, Record<string, string>] }
 
 const wink = (body: string) => `@keyframes wink{91%,96%{fill:${body}}}`
-
-// A look in light and dark: its words, the bar track and the card, each [light, dark].
-const twoModes = (text: Readonly<Record<string, readonly [string, string]>>, card: readonly [string, string], track: readonly [string, string]): Look => ({
-  css: `${css(0, text)}.k{fill:${track[0]}}.k-stroke{stroke:${track[0]}}.p{fill:${card[0]}}@media (prefers-color-scheme: dark){${css(1, text)}.k{fill:${track[1]}}.k-stroke{stroke:${track[1]}}.p{fill:${card[1]}}}${wink(ICON_COLORS.tasks)}`,
-  bar: (kind, lvl) => (lvl === 'alert' ? ALERT : lvl === 'warn' ? WARN : ICON_COLORS[kind]),
-  pill: PILL,
-  clawd: ICON_COLORS.tasks,
+const inks = (c: Colors) => `${Object.entries(c.text).map(([k, v]) => `.${k.length > 1 ? `c-${k}` : k}{fill:${v}}`).join('')}.k{fill:${c.track}}.k-stroke{stroke:${c.track}}.p{fill:${c.card}}`
+// A theme's variables by name: `bar-tasks`, `pill`, and each hue's `kb-ok`, `kf-ok`, `kl-ok`.
+const varsOf = (c: Colors): Record<string, string> => ({
+  ...Object.fromEntries(Object.entries(c.bar).map(([k, v]) => [`bar-${k}`, v])),
+  pill: c.pill,
+  ...Object.fromEntries(Object.entries(c.tiles).flatMap(([h, t]) => (['kb', 'kf', 'kl'] as const).map((n, i) => [`${n}-${h}`, t[i]!]))),
 })
-
-// Raised: white cards in light and cards lighter than the desktop's #222 in dark, lifted off the
-// band; its words are set for those cards. Each at least 4.5:1 on its card (checked by the tests).
-export const RAISED_CARD = ['#ffffff', '#2d2d2b'] as const
-export const RAISED_TEXT = {
-  t: ['#1a1a19', '#ececea'],
-  tasks: ['#b04f2c', '#ee9b78'],
-  m: ['#66665f', '#a6a6a0'],
-  context: ['#12736a', '#4cc4b3'],
-  session: ['#4f47c4', '#aca8ff'],
-  week: ['#845700', '#eab65c'],
-  warn: ['#ad4810', '#ffa166'],
-  alert: ['#bf2b2b', '#ff7d74'],
-  ok: ['#18793a', '#5fd16d'],
-} as const
-// Flat (`auto`, the first look): cards a shade off the surface.
-const FLAT = twoModes(TEXT, CARD, ['#e8e8e5', '#2a2a2a'])
-// Its empty bar track stands 1.35:1 off the card in both modes.
-const RAISED = twoModes(RAISED_TEXT, RAISED_CARD, ['#dadad5', '#474744'])
-
-// The two looks, both following the app between light and dark; anything else is flat.
-export const lookOf = (skin: string): Look => (skin === 'raised' ? RAISED : FLAT)
+const looks = new Map<string, Look>()
+export function lookOf(theme: Theme = DEFAULT_THEME): Look {
+  const key = `${theme.light}/${theme.dark}`
+  const known = looks.get(key)
+  if (known) return known
+  const light = LIGHT_THEMES[theme.light] ?? LIGHT_THEMES[DEFAULT_THEME.light]
+  const dark = DARK_THEMES[theme.dark] ?? DARK_THEMES[DEFAULT_THEME.dark]
+  const look: Look = {
+    css: `${inks(light)}@media (prefers-color-scheme: dark){${inks(dark)}}${wink(ICON_COLORS.tasks)}`,
+    bar: (kind, lvl) => `var(--bar-${(lvl ?? kind) satisfies BarKind})`,
+    pill: 'var(--pill)',
+    clawd: ICON_COLORS.tasks,
+    vars: [varsOf(light), varsOf(dark)],
+  }
+  looks.set(key, look)
+  return look
+}
 
 const CELL = 3
 const DOT_COLS = 200
@@ -189,11 +180,11 @@ function pixelBar(id: string, x: number, y: number, w: number, h: number, ratio:
 }
 
 // Text drawn straight on the surface, with no card behind it, takes the OS's light or dark ink
-// whatever the skin: a skin's ink is only checked against its own card.
+// whatever the theme: a theme's ink is only checked against its own card.
 const surfaceCss = (i: 0 | 1) => Object.entries(TEXT).map(([k, v]) => `.s${k.length > 1 ? `-${k}` : k}{fill:${v[i]}}`).join('')
 const SURFACE_INK = `${surfaceCss(0)}@media (prefers-color-scheme: dark){${surfaceCss(1)}}`
 
-// Only the named classes' rules from a skin's stylesheet, its dark ones included: a small drawing
+// Only the named classes' rules from a theme's stylesheet, its dark ones included: a small drawing
 // redrawn every second (a toolbar icon, the info card) need not carry the whole of it.
 const DARK = '@media (prefers-color-scheme: dark){'
 function leanCss(look: Look, names: readonly string[]): string {
@@ -202,30 +193,17 @@ function leanCss(look: Look, names: readonly string[]): string {
   return at < 0 ? rules(look.css) : `${rules(look.css.slice(0, at))}${DARK}${rules(look.css.slice(at + DARK.length))}}`
 }
 
-// The pastel palette of statuses and call kinds: each hue's tile ground (kb), the glyph on it (kf)
-// and its lines and bars (kl), each [light, dark]. Drawings paint it as `var(--kb-ok)` and so on,
-// so they follow the OS's light/dark switch; each carries only the variables it uses (paletteCss).
-// A glyph reads at 5:1 or more on its ground in both modes (checked by the tests).
-export const PALETTE = {
-  read: { kb: ['#8fd8cb', '#1f5b53'], kf: ['#083f39', '#a3f0e4'], kl: ['#8fd8cb', '#5cc2b2'] },
-  edit: { kb: ['#b6b2f9', '#3b3780'], kf: ['#231f80', '#d6d3ff'], kl: ['#b6b2f9', '#9a95f2'] },
-  command: { kb: ['#cfcec7', '#4a4a46'], kf: ['#2e2e2a', '#ecebe5'], kl: ['#cfcec7', '#8d8c86'] },
-  ok: { kb: ['#9cdcab', '#255c33'], kf: ['#0f4a22', '#a8f0b6'], kl: ['#9cdcab', '#6cc985'] },
-  web: { kb: ['#efc77c', '#66501a'], kf: ['#4d3300', '#fbe0a0'], kl: ['#efc77c', '#d9ad55'] },
-  skill: { kb: ['#f2b49a', '#6b3420'], kf: ['#6e2a12', '#ffc9b0'], kl: ['#f2b49a', '#e8936f'] },
-  fail: { kb: ['#f3a2a2', '#6e2a2d'], kf: ['#701016', '#ffbdbd'], kl: ['#f3a2a2', '#e58585'] },
-  stop: { kb: ['#d6d5cf', '#4a4a46'], kf: ['#3a3a36', '#e2e1db'], kl: ['#d6d5cf', '#7a7a75'] },
-  warn: { kb: ['#f5cf98', '#6b4a18'], kf: ['#5e3800', '#ffd9a0'], kl: ['#f5cf98', '#e0a85c'] },
-} as const
-export type Hue = keyof typeof PALETTE
+// Statuses and call kinds take the theme's hues: each hue's tile ground (kb), the glyph on it (kf)
+// and its lines and bars (kl). Drawings paint them as `var(--kb-ok)` and so on, as they paint a bar
+// `var(--bar-tasks)`, so they follow the OS's light/dark switch; each carries only the variables
+// it uses.
 const kb = (h: Hue) => `var(--kb-${h})`
 const kf = (h: Hue) => `var(--kf-${h})`
 const kl = (h: Hue) => `var(--kl-${h})`
-function paletteCss(body: string): string {
-  const used = [...new Set([...body.matchAll(/var\(--(k[bfl])-(\w+)\)/g)].map(m => [m[1], m[2]] as [keyof (typeof PALETTE)[Hue], Hue]))].filter(([, h]) => h in PALETTE)
-  const names = [...new Map(used.map(u => [u.join('-'), u])).values()]
+function themeVars(look: Look, body: string): string {
+  const names = [...new Set([...body.matchAll(/var\(--([\w-]+)\)/g)].map(m => m[1]!))].filter(n => n in look.vars[0])
   if (!names.length) return ''
-  const decl = (i: 0 | 1) => names.map(([t, h]) => `--${t}-${h}:${PALETTE[h][t][i]}`).join(';')
+  const decl = (i: 0 | 1) => names.map(n => `--${n}:${look.vars[i][n]}`).join(';')
   return `svg{${decl(0)}}${DARK}svg{${decl(1)}}}`
 }
 // Each call kind's Lucide icon, once per drawing in its defs, placed by every tile that shows it.
@@ -239,7 +217,7 @@ function iconDefs(body: string): string {
 
 // `still` leaves the motion stylesheet out: a drawing with nothing moving need not carry it.
 const svg = (look: Look, w: number, h: number, body: string, still = false) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${SURFACE_INK}${still ? '' : MOTION}${paletteCss(body)}</style>${iconDefs(body)}${body}</svg>`
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><style>${look.css}${SURFACE_INK}${still ? '' : MOTION}${themeVars(look, body)}</style>${iconDefs(body)}${body}</svg>`
 
 const ROW_H = 20
 const GAP = 8
@@ -261,7 +239,7 @@ const BAND_CONFETTI = [
   [30, 12, 'tasks'],
 ] as const
 
-// Clawd in his mood, in the skin's colour, with confetti while he celebrates.
+// Clawd in his mood, in his own colour, with confetti while he celebrates.
 function clawdAt(look: Look, x: number, y: number, mood: Mood, accessory?: Accessory, trick?: Trick): string {
   // A wave or a yawn is the whole pose; a look keeps the mood's motion and moves the eyes.
   const base = MOOD_MODE[mood]
@@ -798,10 +776,10 @@ function notePart(text: string, x: number, y: number, w: number, h: number): Par
 // time under him; at the right the live strip, tasks and crew when present, then the usage
 // limits; from 760 px the race at the far right.
 function heroBand(p: Progress | undefined, list: readonly Meter[], W: number, opts: BandOpts): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', usageNote, now } = opts
+  const { mood = 'idle', theme = DEFAULT_THEME, style = 'dither', crew, live, accessory, clawd = true, clawdLine, usageStyle = 'tiles', usageNote, now } = opts
   // The race shows from 760 px; below that its time and agents stay in the live strip and crew rows.
   const race = W >= RACE_MIN_W ? opts.race : undefined
-  const look = lookOf(skin)
+  const look = lookOf(theme)
   const x0 = clawd ? HERO_PANEL_W + GAP : 0
   const rw = W - x0 - (race ? RACE_W + GAP : 0)
   const parts: Part[] = []
@@ -864,7 +842,7 @@ function runningLine(look: Look, words: string, y: number): string {
 // How the band is drawn, past its rows' content.
 export type BandOpts = {
   mood?: Mood
-  skin?: string
+  theme?: Theme
   style?: BarStyle
   crew?: { runs: readonly AgentRun[]; now: number }
   density?: 'comfortable' | 'compact'
@@ -969,11 +947,11 @@ function livePart(look: Look, live: LiveStrip, W: number, top: number, mood?: Mo
 // surface's between two elements. Rows top to bottom: live strip, tasks, crew, usage cards.
 // The info row is a drawing of its own (infoSvg), in the top row above.
 export function bandSvg(p: Progress | undefined, list: readonly Meter[], W: number, opts: BandOpts = {}): Drawing | undefined {
-  const { mood = 'idle', skin = 'auto', style = 'dither', crew, clawd = true, live, accessory } = opts
+  const { mood = 'idle', theme = DEFAULT_THEME, style = 'dither', crew, clawd = true, live, accessory } = opts
   const compact = opts.density === 'compact'
   if (opts.hero && !compact && W >= HERO_MIN_W) return heroBand(p, list, W, opts)
   const gap = compact ? 4 : GAP
-  const look = lookOf(skin)
+  const look = lookOf(theme)
   const parts: Part[] = []
   let y = 0
   const add = (part: Part) => {
@@ -1002,11 +980,11 @@ const INFO_INKS = ['p', 't', 'm', 'c-session', 'c-ok', 'c-context', 'c-warn'] as
 export function infoSvg(
   info: { left: readonly Chip[]; right: readonly Chip[]; pending?: boolean },
   W: number,
-  opts: { skin?: string; clawd?: { mood: Mood; accessory?: Accessory; trick?: Trick } } = {},
+  opts: { theme?: Theme; clawd?: { mood: Mood; accessory?: Accessory; trick?: Trick } } = {},
 ): Drawing | undefined {
   const { clawd } = opts
   if (info.left.length + info.right.length === 0 && !info.pending && !clawd) return undefined
-  const look = lookOf(opts.skin ?? 'auto')
+  const look = lookOf(opts.theme)
   const hat = clawd && hatted(clawd.accessory) ? HAT_H : 0
   const part = infoPart(info, W - INFO_PAD * 2, hat, look, clawd ? { look, ...clawd } : undefined)
   // On the card the row's words take the card's inks (as the usage cards' do), not the surface's.
@@ -1014,23 +992,19 @@ export function infoSvg(
   const body = `<rect class="p" y="${hat}" width="${W}" height="${part.height}" rx="6"/><g transform="translate(${INFO_PAD},0)">${words}</g>`
   if (clawd) return drawing(look, W, hat + part.height, body, part.alt)
   const h = part.height
-  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}"><style>${leanCss(look, INFO_INKS)}</style>${body}</svg>`, width: W, height: h, alt: part.alt }
+  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}" viewBox="0 0 ${W} ${h}"><style>${leanCss(look, INFO_INKS)}${themeVars(look, body)}</style>${body}</svg>`, width: W, height: h, alt: part.alt }
 }
 
-// A choice's sketch in the settings, its Button under it: the sample on a tint of the track, and
-// when in use a ring and a check in Clawd's colour.
+// The sketch of the choice in use in the settings, its Buttons under it: the sample on a tint of
+// the track.
 const PICK_PAD = 8
-function pickTile(look: Look, w: number, innerH: number, inner: string, inUse: boolean): { body: string; height: number } {
+function pickTile(w: number, innerH: number, inner: string): { body: string; height: number } {
   const h = PICK_PAD * 2 + innerH
-  const mark = inUse
-    ? `<rect x="1" y="1" width="${w - 2}" height="${h - 2}" rx="10" fill="none" stroke="${look.clawd}" stroke-width="2"/>` +
-      `<circle cx="${w - 9}" cy="9" r="6.5" fill="${look.clawd}"/><path d="M${w - 12.2} 9l2.3 2.3l4.2-4.6" stroke="#ffffff" stroke-width="1.5" fill="none"/>`
-    : ''
-  return { body: `<rect class="k" fill-opacity=".45" width="${w}" height="${h}" rx="10"/><g transform="translate(${PICK_PAD},${PICK_PAD})">${inner}</g>${mark}`, height: h }
+  return { body: `<rect class="k" fill-opacity=".45" width="${w}" height="${h}" rx="10"/><g transform="translate(${PICK_PAD},${PICK_PAD})">${inner}</g>`, height: h }
 }
 const PICK_INKS = ['p', 'k', 't', 'm'] as const
 const leanPick = (look: Look, w: number, tile: { body: string; height: number }, alt: string, inks: readonly string[] = PICK_INKS): Drawing => ({
-  source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${tile.height}" viewBox="0 0 ${w} ${tile.height}"><style>${leanCss(look, inks)}</style>${tile.body}</svg>`,
+  source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${tile.height}" viewBox="0 0 ${w} ${tile.height}"><style>${leanCss(look, inks)}${themeVars(look, tile.body)}</style>${tile.body}</svg>`,
   width: w,
   height: tile.height,
   alt,
@@ -1039,47 +1013,58 @@ const sketchBlock = (x: number, y: number, w: number, h: number, paint = 'class=
   `<rect ${paint} x="${+x.toFixed(1)}" y="${+y.toFixed(1)}" width="${+Math.max(0, w).toFixed(1)}" height="${+h.toFixed(1)}" rx="${rx}"/>`
 const filled = (color: string) => `fill="${color}"`
 
-// The look picker's choice: a strip of the look's card colour with its text colours (`Aa`) and the
-// four accents as segmented bars. Only the look in use carries Clawd (~14k), walking, since a
-// pane's whole tree must stay under 100,000 characters.
+// The theme picker's sketch: the pair in use side by side, the light theme on the light surface at
+// the left and the dark one on the dark surface at the right, each a card with its words (`Aa`),
+// three status tiles and its four bars. Drawn in fixed colours, not the OS's: both halves read
+// whichever way the Mac is set.
 const SWATCH_H = 32
-const SEGMENTS = 6
-const SAMPLE_FILL: Record<MeterKind | 'tasks', number> = { tasks: 5, context: 3, session: 2, week: 4 }
-export function skinPreview(skin: string, W: number, inUse = false): Drawing {
-  const look = lookOf(skin)
-  const w = Math.max(200, W)
-  const sw = w - PICK_PAD * 2
-  const clawd = spriteSize('tasks')
-  const textX = PAD + (inUse ? clawd.width + 8 : 0)
-  const cardX = textX + 52
-  const cardW = sw - cardX - 6
-  const kinds = Object.keys(SAMPLE_FILL) as (MeterKind | 'tasks')[]
-  const barW = (cardW - PAD * 2 - GAP * (kinds.length - 1)) / kinds.length
-  const segW = barW / SEGMENTS
-  const bars = kinds
-    .map((kind, i) =>
-      Array.from({ length: SEGMENTS }, (_, j) => {
-        const x = (cardX + PAD + i * (barW + GAP) + j * segW).toFixed(1)
-        const paint = j < SAMPLE_FILL[kind] ? `fill="${look.bar(kind)}"` : 'class="k"'
-        return `<rect ${paint} x="${x}" y="${SWATCH_H / 2 - 3}" width="${(segW - 2).toFixed(1)}" height="6" rx="1"/>`
-      }).join(''),
+const THEME_H = 84
+const SURFACES = ['#f2f2f0', '#222222'] as const
+const SAMPLE_FILL: Record<MeterKind | 'tasks', number> = { tasks: 0.8, context: 0.55, session: 0.35, week: 0.7 }
+export function themePreview(theme: Theme, W: number): Drawing {
+  const w = Math.max(240, W)
+  const hw = w / 2
+  const pair = [['Light', LIGHT_THEMES[theme.light]], ['Dark', DARK_THEMES[theme.dark]]] as const
+  const half = ([mode, c]: (typeof pair)[number], i: number) => {
+    const x = i * hw
+    const cardW = hw - 16
+    const kinds = Object.keys(SAMPLE_FILL) as (MeterKind | 'tasks')[]
+    const barW = (cardW - 20 - 6 * (kinds.length - 1)) / kinds.length
+    const bars = kinds
+      .map((k, j) => {
+        const bx = +(x + 18 + j * (barW + 6)).toFixed(1)
+        return `<rect x="${bx}" y="66" width="${+barW.toFixed(1)}" height="5" rx="2.5" fill="${c.track}"/><rect x="${bx}" y="66" width="${+(barW * SAMPLE_FILL[k]).toFixed(1)}" height="5" rx="2.5" fill="${c.bar[k]}"/>`
+      })
+      .join('')
+    const tiles = (['read', 'edit', 'ok'] as const)
+      .map((h, j) => {
+        const tx = x + hw - 26 - (2 - j) * 18
+        return `<rect x="${tx}" y="36" width="14" height="14" rx="4" fill="${c.tiles[h][0]}"/><circle cx="${tx + 7}" cy="43" r="2.5" fill="${c.tiles[h][1]}"/>`
+      })
+      .join('')
+    return (
+      `<rect x="${x}" width="${hw}" height="${THEME_H}" fill="${SURFACES[i]}"/>` +
+      `<text x="${x + 10}" y="17" font-family="${SANS}" font-size="11"><tspan fill="${c.text.m}">${mode}</tspan><tspan dx="4" font-weight="600" fill="${c.text.t}">${c.name}</tspan></text>` +
+      `<rect x="${x + 8}" y="26" width="${cardW}" height="52" rx="8" fill="${c.card}"/>` +
+      `<text x="${x + 18}" y="50" font-family="${SANS}" font-size="15" font-weight="700" fill="${c.text.t}">Aa<tspan dx="4" font-weight="500" fill="${c.text.m}">Aa</tspan></text>` +
+      tiles +
+      bars
     )
-    .join('')
-  const inner =
-    strip(sw) +
-    (inUse ? sprite('tasks', PAD, (SWATCH_H - clawd.height) / 2, 'run', look.clawd) : '') +
-    `<text x="${textX}" y="${SWATCH_H / 2 + 4.5}" font-family="${SANS}" font-size="13" font-weight="600"><tspan class="t">Aa</tspan><tspan class="m" dx="4">Aa</tspan></text>` +
-    bars
-  const name = SKIN_NAMES[skin] ?? SKIN_NAMES.auto!
-  const tile = pickTile(look, w, SWATCH_H, inner, inUse)
-  return drawing(look, w, tile.height, tile.body, `${name} cards${inUse ? ', in use' : ''}`, !inUse)
+  }
+  const body = `<defs><clipPath id="sabai-theme-clip"><rect width="${w}" height="${THEME_H}" rx="10"/></clipPath></defs><g clip-path="url(#sabai-theme-clip)">${pair.map(half).join('')}</g>`
+  return {
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${THEME_H}" viewBox="0 0 ${w} ${THEME_H}">${body}</svg>`,
+    width: w,
+    height: THEME_H,
+    alt: `${pair[0][1].name} for light, ${pair[1][1].name} for dark`,
+  }
 }
 
 // The layout picker's choice: the band sketched in either layout, Clawd's block in his colour,
 // the usage as cards with their bars, and in the comfortable one the race's lanes.
 const SKETCH_H = 56
-export function densityPreview(density: 'comfortable' | 'compact', skin: string, W: number, inUse = false): Drawing {
-  const look = lookOf(skin)
+export function densityPreview(density: 'comfortable' | 'compact', theme: Theme, W: number): Drawing {
+  const look = lookOf(theme)
   const w = Math.max(160, W)
   const sw = w - PICK_PAD * 2
   const tones = [look.bar('context'), look.bar('session'), look.bar('week')]
@@ -1105,57 +1090,64 @@ export function densityPreview(density: 'comfortable' | 'compact', skin: string,
       [0, 1, 2].map(i => sketchBlock(i * (cw + 4), 36, cw, 20) + sketchBlock(4 + i * (cw + 4), 49, cw - 8, 3, 'class="k"', 1) + sketchBlock(4 + i * (cw + 4), 49, (cw - 8) * fills[i]!, 3, filled(tones[i]!), 1)).join('')
   }
   const name = density === 'comfortable' ? 'Comfortable' : 'Compact'
-  return leanPick(look, w, pickTile(look, w, SKETCH_H, inner, inUse), `${name} layout${inUse ? ', in use' : ''}`)
+  return leanPick(look, w, pickTile(w, SKETCH_H, inner), `${name} layout`)
 }
 
-// The usage style picker's choice: one card of the style sketched, its words as track lines and
-// its meter in the context's colour (Rows: the three limits in theirs).
+// The usage style picker's sketch: the style's cards with their words as track lines and their
+// meters in the limits' colours, three side by side when there is room (Rows: the three limits in
+// one card).
 const USAGE_SKETCH_H = 44
-export function usageSketch(style: UsageStyle, skin: string, W: number, inUse = false): Drawing {
-  const look = lookOf(skin)
+const USAGE_FILL = [0.62, 0.3, 0.45]
+export function usageSketch(style: UsageStyle, theme: Theme, W: number): Drawing {
+  const look = lookOf(theme)
   const w = Math.max(110, W)
-  const cw = w - PICK_PAD * 2
+  const sw = w - PICK_PAD * 2
   const h = USAGE_SKETCH_H
-  const tone = look.bar('context')
-  const p = 0.62
+  const tones = [look.bar('context'), look.bar('session'), look.bar('week')]
   const k = 'class="k"'
-  let inner = sketchBlock(0, 0, cw, h, 'class="p"', 6)
-  if (style === 'tiles')
-    inner += sketchBlock(8, 8, cw * 0.3, 4, k, 2) + sketchBlock(8, 17, cw * 0.38, 10, filled(tone), 2) + sketchBlock(8, h - 15, cw - 16, 4, k, 2) + sketchBlock(8, h - 15, (cw - 16) * p, 4, filled(tone), 2)
-  else if (style === 'rings') {
-    const r = h / 2 - 8
-    const cx = 10 + r
-    const c = 2 * Math.PI * r
-    inner +=
-      `<circle class="k-stroke" cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke-width="4"/>` +
-      `<circle cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke="${tone}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${h / 2})"/>` +
-      sketchBlock(18 + r * 2, h / 2 - 7, cw * 0.3, 4, k, 2) + sketchBlock(18 + r * 2, h / 2 + 3, cw * 0.4, 4, 'class="m"', 2)
-  } else if (style === 'columns') {
-    const ch = h - 14
-    inner += sketchBlock(8, 7, 10, ch, k, 3) + sketchBlock(8, 7 + ch * (1 - p), 10, ch * p, filled(tone), 3) + sketchBlock(26, 9, cw * 0.3, 4, k, 2) + sketchBlock(26, 18, cw * 0.36, 10, filled(tone), 2)
-  } else {
-    const rh = (h - 8) / 3
-    const tones = [tone, look.bar('session'), look.bar('week')]
-    inner += [0, 1, 2]
-      .map(i => {
-        const y = 4 + i * rh + rh / 2
-        return (
-          (i ? sketchBlock(6, 4 + i * rh, cw - 12, 0.8, k, 0) : '') +
-          sketchBlock(8, y - 2, cw * 0.18, 4, k, 2) + sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4, 4, k, 2) +
-          sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4 * [p, 0.3, 0.45][i]!, 4, filled(tones[i]!), 2) + sketchBlock(cw - 8 - cw * 0.14, y - 3, cw * 0.14, 6, filled(tones[i]!), 2)
-        )
-      })
-      .join('')
+  const n = style === 'rows' || sw < 300 ? 1 : 3
+  const cw = (sw - GAP * (n - 1)) / n
+  const card = (i: number) => {
+    const tone = tones[i]!
+    const p = USAGE_FILL[i]!
+    let inner = sketchBlock(0, 0, cw, h, 'class="p"', 6)
+    if (style === 'tiles')
+      inner += sketchBlock(8, 8, cw * 0.3, 4, k, 2) + sketchBlock(8, 17, cw * 0.38, 10, filled(tone), 2) + sketchBlock(8, h - 15, cw - 16, 4, k, 2) + sketchBlock(8, h - 15, (cw - 16) * p, 4, filled(tone), 2)
+    else if (style === 'rings') {
+      const r = h / 2 - 8
+      const cx = 10 + r
+      const c = 2 * Math.PI * r
+      inner +=
+        `<circle class="k-stroke" cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke-width="4"/>` +
+        `<circle cx="${cx}" cy="${h / 2}" r="${r}" fill="none" stroke="${tone}" stroke-width="4" stroke-linecap="round" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${cx} ${h / 2})"/>` +
+        sketchBlock(18 + r * 2, h / 2 - 7, cw * 0.3, 4, k, 2) + sketchBlock(18 + r * 2, h / 2 + 3, cw * 0.4, 4, 'class="m"', 2)
+    } else if (style === 'columns') {
+      const ch = h - 14
+      inner += sketchBlock(8, 7, 10, ch, k, 3) + sketchBlock(8, 7 + ch * (1 - p), 10, ch * p, filled(tone), 3) + sketchBlock(26, 9, cw * 0.3, 4, k, 2) + sketchBlock(26, 18, cw * 0.36, 10, filled(tone), 2)
+    } else {
+      const rh = (h - 8) / 3
+      inner += [0, 1, 2]
+        .map(j => {
+          const y = 4 + j * rh + rh / 2
+          return (
+            (j ? sketchBlock(6, 4 + j * rh, cw - 12, 0.8, k, 0) : '') +
+            sketchBlock(8, y - 2, cw * 0.18, 4, k, 2) + sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4, 4, k, 2) +
+            sketchBlock(8 + cw * 0.26, y - 2, cw * 0.4 * USAGE_FILL[j]!, 4, filled(tones[j]!), 2) + sketchBlock(cw - 8 - cw * 0.14, y - 3, cw * 0.14, 6, filled(tones[j]!), 2)
+          )
+        })
+        .join('')
+    }
+    return `<g transform="translate(${+(i * (cw + GAP)).toFixed(1)},0)">${inner}</g>`
   }
   const name = USAGE_STYLES[style]
-  return leanPick(look, w, pickTile(look, w, h, inner, inUse), `${name} usage${inUse ? ', in use' : ''}`, [...PICK_INKS, 'k-stroke'])
+  return leanPick(look, w, pickTile(w, h, Array.from({ length: n }, (_, i) => card(i)).join('')), `${name} usage`, [...PICK_INKS, 'k-stroke'])
 }
 
-// The bar style's sample: one bar, part filled, in the skin's task colour, on a framed strip
+// The bar style's sample: one bar, part filled, in the theme's task colour, on a framed strip
 // marked as a preview. Drawn at a set width, so a wide pane does not stretch it.
 const PREVIEW_W = 320
-export function barPreview(style: BarStyle, skin: string, W: number): Drawing {
-  const look = lookOf(skin)
+export function barPreview(style: BarStyle, theme: Theme, W: number): Drawing {
+  const look = lookOf(theme)
   const w = Math.max(200, Math.min(PREVIEW_W, W))
   const sw = w - PICK_PAD * 2
   const top = 22
@@ -1285,7 +1277,7 @@ const paneDrawing = (look: Look, W: number, H: number, drawn: string, alt: strin
     .replace(new RegExp(`<text ([^>]*?)font-family="${MONO}"`, 'g'), '<text class="mo" $1')
   const inks = AGENT_INKS.filter(c => body.includes(`class="${c}"`) || body.includes(`class="${c} `))
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>text{font-family:${SANS}}.mo{font-family:${MONO}}${leanCss(look, inks)}${body.includes('class="sm"') ? SM_INK : ''}${moving ? motionOf(body) : ''}${paletteCss(body)}</style>${iconDefs(body)}${body}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><style>text{font-family:${SANS}}.mo{font-family:${MONO}}${leanCss(look, inks)}${body.includes('class="sm"') ? SM_INK : ''}${moving ? motionOf(body) : ''}${themeVars(look, body)}</style>${iconDefs(body)}${body}</svg>`,
     width: W,
     height: H,
     alt,
@@ -1395,8 +1387,8 @@ const spotlight = (id: string, look: Look, cx: number, cy: number, rx: number, r
 // end of each one done; then three tiles (calls, tokens, time). The box's title says how they stand.
 const TIMELINE_ROWS = 6
 const TIMELINE_ROW = 24
-export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin: string = 'auto', windowOf: (a: AgentRun) => number | undefined = () => undefined): Drawing {
-  const look = lookOf(skin)
+export function crewSvg(runs: readonly AgentRun[], W: number, now: number, theme: Theme = DEFAULT_THEME, windowOf: (a: AgentRun) => number | undefined = () => undefined): Drawing {
+  const look = lookOf(theme)
   const running = runs.some(a => a.status === 'running')
   const start = Math.min(...runs.map(a => a.startedAt))
   const end = running ? now : Math.max(...runs.map(a => a.endedAt ?? a.startedAt))
@@ -1506,8 +1498,8 @@ function endTint(a: AgentRun, mood: AgentMood, now: number, W: number, H: number
   return `<rect class="flash" x="5" y="2" width="${W - 7}" height="${H - 4}" rx="6" fill="${kl(mood === 'done' ? 'ok' : 'fail')}" opacity=".35"/>`
 }
 
-export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
-  const look = lookOf(skin)
+export function laneSvg(a: AgentRun, W: number, now: number, theme: Theme = DEFAULT_THEME, window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
+  const look = lookOf(theme)
   const mood = agentMood(a, now, window)
   const line = laneLine(a, now, window)
   const p = progressOf(a)
@@ -1564,8 +1556,8 @@ function runsOn(x: number, right: number, model: string, effort: string, hue: Hu
     (effort && right - ex - 18 >= 40 ? glyph('gauge', hue, ex, 44, 14) + `<text class="m" x="${+(ex + 18).toFixed(1)}" y="55" font-family="${SANS}" font-size="11.5">${xml(fit(effort, 11.5, right - ex - 18))}</text>` : '')
   )
 }
-export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number): Drawing {
-  const look = lookOf(skin)
+export function agentHeadSvg(a: AgentRun, W: number, now: number, theme: Theme = DEFAULT_THEME, window?: number): Drawing {
+  const look = lookOf(theme)
   const mood = agentMood(a, now, window)
   const tag = moodLabel(a, now, window)
   const time = clock(elapsed(a, now))
@@ -1621,8 +1613,8 @@ export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string =
 }
 
 // The tools an agent called, as chips in three rows (built-in, skills, MCP), each with how often.
-export function toolsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
-  const look = lookOf(skin)
+export function toolsSvg(a: AgentRun, W: number, theme: Theme = DEFAULT_THEME): Drawing | undefined {
+  const look = lookOf(theme)
   const { builtin, skills, mcp } = toolsOf(a)
   const rows = ([['BUILT-IN', builtin, kl('command')], ['SKILLS', skills, kl('skill')], ['MCP', mcp, kl('web')]] as const).filter(r => r[1].length)
   if (!rows.length) return undefined
@@ -1655,8 +1647,8 @@ export function toolsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
 
 // The steps an agent reported through the step tool: those it moved past ticked, the one in
 // progress ringed, and how many more it planned.
-export function stepsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
-  const look = lookOf(skin)
+export function stepsSvg(a: AgentRun, W: number, theme: Theme = DEFAULT_THEME): Drawing | undefined {
+  const look = lookOf(theme)
   const p = progressOf(a)
   const notes = a.notes ?? []
   if (!notes.length && !p) return undefined
@@ -1679,8 +1671,8 @@ export function stepsSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
 
 // An agent's calls, latest last: a tile for its kind, its title, its time and whether it worked;
 // calls in flight at the end, and how many earlier ones are left out.
-export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max = 8): Drawing | undefined {
-  const look = lookOf(skin)
+export function activitySvg(a: AgentRun, W: number, theme: Theme = DEFAULT_THEME, max = 8): Drawing | undefined {
+  const look = lookOf(theme)
   const calls = (a.calls ?? []).slice(-max)
   const doing = a.doing ?? []
   if (!calls.length && !doing.length) return undefined
@@ -1709,8 +1701,8 @@ export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max =
 // removed with a five-cell bar, NEW when it made the file, and how often it edited and read it;
 // then the ones it only read, a line each.
 const READ_SHOWN = 8
-export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing | undefined {
-  const look = lookOf(skin)
+export function filesSvg(a: AgentRun, W: number, theme: Theme = DEFAULT_THEME): Drawing | undefined {
+  const look = lookOf(theme)
   const all = filesOf(a)
   if (!all.length) return undefined
   const changed = all.filter(f => f.file.edits > 0)
@@ -1764,8 +1756,8 @@ export function filesSvg(a: AgentRun, W: number, skin: string = 'auto'): Drawing
 }
 
 // The detail with no agent viewed: a sleeping Clawd and how to pick one.
-export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
-  const look = lookOf(skin)
+export function emptyDetailSvg(W: number, theme: Theme = DEFAULT_THEME): Drawing {
+  const look = lookOf(theme)
   const x = 16 + CLAWD_W * 1.6 + 14
   const body =
     `<rect class="p" width="${W}" height="64" rx="8"/>` +
@@ -1777,8 +1769,8 @@ export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
 
 // An earlier crew in one line: when it started and how many it had, what they were about (its
 // MVP crowned), and how it went (done, failed, stopped), its time and tokens.
-export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 'auto'): Drawing {
-  const look = lookOf(skin)
+export function earlierSvg(crew: readonly AgentRun[], W: number, theme: Theme = DEFAULT_THEME): Drawing {
+  const look = lookOf(theme)
   // The crew's agents: its main turn is counted in its time and tokens, not among them.
   const runs = crew.filter(a => !isMain(a))
   const start = Math.min(...crew.map(a => a.startedAt))
@@ -1816,8 +1808,8 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   return paneDrawing(look, W, 40, body, `${title}: ${tally}. ${what}`)
 }
 
-export function emptyAgentsSvg(W: number, skin: string = 'auto'): Drawing {
-  const look = lookOf(skin)
+export function emptyAgentsSvg(W: number, theme: Theme = DEFAULT_THEME): Drawing {
+  const look = lookOf(theme)
   const clawd = spriteSize('tasks')
   const body =
     `<rect class="p" width="${W}" height="56" rx="8"/>` +
@@ -1854,10 +1846,10 @@ const TOOL_STROKE: Record<ToolIcon, StrokeKind> = { compact: 'fold-vertical', ag
 const TOOL_SIZE = 16
 
 // Each icon sits on a tile of the band's card, as tall as the info row's, so the top row reads as
-// one strip. The shape is a mask over a rect, so it takes the skin's fill inks like the cards' words.
+// one strip. The shape is a mask over a rect, so it takes the theme's fill inks like the cards' words.
 const TOOL_H = INFO_H
 const TOOL_PAD = 5
-export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm', skin = 'auto'): Drawing {
+export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' | 'alert' | 'tasks' | 'ok' = 'm', theme: Theme = DEFAULT_THEME): Drawing {
   const ink = tone === 'm' ? 'm' : `c-${tone}`
   const w = TOOL_PAD * 2 + TOOL_SIZE + (count ? 4 + Math.ceil(monoWidth(count, 11)) : 0)
   const y = (TOOL_H - TOOL_SIZE) / 2
@@ -1866,7 +1858,7 @@ export function toolIconSvg(kind: ToolIcon, count?: string, tone: 'm' | 'warn' |
     `<mask id="sabai-tool"><g stroke="#fff">${stroke(TOOL_STROKE[kind], '', TOOL_PAD, y, TOOL_SIZE)}</g></mask>` +
     `<rect class="${ink}" x="${TOOL_PAD}" y="${y}" width="${TOOL_SIZE}" height="${TOOL_SIZE}" mask="url(#sabai-tool)"/>` +
     (count ? `<text class="${ink}" x="${TOOL_PAD + TOOL_SIZE + 4}" y="${y + 12}" font-family="${MONO}" font-size="11" font-weight="700">${xml(count)}</text>` : '')
-  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${TOOL_H}" viewBox="0 0 ${w} ${TOOL_H}"><style>${leanCss(lookOf(skin), ['p', ink])}</style>${body}</svg>`, width: w, height: TOOL_H, alt: kind }
+  return { source: `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${TOOL_H}" viewBox="0 0 ${w} ${TOOL_H}"><style>${leanCss(lookOf(theme), ['p', ink])}</style>${body}</svg>`, width: w, height: TOOL_H, alt: kind }
 }
 
 const STEP_ICON: Record<StepIcon, StrokeKind> = { terminal: 'terminal', flask: 'flask-conical', pen: 'square-pen', file: 'file-plus', read: 'book-open', stop: 'ban' }

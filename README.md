@@ -130,12 +130,12 @@ It needs `jq` and `git`, reads only what Claude Code passes it and the folder's 
 
 Press the gear or type `/sabai-settings`. Changes apply at once and are kept for new sessions.
 
-Groups run from what you see most to what you set once. A part of the band with choices of its own has its On/Off at the right of its group's title. A choice of how something looks shows a sketch over its button, the one in use ringed and ticked.
+Groups run from what you see most to what you set once. A part of the band with choices of its own has its On/Off at the right of its group's title. A choice of how something looks shows a sketch of the one in use, with a button for each choice under it.
 
 | Group | Choices |
 |---|---|
-| Look | Layout: **Comfortable** (side by side) or **Compact** (stacked and shorter), and cards: **Raised** (the default) or **Flat**, both following the app's light or dark appearance; each a sketch with its button under it. The bar style, with a sample; and Tasks, Activity (the line of what Main is doing while he works) and Toolbar to show or hide |
-| Usage | On or off; style (Tiles, Rings, Columns, Rows), each a sketch with its button; each limit (Context, Session, Weekly); amber and red thresholds (60/70/80, 85/90/95) |
+| Look | Layout: **Comfortable** (side by side) or **Compact** (stacked and shorter). The theme: one for light (**Mono**, the default, **Pastel** or **Matcha**) and one for dark (**Ink**, the default, **Forest** or **Synthwave**), the band and the panes switching between them with the app's light or dark appearance; a sketch shows the pair in use. The bar style, with a sample; and Tasks, Activity (the line of what Main is doing while he works) and Toolbar to show or hide |
+| Usage | On or off; style (Tiles, Rings, Columns, Rows); each limit (Context, Session, Weekly); amber and red thresholds (60/70/80, 85/90/95) |
 | Info row | On or off; each part: Folder, Branch, Git user, Node, with the row as it reads |
 | Clawd | On or off; Hats and props, Tricks (waves, yawns, looks) |
 | Subagents | Race lanes or the subagents row, on or off; Step reports: subagents report their own progress to their lane and the Subagents pane (on; from the next session); Thai summary: Haiku sums up each finished subagent's report in Thai in the Subagents pane (on) |
@@ -184,7 +184,7 @@ How the mod is built and tested: [CLAUDE.md](CLAUDE.md). Roadmap: [docs/PLAN.md]
 
 Built by reading [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins), [JohnnyVizz/claude-kit](https://github.com/JohnnyVizz/claude-kit) (Pixel Clawd, after DockCrab) and [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree), all MIT.
 
-Icons from [Lucide](https://lucide.dev) (ISC) as animated by [pqoqubbw/icons](https://github.com/pqoqubbw/icons) (MIT), [Octicons](https://github.com/primer/octicons) (MIT) and [Simple Icons](https://simpleicons.org) (CC0). The logos are trademarks of their owners. Skin colours follow each theme's published palette.
+Icons from [Lucide](https://lucide.dev) (ISC) as animated by [pqoqubbw/icons](https://github.com/pqoqubbw/icons) (MIT), [Octicons](https://github.com/primer/octicons) (MIT) and [Simple Icons](https://simpleicons.org) (CC0). The logos are trademarks of their owners.
 
 ## License
 

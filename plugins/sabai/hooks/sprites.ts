@@ -233,7 +233,7 @@ function trickRows(rows: string[], has: (m: string) => boolean): string[] {
   return rows
 }
 // The wave's two frames, the raised claw first so a still first frame reads as a wave. Carried
-// by the waving sprite alone: SPRITE_CSS rides in every swatch of the skins pane.
+// by the waving sprite alone: SPRITE_CSS rides in every drawing with motion, the settings' sketches included.
 const WAVE_CSS = '.wave .wv-up{animation:wvu 1s steps(1) infinite}.wave .wv-down{animation:wvd 1s steps(1) infinite}@keyframes wvu{50%{opacity:0}}@keyframes wvd{0%{opacity:0}50%{opacity:1}}@media (prefers-reduced-motion: reduce){.wave .wv-down{opacity:0}}'
 // The wave's raised claw: the right arm leaves its side and rises by the head.
 const raised = (rows: string[]) =>

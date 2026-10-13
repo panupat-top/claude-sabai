@@ -1,6 +1,7 @@
 import type { On, RenderElement } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 import type { Engine, Mounted as TestMounted } from 'claude-code/testing'
+import { DARK_THEMES, LIGHT_THEMES } from '../hooks/themes'
 
 const SURFACES = ['desktop'] as const
 type Surface = 'terminal' | 'desktop'
@@ -128,13 +129,13 @@ async function toolsOf(ui: Mounted) {
     })
 }
 const pressTool = (ui: Mounted, kind: string) => ui.press({ key: `tool-${kind}`, link: { href: `https://sabai.invalid/${kind}` } })
-// The settings' drawn choices (layout, cards, usage style): each a sketch over its Button.
+// The settings' drawn choices (layout, usage style): the one in use sketched over a row of Buttons.
 type Pane = Awaited<ReturnType<typeof mountPane>>
 // A drawing keeps no key, so a picker's sketches are known by what their alt names.
-const PICKED: Record<string, string> = { density: 'layout', skin: 'cards', usage: 'usage' }
+const PICKED: Record<string, string> = { density: 'layout', usage: 'usage' }
 async function picksOf(ui: Pane, prefix: string) {
   return ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[])
-    .filter(d => new RegExp(`^\\w+ ${PICKED[prefix]}(, in use)?$`).test(d.props.alt))
+    .filter(d => new RegExp(`^\\w+ ${PICKED[prefix]}$`).test(d.props.alt))
     .map(d => ({ alt: d.props.alt, source: d.props.source }))
 }
 async function choose(ui: Pane, clock: { advance: (ms: number) => Promise<unknown> }, key: string) {
@@ -371,8 +372,8 @@ test('TodoWrite drives the progress row too', async ($, on) => {
 const settingsCommand = ($: Engine) =>
   $.command.run({ command: 'sabai-settings', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
 
-test('Clawd keeps his clay on either look and walks only while the turn works', async ($, on) => {
-  engine(on, { store: { skin: 'raised' } })
+test('Clawd keeps his clay in any theme and walks only while the turn works', async ($, on) => {
+  engine(on, { store: { theme: { light: 'pastel', dark: 'synthwave' } } })
   await start($)
   await $.tool.call({ tool: 'TaskCreate', subject: 'a', description: '' })
   await $.tool.call({ tool: 'TaskUpdate', taskId: '1', status: 'in_progress' })
@@ -388,24 +389,25 @@ test('Clawd keeps his clay on either look and walks only while the turn works', 
   expect(await source(true)).toContain('fill="#D97757"')
 })
 
-// Which look the band's cards wear: flat, raised, or neither.
-const cardLook = async ($: Engine) => {
+// The cards the band wears in light and in dark: each theme's card colour, by its name.
+const CARDS = Object.fromEntries([...Object.values(LIGHT_THEMES), ...Object.values(DARK_THEMES)].map(c => [c.card, c.name]))
+const cardThemes = async ($: Engine) => {
   const ui = await mountBand($, 'desktop')
   const source = String((await bandOf(ui))?.props.source)
   await ui.unmount()
-  return source.includes('.p{fill:#f4f4f2}') ? 'flat' : source.includes('.p{fill:#ffffff}') ? 'raised' : '?'
+  return [...source.matchAll(/\.p\{fill:(#[0-9a-f]{6})\}/g)].map(m => CARDS[m[1]!] ?? m[1])
 }
 
-test('a saved look comes back with the next session', async ($, on) => {
-  engine(on, { store: { skin: 'auto' } })
+test('a saved pair of themes comes back with the next session', async ($, on) => {
+  engine(on, { store: { theme: { light: 'matcha', dark: 'forest' } } })
   await start($)
-  expect(await cardLook($)).toBe('flat')
+  expect(await cardThemes($)).toEqual(['Matcha', 'Forest'])
 })
 
-test('a skin an older version saved, or none, starts raised', async ($, on) => {
-  engine(on, { store: { skin: 'dracula' } })
+test('a skin an older version saved, or none, starts in Mono and Ink', async ($, on) => {
+  engine(on, { store: { skin: 'raised', theme: { light: 'ink', dark: 'paper' } } })
   await start($)
-  expect(await cardLook($)).toBe('raised')
+  expect(await cardThemes($)).toEqual(['Mono', 'Ink'])
 })
 
 // The agents pane, opened and closed through the engine's own ui noun.
@@ -473,26 +475,26 @@ test('/sabai-settings opens the settings panel and closes it again', async ($, o
   expect([...open]).toEqual([])
 })
 
-test('the look picker offers raised and flat cards, each with its swatch, and a press switches', async ($, on) => {
+test('the theme picker shows the pair in use over a row of light themes and a row of dark ones; a press switches one side', async ($, on) => {
   const { store, clock } = engine(on)
   panes(on)
   await start($)
   const desk = await mountPane($, 'desktop', 'sabai-skins')
-  expect((await picksOf(desk, 'skin')).map(c => c.alt)).toEqual(['Raised cards, in use', 'Flat cards'])
-  expect([(await desk.find({ key: 'skin-raised' }))?.props.variant, (await desk.find({ key: 'skin-auto' }))?.props.variant]).toEqual(['primary', 'secondary'])
-  // Two layouts, two looks, the bar style's sample, four usage styles, the info row and three chat samples.
-  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(2 + 2 + 1 + 4 + 1 + 3)
+  const variants = async (ui: Pane) =>
+    Promise.all(['theme-light-mono', 'theme-light-pastel', 'theme-light-matcha', 'theme-dark-ink', 'theme-dark-forest', 'theme-dark-synthwave'].map(async k => (await ui.find({ key: k }))?.props.variant))
+  expect(await variants(desk)).toEqual(['primary', 'secondary', 'secondary', 'primary', 'secondary', 'secondary'])
+  const sketch = async (ui: Pane) => ((await ui.findAll({ type: 'Svg' })) as unknown as { props: { alt: string } }[]).find(d => d.props.alt.endsWith(' for dark'))?.props.alt
+  expect(await sketch(desk)).toBe('Mono for light, Ink for dark')
+  // The layout, theme and usage style in use, the bar style's sample, the info row and three chat samples.
+  expect(await desk.findAll({ type: 'Svg' })).toHaveLength(1 + 1 + 1 + 1 + 1 + 3)
   expect(JSON.stringify(await desk.drawn()).length).toBeLessThan(100_000)
   await desk.unmount()
   const ui = await mountPane($, 'desktop', 'sabai-skins')
-  await choose(ui, clock, 'skin-auto')
-  expect(store.skin).toBe('auto')
-  const previews = await picksOf(ui, 'skin')
-  const flat = previews.find(p => p.alt === 'Flat cards, in use')
-  // The look in use carries Clawd, walking.
-  expect(flat?.source).toContain('.p{fill:#f4f4f2}')
-  expect(flat?.source).toContain('class="run"')
-  expect(previews.find(p => p.alt === 'Raised cards')?.source).not.toContain('class="run"')
+  await choose(ui, clock, 'theme-dark-synthwave')
+  expect(store.theme).toEqual({ light: 'mono', dark: 'synthwave' })
+  expect(await variants(ui)).toEqual(['primary', 'secondary', 'secondary', 'secondary', 'secondary', 'primary'])
+  expect(await sketch(ui)).toBe('Mono for light, Synthwave for dark')
+  expect(await cardThemes($)).toEqual(['Mono', 'Synthwave'])
 })
 
 test('the settings pane at its largest keeps room under the tree limit', async ($, on) => {
@@ -582,8 +584,8 @@ test('a saved bar style comes back with the next session', async ($, on) => {
   expect((await pane.find({ key: 'bar-solid' }))?.props.variant).toBe('primary')
 })
 
-test('a skin leaves the band on the surface’s own background, as auto does', async ($, on) => {
-  engine(on, { store: { skin: 'raised' } })
+test('a theme leaves the band on the surface’s own background', async ($, on) => {
+  engine(on, { store: { theme: { light: 'pastel', dark: 'forest' } } })
   await start($)
   const ui = await mountBand($, 'desktop')
   const tree = (await ui.drawn()) as { props: { backgroundColor?: string; borderStyle?: string } }
@@ -1015,7 +1017,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   expect(await laneOf(ui, 'Main')).toBeDefined()
 })
 test('the report folds open as Markdown once an agent ends, a stop says so, and no colour is forced on native text', async ($, on) => {
-  engine(on, { store: { skin: 'raised' } })
+  engine(on, { store: { theme: { light: 'pastel', dark: 'forest' } } })
   panes(on)
   await start($)
   await spawn($, 'ok')
@@ -1982,7 +1984,7 @@ test('settings are eight bordered groups in order: look, usage, info row, Clawd,
   const words = (await pane.findAll({ type: 'Text' })).map(t => t.text).join(' | ')
   const order = titles.map(t => words.indexOf(`  ${t}`))
   expect(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1]!))).toBe(true)
-  for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'skin-auto', 'density-compact', 'usage-rows']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
+  for (const k of ['pref-chat-tools', 'pref-steps', 'pref-guard', 'pref-notify', 'bar-dither', 'theme-light-pastel', 'theme-dark-forest', 'density-compact', 'usage-rows']) expect([k, await pane.find({ key: k })]).not.toEqual([k, undefined])
 })
 
 test('settings preview what they change: the layout in use, the usage in its style, the info row, the chat; a part off keeps only its head', async ($, on) => {
@@ -1993,14 +1995,19 @@ test('settings preview what they change: the layout in use, the usage in its sty
   const svgs = async () => (await pane.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
   const alts = async () => (await svgs()).map(s => s.props.alt)
   const chosen = async (prefix: string) => (await picksOf(pane, prefix)).map(c => c.alt)
-  expect(await chosen('density')).toEqual(['Comfortable layout, in use', 'Compact layout'])
+  const variants = async (keys: string[]) => Promise.all(keys.map(async k => (await pane.find({ key: k }))?.props.variant))
+  expect(await chosen('density')).toEqual(['Comfortable layout'])
+  expect(await variants(['density-comfortable', 'density-compact'])).toEqual(['primary', 'secondary'])
   await choose(pane, clock, 'density-compact')
-  expect(await chosen('density')).toEqual(['Comfortable layout', 'Compact layout, in use'])
-  expect(await chosen('usage')).toEqual(['Tiles usage, in use', 'Rings usage', 'Columns usage', 'Rows usage'])
+  expect(await chosen('density')).toEqual(['Compact layout'])
+  expect(await variants(['density-comfortable', 'density-compact'])).toEqual(['secondary', 'primary'])
+  expect(await chosen('usage')).toEqual(['Tiles usage'])
+  expect((await picksOf(pane, 'usage'))[0]?.source).not.toContain('stroke-dasharray')
   await choose(pane, clock, 'usage-rings')
-  expect(await chosen('usage')).toEqual(['Tiles usage', 'Rings usage, in use', 'Columns usage', 'Rows usage'])
-  // Each style's sketch is its own: the rings' alone draws a ring.
-  expect((await picksOf(pane, 'usage')).map(c => c.source.includes('stroke-dasharray'))).toEqual([false, true, false, false])
+  expect(await chosen('usage')).toEqual(['Rings usage'])
+  expect(await variants(['usage-tiles', 'usage-rings', 'usage-columns', 'usage-rows'])).toEqual(['secondary', 'primary', 'secondary', 'secondary'])
+  // The sketch is the style's own: the rings' draws a ring.
+  expect((await picksOf(pane, 'usage'))[0]?.source).toContain('stroke-dasharray')
   expect((await alts()).some(a => a.startsWith('Folder work'))).toBe(true)
   await pane.press({ key: 'pref-show-folder' })
   expect((await alts()).some(a => a.includes('Folder'))).toBe(false)
@@ -2126,8 +2133,8 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(await svg()).toContain('stroke-dasharray')
   await pane.press({ key: 'pref-extras-tricks' })
   expect(await labels()).toContain('○ Tricks')
-  await choose(pane, clock, 'skin-auto')
-  expect(await svg()).toContain('.p{fill:#f4f4f2}')
+  await choose(pane, clock, 'theme-light-matcha')
+  expect(await svg()).toContain(`.p{fill:${LIGHT_THEMES.matcha.card}}`)
   // The first press only asks; the second, within five seconds, resets.
   await pane.press({ key: 'reset-defaults' })
   await clock.advance(1)
@@ -2139,7 +2146,7 @@ test('settings: groups in order, pill toggles, the usage style, extras and reset
   expect(after).toContain('● Folder')
   expect(after).toContain('● Tricks')
   const reset = await svg()
-  expect(reset).not.toContain('.p{fill:#f4f4f2}')
+  expect(reset).toContain(`.p{fill:${LIGHT_THEMES.mono.card}}`)
   expect(reset).not.toContain('stroke-dasharray')
   await pane.unmount()
 })
