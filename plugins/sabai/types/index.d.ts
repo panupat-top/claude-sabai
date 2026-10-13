@@ -158,11 +158,12 @@ declare module 'claude-code' {
       durations: StateFamily<number>
       turnLog: TurnLog
       guardCaught: number
+      background: string[]
       lastTurnAt: number
       receipts: Record<string, TurnLog>
       turnStartedAt: number
       race: RaceLog
-      liveStep: { icon: string; title: string } | null
+      liveStep: { icon: string; title: string; at?: number } | null
       warned: string[]
     }
   }

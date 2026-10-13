@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import type { TurnLog } from '../types'
-import { EMPTY_LOG, SPINNER_WORDS, clean, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
+import { EMPTY_LOG, SPINNER_WORDS, clean, endedTasks, isGenericWord, isReadOnly, logged, receiptOf, receiptText, seconds, seedOf, spinnerWord, splitCallouts, stepOf, stepText, testResult } from '../hooks/chat'
 
 
 test('seconds keeps one decimal under ten seconds, then whole units', () => {
@@ -263,4 +263,11 @@ test('a test run whose counts cannot be read drops the older run’s, so no stal
   expect([crashed.test, receiptOf(crashed)?.headline]).toEqual([undefined, '1 command failed'])
   // Any other command leaves the test result alone.
   expect(logged(passed, { tool: 'Bash', command: 'ls', output: '', isError: false, at: 3 }).test).toEqual(passed.test)
+})
+
+test('a notification ends the tasks whose status it gives, not a monitor\'s event line', () => {
+  const block = (id: string, more: string) => `<task-notification>\n<task-id>${id}</task-id>\n${more}\n</task-notification>`
+  expect(endedTasks(`${block('b1', '<status>completed</status>')}\n${block('m1', '<event>monitor-done</event>')}\n${block('b2', '<status>killed</status>')}`)).toEqual(['b1', 'b2'])
+  expect(endedTasks(block('b3', '<status>running</status>'))).toEqual([])
+  expect(endedTasks('no notification here')).toEqual([])
 })

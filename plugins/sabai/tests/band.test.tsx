@@ -225,6 +225,32 @@ test('the branch follows a turn of the main conversation', async ($, on) => {
   expect((await shown($, 'desktop')).words).toContain('Branch feature/band ↑2 ↓1 ±2, Node')
 })
 
+test('Clawd counts the background work the main conversation starts, until it ends or is stopped', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, (_, e) => ({ result: { stdout: '', stderr: '', interrupted: false, ...((e as { run_in_background?: boolean }).run_in_background ? { backgroundTaskId: (e as { command: string }).command } : {}) } }))
+  on('tool.call', { tool: 'Monitor' }, () => ({ result: { taskId: 'm1', timeoutMs: 60_000 } }))
+  on('tool.call', { tool: 'TaskStop' }, (_, e) => ({ result: { message: 'stopped', task_id: (e as { task_id: string }).task_id, task_type: 'local_bash' } }))
+  on('prompt.submit', (_, e) => ({ text: (e as { text: string }).text }))
+  engine(on)
+  await start($)
+  const call = (input: object) => $.tool.call(input as Parameters<typeof $.tool.call>[0])
+  await call({ tool: 'Bash', command: 'b1', description: '', run_in_background: true })
+  await call({ tool: 'Bash', command: 'b2', description: '', run_in_background: true })
+  await call({ tool: 'Bash', command: 'ls', description: '' })
+  await call({ tool: 'Bash', command: 'sub', description: '', run_in_background: true, agentId: 'agent-x' })
+  await call({ tool: 'Monitor', description: 'watch', timeout_ms: 60_000, command: 'tail -f log' })
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, 3 running/)
+  const notify = (text: string) => $.prompt.submit({ text, wait: false, origin: { kind: 'task-notification' } } as never)
+  await notify('<task-notification><task-id>m1</task-id><event>line</event></task-notification>')
+  await notify('<task-notification><task-id>b1</task-id><status>completed</status></task-notification>')
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, 2 running/)
+  await call({ tool: 'TaskStop', task_id: 'b2' })
+  await notify('<task-notification><task-id>m1</task-id><status>killed</status></task-notification>')
+  await settle()
+  expect((await shown($, 'desktop')).words).toMatch(/Clawd: ready, your turn/)
+})
+
 test('the tick re-reads git status only when the branch has changed', async ($, on) => {
   const { branch, clock, runs } = engine(on)
   await start($)
@@ -1352,7 +1378,7 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   await start($)
   await clock.advance(3000)
   // With no agents the live strip carries the turn's time.
-  expect((await shown($, 'desktop', true)).words).toContain('Working 3s')
+  expect((await shown($, 'desktop', true)).words).toContain('Clawd: working, 3s; Working;')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {

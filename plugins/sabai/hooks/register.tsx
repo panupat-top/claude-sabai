@@ -3,11 +3,11 @@ import type { BuiltinToolResults, EngineInterface, Register, RenderNode } from '
 
 import type { AgentRun, BarStyle, CallKind, Env, GuardAction, GuardRule, Prefs, Task, TurnLog, Usage, UsageStyle } from '../types'
 import { CALLS_KEPT, CREWS_KEPT, MAIN_TYPE, SUMMARY_SYSTEM, isMain, progressOf, needsLook, dayOf, briefOf, called, calling, clearEarlier, clock, crewOf, crewsOf, factsLine, finished, openCrews, reported, resultText, spawned, stepped, summarized, summaryOf, summaryPrompt, touched, typeStyle, withTasks, raceOf } from './agents'
-import { CELEBRATE_MS, EMPTY_RACE, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
+import { CELEBRATE_MS, EMPTY_RACE, countOf, RACE_LINGER_MS, STARTLE_MS, doingOf, accessoryOf, moodLine, moodOf, trickOf, WAVE_MS, nextTurnRace, raced, chips, countdown, created, fromTodos, level, meters, progress, toUsage, updated, usageNote } from './model'
 import { BAR_STYLES, CALLOUT_KINDS, HERO_MIN_W, USAGE_STYLES, activitySvg, agentHeadSvg, crewSvg, earlierSvg, emptyDetailSvg, filesSvg, laneSvg, moodLabel, receiptSvg, calloutTitleSvg, stepSvg, stepsSvg, bandSvg, barPreview, densityPreview, emptyAgentsSvg, infoSvg, lookOf, skinPreview, toolIconSvg, toolsSvg, usageSketch } from './svg'
 import type { Drawing, ToolIcon } from './svg'
 import { GUARD_FAILED, GUARD_RULES, failClosed, risksOf } from './guard'
-import { CALLOUT_HINT, EMPTY_LOG, actOf, isGenericWord, isReadOnly, isTestCommand, testResult, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf } from './chat'
+import { actOf, CALLOUT_HINT, EMPTY_LOG, endedTasks, isGenericWord, isReadOnly, isTestCommand, logged, receiptOf, receiptText, seedOf, spinnerWord, splitCallouts, stepOf, testResult } from './chat'
 import type { Logged, Receipt, Step, StepIcon } from './chat'
 import { SKINS, SKIN_NAMES } from './themes'
 import type { Skin } from './themes'
@@ -56,6 +56,9 @@ const STEP_TOOL = 'mcp__sabai__step'
 const turnLog = atom({ plugin: 'sabai', key: 'turnLog' } as const, EMPTY_LOG)
 // What the guard refused or asked about this session; not stored.
 const guardCaught = atom({ plugin: 'sabai', key: 'guardCaught' } as const, 0)
+// The ids of the background tasks the main conversation started and no notification has ended yet
+// (shells and monitors; the race shows agents).
+const background = atom({ plugin: 'sabai', key: 'background' } as const, [] as string[])
 // Clock time the main conversation's last turn ended; 0 before any.
 const lastTurnAt = atom({ plugin: 'sabai', key: 'lastTurnAt' } as const, 0)
 // Recent turns' logs by their final answer, so the reply that answer is drawn as carries its
@@ -67,7 +70,7 @@ const receiptKey = (answer: string) => `${seedOf(answer)}:${answer.length}`
 const RECEIPTS_KEPT = 40
 // The main turn as it runs, for the live strip: when it began, and the step in flight.
 const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
-const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string } | null)
+const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string; at?: number } | null)
 // Each member's calls for the race: its tiles, its call in flight, its last fall and score.
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // The tools a row draws as a one-line step.
@@ -269,7 +272,8 @@ async function stepping($: EngineInterface, agentId: string | undefined, tool: s
   if (said) await update($, race, r => ({ ...r, said: { ...r.said, [agentId ?? 'main']: said } }))
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
-  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title } : null))
+  const at = await $.clock.now()
+  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title, at } : null))
 }
 
 // A call that never came back (it threw): only its in-flight mark is cleared.
@@ -939,6 +943,9 @@ export const register: Register = on => {
         const ms = (await $.clock.now()) - startedAt
         await update($, memberOf(durations, { requestId: id }), () => ms)
       }
+      // A command run in the background, asked for or moved there, runs on past its call.
+      const task = (called.result as BuiltinToolResults['Bash'] | undefined)?.backgroundTaskId
+      if (task && e.agentId === undefined) await update($, background, ids => [...ids, task])
       const r = called.result as { stdout?: string; stderr?: string } | string | undefined
       const output = typeof r === 'string' ? r : `${r?.stdout ?? ''}\n${r?.stderr ?? ''}`
       const at = await $.clock.now()
@@ -960,6 +967,28 @@ export const register: Register = on => {
       await unstep($, e.agentId)
       if (!raceDone) await racing($, e.agentId, kind, UNFINISHED)
     }
+  })
+
+  // A monitor runs on in the background until it ends or is stopped.
+  on('tool.call', { tool: 'Monitor' }, async ($, e, next) => {
+    const called = await next(e)
+    const task = (called.result as BuiltinToolResults['Monitor'] | undefined)?.taskId
+    if (desktop && task && e.agentId === undefined) await update($, background, ids => [...ids, task])
+    return called
+  })
+  on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
+    const called = await next(e)
+    const task = (called.result as BuiltinToolResults['TaskStop'] | undefined)?.task_id
+    if (desktop && task) await update($, background, ids => ids.filter(id => id !== task))
+    return called
+  })
+  // A background task's notification says it ended.
+  on('prompt.submit', async ($, e, next) => {
+    if (desktop && e.origin.kind === 'task-notification') {
+      const ended = endedTasks(e.text)
+      if (ended.length > 0) await update($, background, ids => ids.filter(id => !ended.includes(id)))
+    }
+    return next(e)
   })
 
   // A subagent reporting its own steps through the mod's tool.
@@ -1387,16 +1416,30 @@ export const register: Register = on => {
     // The crew shows while agents work and for a minute after the last ends; the pane keeps the rest.
     const lastEnd = Math.max(0, ...all.map(a => a.endedAt ?? 0))
     const runs = all.some(a => a.status === 'running') || at - lastEnd < CREW_LINGER_MS ? all : []
-    // The live strip: the main turn's time, step in flight and tallies, while it works.
+    // The live strip: the main turn's time, the step in flight and how long it has run, its calls,
+    // the lines its edits changed and its tests, while it works.
     const turn = await read($, turnLog)
     // The contract types the icon as a string; the hooks only ever write a StepIcon.
-    const step = (await read($, liveStep)) as { icon: StepIcon; title: string } | null
+    const stepped = (await read($, liveStep)) as { icon: StepIcon; title: string; at?: number } | null
+    const step = stepped ? { icon: stepped.icon, title: stepped.title } : null
     const began = await read($, turnStartedAt)
+    const raceLog = await read($, race)
+    const edits = Object.values(turn.files)
     const live = rows.live && e.props.isWorking
-      ? { ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}), ...(step ? { step } : {}), files: Object.keys(turn.files).length, commands: turn.commands, ...(turn.test ? { test: turn.test } : {}) }
+      ? {
+          ...(began !== 0 ? { elapsedMs: Math.max(0, at - began) } : {}),
+          ...(step ? { step } : {}),
+          ...(stepped?.at !== undefined ? { stepMs: Math.max(0, at - stepped.at) } : {}),
+          trail: raceLog.calls.main ?? [],
+          calls: countOf(raceLog, 'main'),
+          lines: { added: edits.reduce((n, f) => n + f.added, 0), removed: edits.reduce((n, f) => n + f.removed, 0) },
+          files: edits.length,
+          commands: turn.commands,
+          ...(turn.test ? { test: turn.test } : {}),
+        }
       : undefined
     // The race: Main and the agents at work, while any work runs.
-    const raceNow = rows.live ? raceOf(await read($, race), rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
+    const raceNow = rows.live ? raceOf(raceLog, rows.crew ? everyone : [], p, at, e.props.isWorking, began, step?.title) : undefined
     // The toolbar and the guard's shield keep the band even with nothing else to show.
     if (!p && !live && !raceNow && !info.pending && info.left.length + info.right.length === 0 && list.length === 0 && !note && runs.length === 0 && !rows.toolbar && !shownPrefs.guard) return next(e)
     const last = await read($, lastTurnAt)
@@ -1412,6 +1455,7 @@ export const register: Register = on => {
       contextPercent: measured?.contextPercent,
       idleMs: last > 0 ? at - last : undefined,
     })
+    const running = (await read($, background)).length
     const trick = shownPrefs.extras.tricks ? trickOf({ mood, now: at, lastTurnAt: last, isWorking: e.props.isWorking, raceShown, limitHigh: list.some(m => m.level) }) : undefined
 
     const skinName = await read($, skin)
@@ -1456,7 +1500,7 @@ export const register: Register = on => {
     // bodyColumns counts the code font's advance across the band, the collapse mark already
     // left out. Drawn a little wider than that estimate and given no width, the drawing
     // fills the slot: the surface scales a wider markup down to it, never a narrower one up.
-    const band = bandSvg(p, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
+    const band = bandSvg(p, list, W, { mood: mood, skin: skinName, style: style, crew: { runs, now: at }, clawd: shownPrefs.show.clawd, density: shownPrefs.density, hero: shownPrefs.density !== 'compact', ...(live ? { live } : {}), ...(raceNow ? { race: raceNow } : {}), ...(clawdLine ? { clawdLine } : {}), ...(running ? { running } : {}), ...(trick ? { trick } : {}), usageStyle: shownPrefs.usageStyle, ...(note ? { usageNote: note } : {}), now: at, ...(accessory ? { accessory } : {}) })
     return (
       <Box flexDirection="column">
         {(top || icons.length > 0) && (
