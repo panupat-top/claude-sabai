@@ -8,8 +8,8 @@ const STOCK: RenderElement = { type: 'Text', props: {}, children: ['stock row'] 
 const NOW = Date.parse('2026-10-10T00:00:00Z')
 
 // Answers every noun the band calls, as a session would. `failing` lists commands that are
-// missing or fail on this machine (no node, no upstream, not a repository).
-function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], completeText = '', percents = [12, 7, 3] as (number | undefined)[], contextTokens = 24_500, estimate = undefined as number | undefined, surfaces = ['desktop'] as ('terminal' | 'desktop')[] } = {}) {
+// missing or fail on this machine (no node, no upstream, not a repository); `hanging` ones never answer.
+function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown>, failing = [] as string[], hanging = [] as string[], completeText = '', percents = [12, 7, 3] as (number | undefined)[], contextTokens = 24_500, estimate = undefined as number | undefined, surfaces = ['desktop'] as ('terminal' | 'desktop')[] } = {}) {
   const branch = { name: 'main' }
   const runs: string[] = []
   const clock = mock.clock(on, { now: NOW })
@@ -32,11 +32,16 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     const cmd = e.argv.join(' ')
     runs.push(cmd)
     inits.push(e.init)
+    if (hanging.some(h => cmd.startsWith(h))) return new Promise<never>(() => {})
     const fails = failing.some(f => cmd.startsWith(f))
     return { value: { exitCode: fails ? 1 : 0, stdout: fails ? '' : (out()[cmd] ?? ''), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('turn.complete', () => ({ text: completeText }))
-  on('session.usage', ($, e) => ({
+  // A test that sets `reads.usage` false finds the engine has no reading to give.
+  const reads = { usage: true }
+  on('session.usage', ($, e) => {
+    if (!reads.usage) throw new Error('no reading')
+    return {
     value: {
       startedAt: 0,
       // The engine's local estimate, asked for with a breakdown.
@@ -48,7 +53,8 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
           ]
         : [],
     },
-  }))
+  }
+  })
   const registered: string[] = []
   on('command.register', ($, e) => {
     registered.push(e.name)
@@ -69,7 +75,7 @@ function engine(on: On, { hasLimits = true, store = {} as Record<string, unknown
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: [] } }
     return { result: {} }
   })
-  return { runs, clock, branch, store, commands, inits, registered }
+  return { runs, clock, branch, store, commands, inits, registered, reads }
 }
 
 // git and node are read in the background; tests let that settle before looking.
@@ -215,6 +221,15 @@ test('what a machine cannot tell is hidden: no node, no upstream, no repository'
   expect(words).toMatch(/^Folder work \| (Clawd: [^;]+; )?Context/)
   expect(words).not.toContain('Node')
   expect(words).not.toContain('Branch')
+})
+
+test('a slow git user or node read holds back only itself: the folder and branch show at once, with no skeleton', async ($, on) => {
+  engine(on, { hanging: ['git config', 'node'] })
+  await start($)
+  const words = (await shown($, 'desktop')).words
+  expect(words).toMatch(/^Folder work, Branch main ↑2 ↓1 ±2/)
+  expect(words).not.toContain('Reading the project')
+  expect(words).not.toContain('Git user')
 })
 
 test('the branch follows a turn of the main conversation', async ($, on) => {
@@ -694,6 +709,37 @@ test('every call of a subagent lands in its detail: tools by group, the activity
   expect((await altsOf(await viewed(await mountPane($, 'desktop'), 'worker'))).find(a => a.startsWith('Tools:'))).toContain('Grep 1×')
 })
 
+test('a subagent’s test run that fails on stderr fails in its detail too, as the race counts it', async ($, on) => {
+  on('tool.call', { tool: 'Bash' }, () => ({ result: { stdout: '', stderr: 'bun test v1\n\n 8 pass\n 1 fail\nRan 9 tests across 1 file. [1s]', interrupted: false } }))
+  engine(on)
+  panes(on)
+  await start($)
+  await spawn($, 'tester')
+  await subCall($, 'agent-tester', { tool: 'Bash', command: 'bun test', description: '' })
+  const alts = await altsOf(await viewed(await mountPane($, 'desktop'), 'tester'))
+  expect(alts.find(a => a.startsWith('Calls:'))).toContain('failed')
+})
+
+test('a summary Haiku was writing when the mod reloaded is asked for again, not left pending', async ($, on) => {
+  const { clock } = engine(on)
+  panes(on)
+  const answers: ((text: string) => void)[] = []
+  on('model.complete', () => new Promise(done => answers.push(text => done({ value: { isAnswered: true, text, usage: {} } } as never))) as never)
+  await start($)
+  await spawn($, 'slow')
+  await finish($, 'slow', 'a report')
+  await clock.advance(1)
+  // A reload sets the mod up again over the state it left; the first ask went with the old module.
+  await start($)
+  await clock.advance(1)
+  await settle()
+  expect(answers.length).toBe(2)
+  answers[1]!('- สรุปใหม่')
+  await settle()
+  const ui = await viewed(await mountPane($, 'desktop'), 'slow')
+  expect((await markdownsOf(ui))[0]?.props.text).toBe('- สรุปใหม่')
+})
+
 test('a summary lands on the round it read, though more work ended a round before Haiku answered', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
@@ -840,7 +886,8 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await spawn($, 'helper')
   ui = await mountPane($, 'desktop')
   expect(await ui.find({ type: 'Text', text: /^Earlier/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
+  // The box counts the agents; Main's lane tells its own state.
+  expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   // Main's lane is named so and wears its captain's cap.
   const mainLane = (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Main:'))
   expect(mainLane?.props.source).toContain('>Main<')
@@ -856,15 +903,17 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'ping' } as never)
   await $.turn.complete({ turnId: 'ping', answer: 'noted', durationMs: 10, isAborted: false, reason: 'answer' })
   ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: ' · 1 running · 1 done' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   expect(await laneOf(ui, 'helper')).toBeDefined()
+  // Its turn over while its agent runs, Main waits on it, as the band says; no check yet.
+  expect((await laneOf(ui, 'Main'))?.props.alt).toMatch(/^Main: Waiting on 1, .*รอ agent อีก 1 ตัว/)
   await ui.unmount()
   // A turn of Main's alone puts the crew in Earlier, and Clear drops it.
   await finish($, 'helper')
   await $.turn.start({ turnId: 'solo again' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'z' } as unknown as Parameters<typeof $.tool.call>[0])
   ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /running/ })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   await ui.press({ key: 'clear-earlier' })
   await clock.advance(1)
@@ -960,7 +1009,7 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
   // The first turn's Main, its agent gone to the turn at work, is no crew of its own.
   expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Main:')).length).toBe(1)
-  expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^EARLIER/ })).toBeUndefined()
   await finish($, 'scout', 'second report')
   await viewed(ui, 'scout')
@@ -1404,7 +1453,7 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
   const ui = await mountBand($, 'desktop', true)
   // The race is in it.
   const svg = String((await bandOf(ui))?.props.source)
-  expect(svg).toMatch(/>\d+ agents</)
+  expect(svg).toMatch(/>\d+ running</)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await bandOf(ui))?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1466,7 +1515,7 @@ test('each member’s calls land in its own lane; the header counts the turn’s
   await bash($, 'bun test')
   await bash($, 'false')
   const words = (await shown($, 'desktop', true)).words
-  expect(words).toMatch(/Race: 1 agent, 1 failed call/)
+  expect(words).toMatch(/Race: 1 running, 1 failed call/)
   expect(words).toMatch(/Main (tripped|running|thinking)/)
   // The agent's lane names its latest call; Main's counts its failure.
   expect(words).toContain('x running: Read a.ts |')
@@ -2063,6 +2112,18 @@ test('/clear drops the old context reading; with no estimate the context waits f
   await clock.advance(1)
   const words = (await shown($, 'desktop')).words
   expect(words).not.toContain('Context')
+  expect(words).toContain('5H Limit 7%')
+})
+
+test('/clear with no reading to give drops the old context too, rather than keep its percent', async ($, on) => {
+  const { clock, reads } = engine(on, { percents: [82, 7, 3], contextTokens: 164_000 })
+  on('session.end', () => ({ sessionId: 's' }))
+  await start($)
+  reads.usage = false
+  await $.session.end({ reason: 'clear', sessionId: 's' } as never)
+  await clock.advance(1)
+  const words = (await shown($, 'desktop')).words
+  expect(words).not.toContain('82%')
   expect(words).toContain('5H Limit 7%')
 })
 

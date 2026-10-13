@@ -49,6 +49,8 @@ export type AgentRun = {
   // Its latest calls, oldest first, with every call and failure counted past them.
   calls?: AgentCall[]
   callCount?: number
+  // Main's turn over while this many of its crew's agents run: drawn as waiting, never stored.
+  waitingOn?: number
   callFails?: number
   // Calls in flight, oldest first: parallel calls each hold their own.
   doing?: { kind: ActKind; title: string; target: string }[]

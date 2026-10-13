@@ -34,6 +34,9 @@ test('a run is added once, steps count up with the latest context, and it ends d
   expect(stepped(list, 'nobody', 'x', USAGE)).toEqual(list)
   expect(finished(list, 'a', 'answer', 5000)[0]).toMatchObject({ status: 'done', endedAt: 5000 })
   expect(finished(list, 'a', 'error', 5000)[0]?.status).toBe('failed')
+  // A call still in flight when the agent ends is over too: nothing shows it running.
+  const busy = list.map(a => ({ ...a, doing: [{ kind: 'read' as const, title: 'Read', target: 'a.ts' }] }))
+  expect(finished(busy, 'a', 'answer', 5000)[0]?.doing).toBeUndefined()
 })
 
 test('the pane keeps the newest forty runs', () => {
@@ -117,6 +120,10 @@ test('a finished agent sent more work runs again, its report kept as an earlier 
   const [again] = stepped([{ ...done!, summary: ['สรุป'] }], 'a', 'claude-opus-5-5', USAGE)
   expect([again?.status, again?.endedAt, again?.result, again?.reason, again?.summary]).toEqual(['running', undefined, undefined, undefined, undefined])
   expect(again?.rounds).toEqual([{ result: 'first report', reason: 'answer', summary: ['สรุป'] }])
+  // It joins the crew at work, unless it belongs to a workflow, which wakes its own agents.
+  expect(stepped([done!], 'a', '', USAGE, undefined, 9500, 'turn:2')[0]?.crew).toBe('turn:2')
+  const [woken] = finished([run('w', { crew: 'wf:r1' })], 'w', 'answer', 9000, 'report')
+  expect(stepped([woken!], 'w', '', USAGE, undefined, 9500, 'turn:2')[0]?.crew).toBe('wf:r1')
 })
 
 test('the empty drawing invites a first agent', () => {

@@ -387,7 +387,7 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
     { id: 'q', who: 'Plan the race', type: 'Plan', step: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
   ], { done: 1, fails: 1, elapsedMs: 102_000, more: 1 }), 300, 0)
   expect(part.height).toBe(24 + 4 * 22 + 16 + 6)
-  for (const s of ['>3 agents<', '>· 1 done<', '>✗ 1<', '>1m 42s<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>31s<', '>2/4<', '>· Quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
+  for (const s of ['>3 running<', '>· 1 done<', '>✗ 1<', '>1m 42s<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>31s<', '>2/4<', '>· Quiet 47s<', '>+1 more · open Agents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
     expect([s, part.body.includes(s)]).toEqual([s, true])
   // A quiet agent's stripe and words are amber; a tripped one's red; Main's in Clawd's colour.
   expect(part.body).toMatch(/class="c-warn"[^>]*>· Quiet 47s</)
@@ -395,7 +395,7 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
   expect(part.body).toContain('fill="var(--kl-warn)"')
   // Gone: the turn's worked calls, a lane's ✓ tally, the track, its footprints and flags.
   for (const s of ['✓', 'class="flag', 'class="scroll"', 'sabai-tr-', 'OUCH']) expect([s, part.body.includes(s)]).toEqual([s, false])
-  expect(part.alt).toBe('Race: 3 agents, 1 done, 1 failed call, 1m 42s; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: Quiet 47s; 1 more in the Agents pane')
+  expect(part.alt).toBe('Race: 3 running, 1 done, 1 failed call, 1m 42s; Main running: Editing svg.ts (2/4); Explore ×3 scored: 3 running; Write race tests tripped: bun test failed, 1 failed; Plan the race running: Quiet 47s; 1 more in the Agents pane')
 })
 
 test('a just-finished agent hops among confetti on a flashing row, then folds to a check', () => {
@@ -477,7 +477,7 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: raced, crew }
   const wide = bandSvg(undefined, LIST, 900, opts)!
-  expect(wide.alt).toContain('Race: 1 agent')
+  expect(wide.alt).toContain('Race: 1 running')
   expect(wide.alt).not.toContain('Working 1m 42s:')
   expect(wide.alt).not.toContain('Agents:')
   const mid = bandSvg(undefined, LIST, 600, opts)!
@@ -488,7 +488,7 @@ test('the comfortable band’s tiers: three panels from 760 px, two below, stack
   // Clawd hidden: no panel, the race stays.
   const noClawd = bandSvg(undefined, LIST, 900, { ...opts, clawd: false })!
   expect(noClawd.source).not.toMatch(/scale\(3\)/)
-  expect(noClawd.alt).toContain('Race: 1 agent')
+  expect(noClawd.alt).toContain('Race: 1 running')
 })
 
 test('no race element carries two class attributes, whatever its Clawd is doing', () => {
