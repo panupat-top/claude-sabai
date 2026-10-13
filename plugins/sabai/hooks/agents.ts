@@ -43,7 +43,7 @@ type Usage = { input_tokens: number; output_tokens: number; cache_read_input_tok
 
 // One model request of a subagent: its context is everything that request read and wrote, and
 // its tokens add to what the run spent. A finished agent sent more work runs again in the crew at
-// work now (`crew`), its report kept as an earlier round.
+// work now (`crew`), its report kept as an earlier round; a workflow's agent stays in its workflow.
 export function stepped(list: AgentRun[], agentId: string, model: string, u: Usage, effort?: string | number, at?: number, crew?: string): AgentRun[] {
   const run = list.find(a => runKey(a) === agentId)
   if (!run) return list
@@ -62,7 +62,7 @@ export function stepped(list: AgentRun[], agentId: string, model: string, u: Usa
   if (!again) return list.map(a => (a === run ? next : a))
   const round: AgentRound = { ...(run.result ? { result: run.result } : {}), ...(run.reason ? { reason: run.reason } : {}), ...(Array.isArray(run.summary) ? { summary: run.summary } : {}) }
   const { endedAt: _e, reason: _r, result: _s, summary: _m, ...rest } = next
-  const resumed: AgentRun = { ...rest, status: 'running', rounds: [...(run.rounds ?? []), round].slice(-ROUNDS_KEPT), ...(crew ? { crew } : {}) }
+  const resumed: AgentRun = { ...rest, status: 'running', rounds: [...(run.rounds ?? []), round].slice(-ROUNDS_KEPT), ...(crew && !run.crew?.startsWith('wf:') ? { crew } : {}) }
   return [...list.filter(a => a !== run), resumed]
 }
 // The earlier rounds a run sent more work keeps.
@@ -73,18 +73,19 @@ export const RESULT_MAX = 1500
 // which makes a drawing that carries it invalid.
 const cut = (s: string, n: number) => Array.from(s).slice(0, n).join('')
 
+// A call still in flight when the run ends ends with it.
 export const finished = (list: AgentRun[], agentId: string, reason: NonNullable<AgentRun['reason']>, at: number, answer?: string): AgentRun[] =>
-  list.map(a =>
-    runKey(a) !== agentId
-      ? a
-      : {
-          ...a,
-          status: reason === 'answer' ? 'done' : 'failed',
-          reason,
-          endedAt: at,
-          result: answer && Array.from(answer).length > RESULT_MAX ? `${cut(answer, RESULT_MAX - 1)}…` : answer || undefined,
-        },
-  )
+  list.map(a => {
+    if (runKey(a) !== agentId) return a
+    const { doing: _d, ...rest } = a
+    return {
+      ...rest,
+      status: reason === 'answer' ? 'done' : 'failed',
+      reason,
+      endedAt: at,
+      result: answer && Array.from(answer).length > RESULT_MAX ? `${cut(answer, RESULT_MAX - 1)}…` : answer || undefined,
+    }
+  })
 
 export const withTasks = (list: AgentRun[], agentId: string, fn: (tasks: Task[]) => Task[]): AgentRun[] =>
   list.map(a => (a.agentId !== agentId ? a : { ...a, tasks: fn(a.tasks ?? []) }))
@@ -375,7 +376,7 @@ export const clearEarlier = (list: AgentRun[], shown: ReadonlySet<string>): Agen
 
 // ---- Moods: how each agent's Clawd stands, and his line in Thai.
 
-export type AgentMood = 'working' | 'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'done'
+export type AgentMood = 'working' | 'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'done' | 'waiting'
 // Running with no call in flight and nothing heard this long: quiet, maybe stuck.
 export const QUIET_MS = 30_000
 // The context share past which an agent sweats.
@@ -387,6 +388,7 @@ export const contextPercent = (a: AgentRun, window?: number): number | undefined
 export function agentMood(a: AgentRun, now: number, window?: number): AgentMood {
   if (a.status === 'failed') return a.reason === 'aborted' ? 'stopped' : 'failed'
   if (a.status === 'done') return 'done'
+  if (a.waitingOn) return 'waiting'
   if ((contextPercent(a, window) ?? 0) >= FULL_AT) return 'context'
   if (a.doing?.length) return 'working'
   // Claude writing a long answer is quiet too, and no sign of a stuck main turn.
@@ -398,7 +400,7 @@ export function agentMood(a: AgentRun, now: number, window?: number): AgentMood 
 const FAST_MS = 30_000
 
 // Each mood's lines; one is picked by the run's id, so a run keeps its line between redraws.
-const LINES: Record<'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'done' | 'fast', ((f: Record<string, string>) => string)[]> = {
+const LINES: Record<'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'done' | 'fast' | 'waiting', ((f: Record<string, string>) => string)[]> = {
   thinking: [() => 'ขอคิดแป๊บ… 🤔', () => 'กำลังเรียบเรียงความคิด 💭', () => 'คิดก่อนลงมือ 🤔'],
   quiet: [f => `เงียบไป ${f.quiet} วิ… หลับอยู่หรือเปล่า 😴`, f => `${f.quiet} วิแล้วยังเงียบ ลองเข้าไปดูหน่อย 👀`],
   context: [f => `หัวจะระเบิดแล้ว 🤯 ctx ${f.ctx}%`, f => `ความจำใกล้เต็ม ctx ${f.ctx}% 🧠`],
@@ -406,6 +408,7 @@ const LINES: Record<'thinking' | 'quiet' | 'context' | 'failed' | 'stopped' | 'd
   stopped: [f => `หยุดตามที่สั่ง ✋${f.steps ? ` ทำไป ${f.steps} ขั้น` : ''}`],
   done: [f => `เสร็จใน ${f.time} เรียบร้อย ✨`, f => `งานเสร็จ ส่งรายงานแล้ว 📬 (${f.time})`],
   fast: [f => `เสร็จใน ${f.time} ไวเหมือนโกหก ⚡`, f => `${f.time} เสร็จแล้ว ไวมาก ⚡`],
+  waiting: [f => `รอ agent อีก ${f.waiting} ตัว ⏳`],
 }
 // What the working Clawd says he is doing, by his call's kind.
 const DOING: Record<ActKind, (target: string) => string> = {
@@ -433,6 +436,7 @@ export function thaiLine(a: AgentRun, now: number, window?: number): string {
     fails: String(a.callFails ?? 0),
     steps: p ? `${p.done}/${p.total}` : '',
     time: clock(elapsed(a, now)),
+    waiting: String(a.waitingOn ?? 0),
   }
   if (mood === 'working') {
     const d = a.doing!.at(-1)!

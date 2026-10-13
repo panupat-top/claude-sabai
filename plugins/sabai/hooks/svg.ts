@@ -394,7 +394,7 @@ function infoPart(info: { left: readonly Chip[]; right: readonly Chip[]; pending
   if (over()) b = fitMono(b, 11, monoWidth(b, 11) - (leftW(f, b) - W), 6)
   let x = x0
   let body = lead
-  // Until git and node answer, two still bars where the folder and branch will be.
+  // Until the branch is read, two still bars where the folder and branch will be.
   if (info.pending) {
     body += `<g class="sm" opacity=".22"><rect x="${x}" y="${mid - 6}" width="96" height="12" rx="6"/><rect x="${x + 106}" y="${mid - 6}" width="64" height="12" rx="6"/></g>`
     x += SKELETON_W
@@ -509,7 +509,8 @@ const RACE_CONFETTI = [[-5, -3, 'context'], [3, -7, 'session'], [10, -2, 'week']
 // a cross. Past the rows, how many more the Agents pane holds.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const time = race.elapsedMs === undefined ? '' : clock(race.elapsedMs)
-  const lead = race.agents ? `${race.agents} ${race.agents === 1 ? 'agent' : 'agents'}` : ''
+  // Worded as the Agents pane's Now box counts its crew.
+  const lead = race.agents ? `${race.agents} running` : ''
   // The agents that ended, each way apart: a failed or stopped agent is not done.
   const ended = [race.done && `${race.done} done`, race.failed && `${race.failed} failed`, race.stopped && `${race.stopped} stopped`].filter(Boolean).join(' · ')
   // Measured a size up for the bold lead; SVG drops the space before its dot.
@@ -1261,13 +1262,13 @@ const paneDrawing = (look: Look, W: number, H: number, drawn: string, alt: strin
 }
 
 // Each mood as Clawd's pose, the ink of its words, and its colour on a bar.
-const MOOD_SPRITE: Record<AgentMood, string> = { working: 'run', thinking: 'idle', quiet: 'sleep', context: 'sweat', failed: 'dizzy', stopped: 'idle', done: 'idle' }
-const MOOD_INK: Record<AgentMood, string> = { working: 'm', thinking: 'm', quiet: 'c-warn', context: 'c-context', failed: 'c-alert', stopped: 'm', done: 'c-ok' }
+const MOOD_SPRITE: Record<AgentMood, string> = { working: 'run', thinking: 'idle', quiet: 'sleep', context: 'sweat', failed: 'dizzy', stopped: 'idle', done: 'idle', waiting: 'idle' }
+const MOOD_INK: Record<AgentMood, string> = { working: 'm', thinking: 'm', quiet: 'c-warn', context: 'c-context', failed: 'c-alert', stopped: 'm', done: 'c-ok', waiting: 'm' }
 const TROUBLE: readonly AgentMood[] = ['quiet', 'context', 'failed']
 const moodColor = (mood: AgentMood) => kl(mood === 'failed' ? 'fail' : mood === 'quiet' ? 'warn' : mood === 'done' ? 'ok' : mood === 'stopped' ? 'stop' : 'skill')
 export function moodLabel(a: AgentRun, now: number, window?: number): string {
   const mood = agentMood(a, now, window)
-  const said = mood === 'quiet' ? `quiet ${Math.floor(quietFor(a, now) / 1000)}s` : mood === 'context' ? `context ${contextPercent(a, window)}%` : mood
+  const said = mood === 'quiet' ? `quiet ${Math.floor(quietFor(a, now) / 1000)}s` : mood === 'context' ? `context ${contextPercent(a, window)}%` : mood === 'waiting' ? `waiting on ${a.waitingOn}` : mood
   return said[0]!.toUpperCase() + said.slice(1)
 }
 // Whether a run's drawing moves: at work, or in the few seconds after it ended.

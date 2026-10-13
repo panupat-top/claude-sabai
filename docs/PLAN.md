@@ -1,6 +1,6 @@
 # claude-sabai — Plan
 
-> สถานะ (2026-10-13): sabai 2.14.2 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
+> สถานะ (2026-10-13): sabai 2.20.1 ทำงานเฉพาะ desktop Code tab · hub 1.0.0 status line สำหรับ terminal · ประวัติทุกเวอร์ชันอยู่ใน §5
 > อ้างอิง (MIT ทั้งหมด): [hellosverre/claude-skins](https://github.com/hellosverre/claude-skins) ·
 > [JohnnyVizz/claude-kit › savvy-progress](https://github.com/JohnnyVizz/claude-kit/tree/main/plugins/savvy-progress) ·
 > [data-goblin/claude-code-filetree](https://github.com/data-goblin/claude-code-filetree)
@@ -12,16 +12,18 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | แถว | แสดง | ที่มาของข้อมูล |
 |---|---|---|
 | Info | แถวบนเหนือ band ชิดซ้ายทั้งหมด: ชื่อโปรเจกต์ · ป้าย branch `↑ ↓ ±` · git user · Node (เวอร์ชันเต็ม) | `git`, `node` ผ่าน `$.process.run` (timeout 5 วิ, ไม่รอตอนเริ่ม) · ตาม folder เมื่อ session ย้าย (`$.session.cwd`) · หาไม่ได้ = ซ่อน |
-| Live | เวลาของ turn หลักและ step ล่าสุด ขณะทำงาน | `turn.start` / `turn.step` / `turn.complete` |
-| Tasks | Clawd · bar (dither/blocks/solid) · pill `n/total` · % · ตัวหนังสือสีตาม OS | `TaskCreate` / `TaskUpdate` / `TodoWrite` ของบทสนทนาหลัก |
-| Crew | Clawd ตัวเล็กตาม agent ที่ทำงาน (จำนวนตามความกว้าง) ใส่หมวก/ถือของ · งานล่าสุด · ● ✓ ✗ · เวลา · หายเองหลังตัวสุดท้ายจบ 1 นาที | `agent.spawn` / `turn.step` / `turn.complete` |
-| Usage | Context · 5H · 7D All พร้อม countdown · 4 แบบ (Tiles/Rings/Columns/Rows, เฉพาะ comfortable) · เตือน/แดงตั้งได้ (ค่าเริ่มต้น 70% / 90%) | `session.usage`, `session.measure` |
-| Race | กล่องขวาสุดของ band (comfortable, ≥ 760 px): lane ของ Main และ agent ละ lane, รอยเท้าเป็น icon ต่อ call | hook ของ Read/Edit/Write/Bash |
+| Live | step ที่กำลังรันเป็นไอคอนชนิด call (กะพริบ) พร้อมเวลาของ call หรือ `thinking` ระหว่าง call · ขวาเป็นรอยไอคอน call ของ turn (`+N` เมื่อเกิน) · บรรทัด `+/−` และผล test | `turn.start` / `turn.step` / race log / `turnLog` |
+| Tasks | Clawd · bar (dither/blocks/solid) · pill `n/total` · % | `TaskCreate` / `TaskUpdate` / `TodoWrite` ของบทสนทนาหลัก |
+| Clawd | แผงซ้ายของ comfortable: อารมณ์ + เหตุผล + ลูกเล่น · `● N running` เมื่อเป็นตาผู้ใช้แต่ยังมี shell/Monitor เบื้องหลัง | `moodOf` / `moodLine` / `trickOf` · `backgroundTaskId` ของ Bash, `taskId` ของ Monitor |
+| Crew | แถวใน compact/แคบ (comfortable กว้างใช้ Race แทน): Clawd ตัวเล็กต่อ agent พร้อมหมวก/ของ · งานล่าสุด · badge ✓ ✗ ✋ · เวลา | `agent.spawn` / `turn.step` / `turn.complete` |
+| Usage | Context · 5H · 7D All พร้อม countdown · 4 แบบ (Tiles/Rings/Columns/Rows) ทั้ง comfortable และ compact · เตือน/แดงตั้งได้ (ค่าเริ่มต้น 70% / 90%) · ค่าประมาณ `~` ก่อน response แรกและหลัง compact/clear | `session.usage`, `session.measure` |
+| Race | กล่องขวาสุดของ band (comfortable, ≥ 760 px) เมื่อมี agent: แถวละ 22 px ต่อ Main และ agent · stripe สีตาม mood · แผน `n/total` · quiet · จบแล้วกระโดด/ล้ม/✋ แล้วพับเป็น badge | hook ของ Read/Edit/Write/Bash + `tool.call` ไม่มี matcher |
 | Toolbar | icon Lucide ชิดขวาของแถวบน: Guard (เมื่อเปิด) · Compact (บอก % เมื่อถึง warnAt) · Agents (นับที่ทำงาน) · Settings · สีทีละ icon: Agents ตอนมี agent ทำงาน ไม่งั้น Compact | `$.command.list`, `$.command.run` |
 
-- **Agents panel:** แถบสรุป · การ์ดต่อ agent: ชื่องานพร้อม emoji ประจำชนิด + ปุ่ม **Report** · Clawd ใส่หมวกและถือของตามชนิด (8 ชนิด + agent จาก plugin `x:y`) · effort `low…max` / `budget 32k` · `workflow` · ความคืบหน้า (tool `step` ของ mod ก่อน แล้วจึง task list) · ไอคอนสถานะมี animation · กลุ่ม Finished พับได้, Clear, รายงาน Markdown ทีละฉบับ · จำนวนการ์ดคุมด้วยขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k · agent remote ที่ไม่มี loop ไม่สร้างการ์ด
-- **Settings panel** (`/sabai-settings`, `⚙`): Layout (comfortable/compact) · Band (ซ่อน/แสดง 6 แถว และ chip ของแถว info/usage ทีละตัว) · Usage style และเกณฑ์เตือน · Clawd extras (ของประดับ, ลูกเล่น) · Progress bar (3 ปุ่ม + ตัวอย่าง) · Alerts (แจ้งเตือน turn ≥ 1 นาที/agent ล้มเหลวผ่าน `$.ui.notify`, toast เมื่อ 5H/7D ≥ 90% ครั้งเดียวต่อรอบ) · Agents and safety (Step reports = tool `mcp__sabai__step`, Guard ปิดไว้ก่อน: 4 rule เลือก Block = `tool.call` → `{ deny }` / Ask = `tool.check` → `{ decision: 'ask' }` / Off ได้ทีละ rule) · Look: Raised (ค่าเริ่มต้น) หรือ Flat สลับ light/dark ตาม OS · Reset (กดสองครั้ง) · ทุกค่าเก็บใน `$.store` (`prefs`, `skin`, `bar`)
-- **Chat** (กลุ่มใน Settings, เปิดปิดทีละข้อ): แถว Edit/Write/Read/Bash วาดเป็น step บรรทัดเดียวแบบ minimal (icon เส้น · หัวข้อ · รายละเอียด · meter · pill ผลลัพธ์ · เวลา ⚡/🐢) · ผล test ของ bun/jest/vitest/pytest/cargo/go · callout `> [!NOTE]` เป็นกล่อง + บอก Claude 1 บรรทัดใน system prompt · spinner ภาษาไทย · receipt ใต้คำตอบของ turn ที่ทำงาน (ไฟล์ที่แก้ · ผล test · command) · ป้าย guard เป็น icon โล่สีเขียวชิดขวาของแถวบนพร้อมจำนวนที่กันได้ (desktop ไม่มีแถวป้ายโหมดใต้ช่องพิมพ์) · Clawd แสดงอารมณ์ (ตกใจ · เสียใจ · ฉลอง · เหงื่อตก · หลับ) · สีในหน้า chat ใช้ theme key ของผู้ใช้
+- **Agents pane** (`/sabai-agents`): 3 กล่อง **Now** (หัวบอก `N running · N done · N failed`, timeline ของ crew บนแกนเวลาเดียว, lane ของ Main และ agent ละ lane พร้อม stripe mood, ประโยคไทย, ปุ่ม View) → **Viewing** (head: Clawd, mood, call ล่าสุด, STEPS/CONTEXT/TOKENS · Summary ไทยจาก Haiku · Plan · Tools · Calls · Files · Report/Answer · Asked to) → **Earlier** (crew ก่อนหน้าพับเป็นบรรทัด, ป้ายวันเมื่อข้ามวัน, 👑 MVP, Clear) · crew ตาม turn หลัก / workflow / parent เก็บ `CREWS_KEPT` crew · วาดตามขนาดจริง (`PANE_BUDGET`) ให้ tree ไม่เกิน 100k
+- **Settings pane** (`/sabai-settings`, `⚙`): Look (layout, การ์ด Raised/Flat, bar, แถวที่ไม่มีตัวเลือกของตัวเอง) → Usage → Info row → Clawd → Agents (Step reports, Thai summary) → Conversation → Guard (4 rule เลือก Block/Ask/Off ทีละ rule, ปิดไว้ก่อน) → Notifications → Reset (กดสองครั้ง) · ตัวเลือกที่เป็นภาพ (layout, การ์ด, usage) มีภาพโครงเหนือปุ่ม · ทุกค่าเก็บใน `$.store`
+- **Chat** (เปิดปิดทีละข้อ): แถว Edit/Write/Read/Bash เป็น step บรรทัดเดียว (icon Lucide · หัวข้อ · รายละเอียด · pill ผลลัพธ์ · เวลา) · ผล test ของ bun/jest/vitest/pytest/cargo/go · callout `> [!NOTE]` · spinner ภาษาไทย · receipt ใต้คำตอบของ turn ที่ทำงาน · สีในหน้า chat ใช้ theme key ของผู้ใช้
+- **สี:** pastel ชุดเดียว (`PALETTE`) ใช้กับไอคอน call, badge, stripe, แถบ และ timeline ทั้ง light/dark
 - **ใช้ได้ทุกเครื่อง:** ไม่อ่านไฟล์ภายนอก ไม่แตะ credential ข้อมูลที่หาไม่ได้จะถูกซ่อน
 
 ## 2. การตัดสินใจ
@@ -50,74 +52,32 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 
 เรียงตามลำดับที่ควรทำ: งานเล็กที่ต่อจากของที่มีอยู่ก่อน แล้วค่อยงานใหญ่ · งานที่เสร็จแล้วดูใน §5
 
-### P1 — ทำต่อเลย (เล็ก, ต่อยอดของเดิม)
+### P1 — แก้ bug (2.20.x)
 
-R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` ยังไม่ commit · ทำทีละขั้นตามลำดับข้างล่าง แต่ละขั้นเสร็จแล้วค่อยไปขั้นถัดไป
-
-#### ขั้น 0 — ปิด 2.13.0 (ของที่ทำไปแล้ว)
-
-สิ่งที่มีใน branch แล้ว (test 323 ผ่าน, `tsc`/validate ผ่าน):
-- **โครง pane:** Overview (crew ปัจจุบัน) → AGENTS (lane ละ agent + ปุ่ม View) → Detail ของตัวที่เลือก → กล่อง Earlier
-- **Overview (OV-1):** หัวเรื่อง · Clawd ทุกตัวพร้อม mood และป้าย · bar แบ่งช่องละ agent · tile CALLS/TOKENS/TIME/FILES
-- **Lane (D3):** Clawd ตาม mood · ชื่องาน · ประโยคไทยที่ใส่ตัวเลขจริง · bar ตามสไตล์ bar · เวลา
-- **Detail:** head (Clawd ใหญ่, tag mood, meta, call ล่าสุด, meter STEPS/CONTEXT/CALLS) · SUMMARY ภาษาไทย (บรรทัดข้อเท็จจริง + bullet จาก Haiku ผ่าน `$.model.complete`) · TOOLS แยก BUILT-IN/SKILLS/MCP · STEPS (note ของ step tool) · ACTIVITY (8 ล่าสุด / All calls) · FILES แบบ F1 (แก้ก่อน, +N −M, NEW) · Report (รวมรอบก่อน) · Brief
-- **Crew:** agent ที่ turn หลักเดียวกันสั่ง = crew เดียว (workflow ตาม `runId`, agent ลูกตาม parent, run เก่าก่อนมี crew = crew เดียว) · เก็บ 5 crew ล่าสุด + crew ที่ยังรัน · ส่งงานต่อให้ agent ที่จบแล้ว = รอบใหม่ใน crew ปัจจุบัน เก็บ report เดิมไว้ (≤ 3 รอบ) · หยุด (aborted) แยกจาก failed
-- **Earlier:** กล่องกรอบมน (E1) พับเป็นบรรทัดเดียวระหว่างที่ crew ปัจจุบันทำงาน (E2) · ป้ายวัน TODAY/YESTERDAY/วันที่ เฉพาะเมื่อข้ามวัน (D1) · Clear ที่หัวกล่อง
-- **Mood:** working / thinking / quiet (เงียบ ≥ 30 วิ) / context (≥ 80% เฉพาะเมื่อ model เดียวกับ Main จึงรู้ window) / failed / stopped / done
-- **ข้อมูล:** `tool.call` ไม่มี matcher บันทึกทุก tool ของ subagent (ไม่นับ Task tools และ step tool) · tool ที่ race ไม่เคยนับ (Grep, Skill, MCP …) นับใน lane ของ subagent บน band ด้วย ให้ตัวเลขตรงกับ pane
-- **Settings › Agents › Thai summary** (ค่าเริ่มต้นเปิด)
-- **ขนาด:** budget 70k วาดตามลำดับ overview → detail → แถว Earlier → lane · Clawd ใน pane เป็น path, ใส่เฉพาะสี/animation ที่ใช้, font ตั้งใน stylesheet, icon ใช้ `<use>` (agent 5 ตัว ≈ 44k)
-
-ยังต้องทำก่อน release:
-1. ✅ **A — ทดสอบบน desktop** (ผ่าน 2026-10-13: สรุปไทยจาก Haiku, MCP และ Skill มี `agentId`, NEW, stopped, Earlier, ป้ายวัน · เจอและแก้: detail แสดงภาพของ agent ตัวก่อนเพราะ key ของ Svg ตายตัว, path นอก project ยาว) เดิม: สรุปไทยจาก Haiku, MCP/Skill ใน TOOLS, badge NEW, สถานะ stopped, กล่อง Earlier พับ/กาง, ป้ายวัน · mood quiet และ context มีแค่ unit test · ถ้า engine ไม่ให้ข้อมูลส่วนไหน ส่วนนั้นซ่อน
-2. ✅ **B — docs:** README (pane ใหม่, privacy: ส่ง report ไปให้ Haiku สรุปผ่าน API ของ session, setting Thai summary) · CLAUDE.md (architecture ของ pane, ข้อยกเว้นภาษาไทยข้อ 2: ประโยคไทยใน lane และสรุปไทย) · §5 ของไฟล์นี้
-3. **C — release 2.13.0:** version ใน plugin.json และ marketplace.json · commit · merge · push · อัปเดต production (เมื่อเจ้าของสั่ง)
-
-#### ขั้น 1 — โครงและข้อมูล (preview รอบ A, งานของ 2.14.0) ✅ เลือก A3 · ปิดได้ทั้งสองทาง · T3-a · M1 (ทดสอบบน desktop ผ่าน)
-
-ทำ preview รอบเดียวกันเพราะตำแหน่งของ Main เปลี่ยนโครงทั้ง pane
+ตรวจโค้ดของ 2.20.0 เมื่อ 2026-10-13 (V1–V5 ของ review หลัง 2.14.1 และของค้างจาก 2.19/2.20) · V4e ("0 agents") แก้ไปแล้วทางอ้อม เพราะ Main ที่ไม่มี agent ไม่ตกไปอยู่ใน Earlier
 
 | ID | งาน | รายละเอียด | ขนาด |
 |---|---|---|---|
-| T1 | จัดโครงใหม่ แยก group ให้ชัด | ลำดับ Overview → Lanes → Earlier → Detail · แต่ละส่วนเป็น group ที่อ่านง่ายและสวย · เสนอไอเดียหลายแบบพร้อม preview · ข้อควรระวัง: Earlier ที่กางอยู่จะดัน Detail ลงไปไกล (เสนอทางเลือกไว้ใน preview ด้วย) | M |
-| T2 | ปิด view ได้ | กด View ซ้ำ หรือปุ่ม ✕ แล้ว Detail ไม่แสดง agent | S |
-| T3 | Empty state ของ Detail | ตอนยังไม่ได้เลือก agent หรือปิด view ไปแล้ว · ตัดสินใจว่าเลือกให้เองแบบเดิม (ตัวที่ควรเข้าไปดู) หรือไม่เลือกให้ | S |
-| T4 | แสดงงานของ Main ใน pane | เมื่อสั่งงานแล้วมีแค่ Main ทำ ก็ให้ pane แสดงด้วย · **กลับคำตัดสินใจเดิม** ("Main ไม่ต้องใส่ใน pane") · Main ไม่ใช่ `AgentRun` ข้อมูลต้องมาจาก race log / `turnLog` / receipt · ทางเลือก: lane แรกของ crew, การ์ดแยก, หรือเป็นประวัติ turn ใน Earlier ด้วย · ระวัง budget และซ้ำกับ chat/receipt | L |
+| N8 | `/clear` ไม่ล้าง `background` | `session.end` ล้างเกือบทุก atom ยกเว้น `background` · ต้องยืนยันก่อนว่า engine ฆ่า task เบื้องหลังตอน `/clear` ไหม ถ้าไม่ฆ่า การนับต่อก็ถูกแล้ว | S |
 
-#### ขั้น 2 — งานเล็ก ไม่ต้อง preview ✅
+### P1b — ตรวจบน desktop (release ไปแล้วแต่ยังไม่ได้ยืนยัน)
 
-| ID | งาน | รายละเอียด | ขนาด |
-|---|---|---|---|
-| T5 | tile ของ Overview ไม่มี bar | เอา bar/กราฟเล็กออกจาก tile ทั้ง 4 ช่อง เหลือตัวเลขและข้อความ | S |
-
-#### ขั้น 3 — หน้าตา (preview รอบ B รวมหน้าเดียว) ✅ T6 คงแบบเดิม · T7 S3 · T8 G1 + wording ตามตาราง · เอา tile FILES ออกจาก overview
-
-| ID | งาน | รายละเอียด | ขนาด |
-|---|---|---|---|
-| T6 | bar ของ Overview | น่าสนใจขึ้น มีลูกเล่นหรือความสนุก และต้องมีประโยชน์ต่อผู้ใช้ · เสนอหลายแบบพร้อม preview | M |
-| T7 | lane ตอนถูกเลือก + ปุ่ม View | หน้าตาตอน selected และปุ่ม View ให้สวยขึ้น · preview | S–M |
-| T8 | Detail เป็น group + wording | แบ่ง group ให้อ่านง่าย · ปรับ wording · preview | M |
-
-#### ขั้น 4 — ปิด 2.14.0 ✅
-
-ทดสอบบน desktop → docs (README, CLAUDE.md, §5) → release 2.14.0 เมื่อเจ้าของสั่ง
-
-#### ค้างจาก review หลัง 2.14.1 (รอบถัดไป)
-
-| ID | งาน | รายละเอียด | ขนาด |
-|---|---|---|---|
-| V1 | contrast บนพื้น tint | ป้าย mood ใน head, ป้าย NEW, `+added` ในแถวไฟล์ และตัวนับใน chip ของ MCP/skills ต่ำกว่า 4.5:1 ในบาง look · icon สีขาวบน tile แบบ `c-ok`/`m` ใน dark ต่ำกว่า 3:1 · เพิ่ม test ที่วัดบนพื้น tint | S–M |
-| V2 | ค่า CONTEXT ใน head ถูกตัด | ที่ pane กว้าง 310–400 px · ถ้าค่าเต็มไม่พอดีให้ใช้ % แทน · ที่ 240 px "active … ago" ทับป้าย mood | S |
-| V3 | สิ่งที่เกิน budget หายเงียบ | แถว Earlier และกล่องย่อยของ Detail ที่ไม่พอดีไม่มีตัวนับเหมือน lane | S |
-| V4 | ขอบ ๆ ของ state | `pending` ค้างหลัง hot reload · `finished` ไม่ล้าง `doing` · ผล test ของ agent อ่านแค่ stdout (race อ่าน stderr ด้วย) · agent ของ workflow ที่ถูกปลุกหลุดไป crew `turn:` · crew ที่มีแต่ Main ใน Earlier ขึ้น "0 agents" · key ของ overview ตายตัว (`crew`) | M |
-| V5 | performance | รวม update ต่อ call ของ `logAgentCall` เป็นครั้งเดียว · จำกัด Haiku ที่เรียกพร้อมกัน | S |
+- 2.20.0: `session.end` ยิงตอน `/clear` จริงไหม · หลัง compact `session.measure` เอา % เก่ามาทับค่าประมาณไหม
+- 2.18.0: นับ background task ตอนกด Ctrl+B และตอน timeout
+- 2.15.0: `wrap` ของ Text ในช่อง Asked to
+- 2.20.1: ทำไมการอ่าน git user/Node บน desktop จึงช้ากว่า turn ทั้ง turn (`node` อาจเป็น shim ของ mise ซึ่งครั้งแรกใช้ ~2 วิ แต่ยังน้อยกว่า timeout 5 วิมาก) · ตอนนี้ตัวที่ช้าไม่ถ่วงส่วนอื่นแล้ว แต่ถ้า git user/Node ไม่ขึ้นเลย ให้จดเวลาของแต่ละ read
 
 ### P2 — ถัดไป (กลาง)
 
 | ID | กลุ่ม | งาน | ขนาด | หมายเหตุ |
 |---|---|---|---|---|
-| R2 | Agents pane | ย้ายไป P1 (กำลังทำ, แผนละเอียดอยู่ข้างบน) | M–L | ระวัง `PANE_BUDGET` และ limit 100k |
+| V1 | Agents pane | contrast บนพื้น tint | S–M | NEW และ icon บน tile แก้แล้ว · ยังต่ำกว่า 4.5:1: ป้าย mood `m` บน `kl-skill` (Raised dark 4.25), mood failed (Raised dark 4.27, Flat dark 4.39), mood done (Flat light 4.35), ตัวนับใน chip MCP (Raised dark 4.12, Flat dark 4.31), `+added` (Flat light 4.41) · เพิ่ม test ที่วัดตัวหนังสือบนพื้น tint |
+| V2 | Agents pane | ค่า CONTEXT ใน head ถูกตัด | S | การทับกับป้าย mood แก้แล้ว · ต่ำกว่า ~391 px ค่า `64k · 32%` ถูกตัด และที่ 240 px เหลือแค่ `…` ให้ใช้ `%` อย่างเดียวเมื่อค่าเต็มไม่พอดี (svg.ts:1500) |
+| V3 | Agents pane | สิ่งที่เกิน budget หายเงียบ | S | แถว Earlier (register.tsx:771) และกล่องย่อยของ Viewing (:752–755) ไม่มีตัวนับ `+N` เหมือน lane · หัว Earlier นับ crew ทั้งหมดแม้วาดไม่ครบ |
+| V5 | Agents pane | performance | S | `logAgentCall` เรียก update 2–3 ครั้งต่อ call (+2 ของ race) ให้รวมเป็นครั้งเดียว · จำกัดจำนวน Haiku ที่เรียกพร้อมกัน (ตอนนี้ agent ที่จบทุกตัวเรียกทันที) |
+| L1 | Band · usage | เก็บ rate limit ล่าสุด | S | ข้อ 4 ของ review 2.20.0 · `readUsage` และ `session.measure` แทน usage ทั้งก้อน ถ้า response ไม่มี rate limit ค่า 5H/7D เดิมหายไป |
 | R3 | Band · live strip | ต่อยอดการทำงานและการแสดงผล | M | ต้องกำหนด scope ก่อนเริ่ม (ยังไม่ชัดว่าจะเพิ่มอะไร) |
+| L2 | โค้ด | ของค้างจาก 2.19.0 | S–M | รวมตัวสร้าง `<svg xmlns…>` ที่มีอยู่ 8 จุดใน svg.ts · หัวกลุ่ม settings ยังใช้ ✻/◈ (register.tsx:1235, 1263) |
 
 ### P3 — ภายหลัง (ใหญ่)
 
@@ -143,13 +103,14 @@ R2 (agents pane ใหม่) กำลังทำบน branch `sabai-2.13.0` 
 
 ## 5. ประวัติเวอร์ชัน
 
-- **2.15.0** agents pane รอบสาม (preview 2 รอบ): ลำดับ Now → Viewing → Earlier (A1) · ส่วนย่อยใน Viewing ไม่มีกรอบ (A4) · หัวกล่อง Now บอกสถานะ (`3 running · 1 done · 1 failed`) แทน headline ของ overview (B1) · overview เป็น timeline ของ crew: แถบละตัวบนแกนเวลาเดียว, Clawd ขี่ปลายแถบของตัวที่ยังทำงาน, ✓/✗/✋ ที่ตัวจบ, รับ 6 แถวแล้วนับที่เหลือ (B2) · lane มีแถบสีตาม mood ทางซ้าย (C1) · C4 (ปุ่ม View เป็นลูกตา Lucide ใน image link) ทำแล้วแต่ถอยกลับเป็นปุ่ม View: บน desktop image link ใน pane กดไม่ติดเลยแม้ย่อเหลือ 30×24 (ขนาดไอคอน toolbar) · lane ที่ดูอยู่มีกรอบ + tint + spotlight และ Clawd โบกมือ, หัวของ Viewing ด้วย (D1) · Main ใส่หมวกกัปตัน (ถือกล้องส่องทางไกลตอนทำงาน) และมี badge `main` · 👑 MVP ใน Earlier (D5) · หัว Viewing แบบ A: ชื่อ+เวลา / mood + call ล่าสุด / STEPS·CONTEXT(`64k · 32%`)·TOKENS / type · model · effort ตัวเล็ก, "active … ago" เฉพาะตอนไม่ quiet · wording (E): Viewing, Pick an agent, Tools · N kinds, Calls · latest N of M (ตัด "N earlier calls" ในภาพ), Asked to บรรทัดแรก + More, Earlier · ✓N ✗N · ตัดช่องแชทออกตามที่เลือก (ประโยคไทยอยู่ใน lane ที่เดียว) · ต้องทดสอบบน desktop: Text `wrap` ของ Asked to
-- **2.17.0** ไอคอนจบงาน (preview 2 รอบ): race แบบ A: agent ที่เพิ่งล้มล้มลงสีเทาบนแถวกะพริบแดงอ่อน 5 วิ (ไม่มี confetti) แล้วพับเป็น ✗ แดง ชื่อสีปกติเหมือน Done, `Failed` กับ stripe ยังแดง; ตัวที่ถูกหยุดคงเดิม · agents pane แบบ P1: lane ที่จบแล้วมี badge กลมที่มุม Clawd ✓ เขียว / ✗ แดง / ✋ เทา (ตรงกับ timeline) ขอบสีการ์ด, 3 วิแรก lane เป็นสีเขียว/แดงอ่อนและ Clawd ที่ล้มจะล้มแทนท่ามึน · แก้ bug: agent ที่เพิ่งล้มใน race กระโดดเหมือนตัวที่เสร็จ · ข้อจำกัด: lane ใน pane ไม่กะพริบ (ยังไม่มี CSS flash ใน pane) และสั้นกว่า race (3 วิ vs 5 วิ)
-- **2.18.0** งานเบื้องหลังและแถวรอยการทำงาน (preview 2 รอบ): ใต้ Clawd ขึ้น `● N running` จุดกะพริบ เมื่อเป็นตาของผู้ใช้แต่ยังมี shell/Monitor ที่ Main เริ่มไว้รันอยู่ (นับจาก `backgroundTaskId` ของ Bash, `taskId` ของ Monitor; ลดเมื่อ `TaskStop` หรือ task notification บอกสถานะจบ; ไม่นับ agent เพราะอยู่ใน race แล้ว) · พบว่า desktop ไม่ส่ง `classic.*` event ให้ hooks module เลย จึงใช้ `classic.Stop` ไม่ได้ (ทดสอบด้วย logger `*`) · แถว live strip แบบ B: ซ้ายเป็นไอคอน call ที่กำลังรัน (กะพริบ) ชื่อ และเวลาของ call นั้น หรือจุดกะพริบ `thinking` ระหว่าง call; ขวาเป็นรอยไอคอน call ของ turn ตามสีชนิด (ล้มเป็นแดง, เกิน 16 ขึ้น `+N`) แล้วบรรทัด `+/−` และผล test · เวลาของ turn อยู่ใต้ Clawd ที่เดียว ไม่ซ้ำใน live strip · ข้อจำกัด: งานที่เริ่มก่อน reload ไม่ถูกนับ, Ctrl+B/timeout ยังไม่ได้ทดสอบบน desktop
+- **2.20.1** skeleton ของแถว info ไม่ค้างข้างป้าย branch แล้ว (N1): เดิม `setUp` รอ `git config user.name` และ `node --version` ทั้งคู่ก่อนจะตั้งชื่อโฟลเดอร์และปิด skeleton ระหว่างนั้นการอ่าน branch ตอนจบ turn หรือรอบ 30 วิวาดป้าย branch ข้างแท่งเทาโดยไม่มีชื่อโฟลเดอร์ · ตอนนี้ชื่อโฟลเดอร์ขึ้นทันทีจาก `cwd`, การอ่าน branch เป็นตัวปิด skeleton, git user และ Node ขึ้นทีละตัวเมื่ออ่านได้ (ตัวที่ช้าถ่วงแค่ตัวเอง) และไม่แทน `env` ทั้งก้อนจนลบ branch ที่อ่านไว้แล้ว · ยังไม่รู้ว่าทำไมบน desktop การอ่านนี้ช้ากว่าทั้ง turn · แก้จาก review ด้วย (N2–N7): `/clear` หรือ compact ที่อ่าน usage ไม่ได้ไม่ค้าง % เก่าอีก · สรุปของ Haiku ที่รออยู่ตอน reload ถูกขอใหม่ ไม่ค้าง pending · agent ที่จบไม่มี call ค้าง Running… · ผล test ของ agent อ่าน stderr ด้วยเหมือน race · agent ของ workflow ที่ถูกปลุกอยู่ใน crew ของ workflow เดิม · ภาพ overview มี key ตาม crew (ไม่มี test เพราะ test API มองไม่เห็น key ของ Svg) · คำตอบที่มาหลัง reload ไม่เป็น rejection ที่ไม่มีใครจับ · Main ใน pane กับ band พูดตรงกัน (เจอตอนทดสอบบน desktop): turn ของ Main ที่จบแล้วแต่ agent ใน crew ยังทำงานแสดงเป็น `Waiting on N` / `รอ agent อีก N ตัว ⏳` ไม่มี ✓ และแถบใน timeline ยังเดิน (เดิม pane ขึ้น "งานเสร็จ ส่งรายงานแล้ว" ✓ ขณะที่ band ขึ้น Waiting on 1) · หัว race กับกล่อง Now นับเฉพาะ agent ด้วยคำเดียวกัน `N running · N done` (เดิม band ขึ้น `1 agent` ที่หมายถึงตัวที่ทำงาน ส่วน pane นับ Main รวมใน done)
 - **2.20.0** ค่า context ตอนเริ่ม session ใหม่, หลัง `/compact` และ `/clear` (review: ทำข้อ 1–3, ข้อ 4 เก็บ rate limit ล่าสุดยังไม่ทำ): `readUsage` ใช้ค่าประมาณในเครื่องจาก `$.session.usage({ breakdown: 'summary' })` (ไม่ส่ง request) เมื่อยังไม่มีค่าจาก response หรือค่าเก่าไปแล้ว แสดงเป็น `~18k / 200k` จนกว่า `session.measure` จะส่งค่าจริงมา ไม่มีค่าประมาณก็ไม่แสดง context (ไม่โชว์ % เก่าค้าง) · hook `session.compact` (main loop เท่านั้น ข้าม `precompute`) · ย้ายการล้าง state ตอน `/clear` จาก `classic.SessionStart` ซึ่ง desktop ไม่ยิง ไปที่ `session.end` (reason `clear`/`resume`) · ยังไม่ได้ตรวจบน desktop: `session.end` ยิงตอน `/clear` จริงไหม, `session.measure` หลัง compact เอา % เก่ามาทับไหม
 - **2.19.0** เก็บงานทั้ง mod (review 3 ด้าน: ไอคอน, reuse, style; preview 4 รอบ): สี pastel ชุดเดียว `PALETTE` แบบ C5 (พื้น/สัญลักษณ์/เส้น ต่อสี, light และ dark ผ่าน CSS variable, สัญลักษณ์บนพื้น ≥ 5:1 มี test) ใช้กับไอคอน call, badge ✓/✗/✋, stripe, แถบ, timeline, tint/กะพริบตอนจบ · ไอคอน call เป็น Lucide แบบ I2 ชุดเดียวกับแชต (หนังสือ, แว่นขยาย, ดินสอ, terminal, flask, globe, plug, หลอดไฟ) call ที่ล้มคงไอคอนชนิดบนพื้นแดง · done เป็นเขียว (เดิมเขียวน้ำทะเลซ้ำ read) · คำอังกฤษขึ้นต้นตัวใหญ่ · เวลาใน race เป็น `1m 4s` · agent ที่ถูกหยุดพับเป็น ✋ ใน race และแถว crew นับแยกจาก failed · lane ของ Main ชื่อ Main (เอา badge main ออก) · มุมการ์ดใน pane 8 · lane ใน pane กะพริบตอนจบ · แชต: edit สีคราม, command ที่สำเร็จไอคอนเทา · bug: `1 calls`, แกนเวลา `0s`, `+N more`, ตัวอย่าง edit ใน settings, สรุป Earlier `✓ 3 · ✗ 2 · ✋ 1`, ชื่อ step ในแชตไม่ตัดกลาง emoji · เก็บงาน: รวม helper ซ้ำ (clock, plural, basename, hhmm, quietFor, justEnded, hatted, widthOf), ลบไอคอน pixel, CSS pop/shake, stroke eye, ตัววัด sans ตัวที่สอง · ยังไม่ทำ: refactor ตัวห่อ svg/การ์ด, หัวกลุ่ม settings ✻/◈
+- **2.18.0** งานเบื้องหลังและแถวรอยการทำงาน (preview 2 รอบ): ใต้ Clawd ขึ้น `● N running` จุดกะพริบ เมื่อเป็นตาของผู้ใช้แต่ยังมี shell/Monitor ที่ Main เริ่มไว้รันอยู่ (นับจาก `backgroundTaskId` ของ Bash, `taskId` ของ Monitor; ลดเมื่อ `TaskStop` หรือ task notification บอกสถานะจบ; ไม่นับ agent เพราะอยู่ใน race แล้ว) · พบว่า desktop ไม่ส่ง `classic.*` event ให้ hooks module เลย จึงใช้ `classic.Stop` ไม่ได้ (ทดสอบด้วย logger `*`) · แถว live strip แบบ B: ซ้ายเป็นไอคอน call ที่กำลังรัน (กะพริบ) ชื่อ และเวลาของ call นั้น หรือจุดกะพริบ `thinking` ระหว่าง call; ขวาเป็นรอยไอคอน call ของ turn ตามสีชนิด (ล้มเป็นแดง, เกิน 16 ขึ้น `+N`) แล้วบรรทัด `+/−` และผล test · เวลาของ turn อยู่ใต้ Clawd ที่เดียว ไม่ซ้ำใน live strip · ข้อจำกัด: งานที่เริ่มก่อน reload ไม่ถูกนับ, Ctrl+B/timeout ยังไม่ได้ทดสอบบน desktop
+- **2.17.0** ไอคอนจบงาน (preview 2 รอบ): race แบบ A: agent ที่เพิ่งล้มล้มลงสีเทาบนแถวกะพริบแดงอ่อน 5 วิ (ไม่มี confetti) แล้วพับเป็น ✗ แดง ชื่อสีปกติเหมือน Done, `Failed` กับ stripe ยังแดง; ตัวที่ถูกหยุดคงเดิม · agents pane แบบ P1: lane ที่จบแล้วมี badge กลมที่มุม Clawd ✓ เขียว / ✗ แดง / ✋ เทา (ตรงกับ timeline) ขอบสีการ์ด, 3 วิแรก lane เป็นสีเขียว/แดงอ่อนและ Clawd ที่ล้มจะล้มแทนท่ามึน · แก้ bug: agent ที่เพิ่งล้มใน race กระโดดเหมือนตัวที่เสร็จ · ข้อจำกัด: lane ใน pane ไม่กะพริบ (ยังไม่มี CSS flash ใน pane) และสั้นกว่า race (3 วิ vs 5 วิ)
 - **2.16.1** race: header แยกนับ agent ที่ done / failed / stopped (เดิมนับตัวที่ล้มและถูกหยุดรวมเป็น done) ตัดคำถ้ายาวเกินที่ · agent ที่ถูกหยุดขึ้น `Stopped` สีเทา Clawd ยืนจาง (เดิมขึ้น `Failed` สีแดง ไม่ตรงกับ pane) · จุด `·` หลังจำนวน agent ไม่ทับตัวหนาแล้ว
 - **2.16.0** race ใน band รอบใหม่ (preview 2 รอบ, เลือก B + R1–R9 + F1): แถวละ 22px แทนลู่วิ่ง (3 agents สูง 118px จาก 174px) · ไม่มี agent ไม่แสดง race ให้ live strip กลับมา (R1) · แก้ bug: lane ที่รวมหลายตัว (`Explore ×3`) ได้ที่ก่อน ไม่ถูกซ่อนไปท้าย (R2) · header `3 agents · 1 done` + ✗ + เวลา, ตัด ✓ รวม, `+N more · open Agents for all` (R3) · แถวเหลือแค่ ✗ (R4) · `n/total` + แถบเล็กเฉพาะตัวที่มีแผน (R5) · `quiet 47s` สีเหลือง Clawd หลับ (R6) · stripe สีตาม mood เหมือน pane (R7) · Main แถวเดียว `waiting on N` หมวกกัปตัน (R8) · เพิ่งจบ 5 วิ: กระโดด + confetti + แถวกะพริบเขียว `Done! 🎉` แล้วพับเป็น ✓ (R9/F1) · ตัดลู่วิ่ง รอยเท้า ธง OUCH/OUT · ข้อจำกัด: background agent ตัวสุดท้ายที่จบตอน Main ไม่ทำงาน race หายทันที ไม่เห็น confetti
+- **2.15.0** agents pane รอบสาม (preview 2 รอบ): ลำดับ Now → Viewing → Earlier (A1) · ส่วนย่อยใน Viewing ไม่มีกรอบ (A4) · หัวกล่อง Now บอกสถานะ (`3 running · 1 done · 1 failed`) แทน headline ของ overview (B1) · overview เป็น timeline ของ crew: แถบละตัวบนแกนเวลาเดียว, Clawd ขี่ปลายแถบของตัวที่ยังทำงาน, ✓/✗/✋ ที่ตัวจบ, รับ 6 แถวแล้วนับที่เหลือ (B2) · lane มีแถบสีตาม mood ทางซ้าย (C1) · C4 (ปุ่ม View เป็นลูกตา Lucide ใน image link) ทำแล้วแต่ถอยกลับเป็นปุ่ม View: บน desktop image link ใน pane กดไม่ติดเลยแม้ย่อเหลือ 30×24 (ขนาดไอคอน toolbar) · lane ที่ดูอยู่มีกรอบ + tint + spotlight และ Clawd โบกมือ, หัวของ Viewing ด้วย (D1) · Main ใส่หมวกกัปตัน (ถือกล้องส่องทางไกลตอนทำงาน) และมี badge `main` · 👑 MVP ใน Earlier (D5) · หัว Viewing แบบ A: ชื่อ+เวลา / mood + call ล่าสุด / STEPS·CONTEXT(`64k · 32%`)·TOKENS / type · model · effort ตัวเล็ก, "active … ago" เฉพาะตอนไม่ quiet · wording (E): Viewing, Pick an agent, Tools · N kinds, Calls · latest N of M (ตัด "N earlier calls" ในภาพ), Asked to บรรทัดแรก + More, Earlier · ✓N ✗N · ตัดช่องแชทออกตามที่เลือก (ประโยคไทยอยู่ใน lane ที่เดียว) · ต้องทดสอบบน desktop: Text `wrap` ของ Asked to
 - **2.14.2** แก้จาก review: pane นับ budget ตามขนาดจริงใน tree (source ที่ escape แล้ว + alt) จึงไม่ทะลุ 100k จนว่างตอนเปิด detail ของ agent ที่มี call ยาว และหยุดวาด lane หลังตัวแรกที่ไม่พอดี · Clear ลบ crew ใน Earlier ได้ครบ (คิด crew ที่แสดงจาก Main กับ agent รวมกัน) · Main ของ turn เก่าที่ agent ย้ายไป turn ใหม่ไม่เด้งขึ้นบน Now · ไฟล์ที่แก้ไม่หลุดจาก Files เมื่ออ่านไฟล์เกิน 40 · สรุปของ Haiku ลงรอบที่อ่านเท่านั้น · TOKENS นับเฉพาะ token ใหม่ (input + cache write + output, ไม่นับ cache read) · overview ไม่ให้หัวข้อทับ "+N" และ ✗ ของ CALLS ไม่ทับตัวเลขที่ pane แคบ · ชื่อ lane ที่ดูอยู่ไม่ชนเวลา · สรุปของ Haiku เป็นไทยแม้ report เป็นอังกฤษ
 - **2.14.1** agents pane: ภาพในกล่องเต็มความกว้างแล้ว ไม่เหลือช่องว่างทางขวา (กรอบ + padding ของกล่องกิน ~20 px ไม่ใช่ 36 ตามที่วัดบน desktop, ที่เผื่อปุ่ม View ข้าง lane 78 px)
 - **2.14.0** agents pane รอบสอง (R2 ต่อ): แบ่งเป็น 3 กล่อง Now (overview + lane) / Earlier / Detail (A3) · Main เป็น lane ของทุก crew (M1, atom `mains` แยกจาก `agents` ไม่ให้ band/race เห็น, บันทึกทุก tool ของ Main, คำตอบของ Claude เป็น Answer, ไม่เรียก Haiku, ไม่มี mood quiet) · turn ที่จบโดยไม่มี call และไม่มี agent ไม่นับเป็น crew (กัน turn ของ notification ดัน crew ลง) · turn ใหม่ปิด run ของ Main ตัวก่อนเสมอ · กด View ซ้ำหรือ ✕ Close เพื่อปิด, ไม่เลือก agent ให้เองแล้ว: Detail ว่างเป็น Clawd หลับ + บรรทัดเตือนตัวที่ควรดูพร้อม View it (T2/T3-a) · lane ที่ดูอยู่: แถบซ้ายสี Clawd + ชื่อตัวหนา + ปุ่ม Viewing (S3) · Detail เป็นกล่องย่อย Summary / Plan / Tools used / Calls / Files / Report (Answer) / Task พร้อมจำนวนที่หัว (G1) · overview เหลือ 3 tile (CALLS/TOKENS/TIME) ไม่มี bar · บทเรียน: `update()` ต้องอ้าง atom ตรง ๆ ในที่เรียก ส่ง atom ผ่านตัวแปรไม่ได้ (module ไม่โหลด)

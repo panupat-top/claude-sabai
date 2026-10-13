@@ -170,7 +170,8 @@ async function readRepoNow($: EngineInterface) {
   ])
   const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : []
   lastBranch = branch
-  await update($, env, e => ({ ...e, branch, ahead, behind, changes: status ? status.split('\n').length : 0 }))
+  // The branch read ends the info row's skeleton, which stands where the folder and branch will be.
+  await update($, env, e => ({ ...e, branch, ahead, behind, changes: status ? status.split('\n').length : 0, read: true }))
 }
 
 // A subagent's task calls build its own list on its card; the main conversation's drive the band.
@@ -337,7 +338,9 @@ async function logAgentCall<R extends { deny?: string; isError?: boolean; result
   } finally {
     const end = await $.clock.now()
     const i = (input ?? {}) as { command?: string; file_path?: string; old_string?: string; new_string?: string; content?: string }
-    const output = typeof result?.result === 'string' ? result.result : `${(result?.result as { stdout?: string } | undefined)?.stdout ?? ''}`
+    // Both streams, as the race reads them: some runners print their failures to stderr.
+    const out = result?.result as { stdout?: string; stderr?: string } | undefined
+    const output = typeof result?.result === 'string' ? result.result : `${out?.stdout ?? ''}\n${out?.stderr ?? ''}`
     const ok = result === undefined || result.deny !== undefined ? undefined : !result.isError && (act.kind !== 'test' || (testResult(output)?.failed ?? 0) === 0)
     await updateRuns($, main, l => called(l, agentId, act, end, end - start, ok))
     if (ok && typeof i.file_path === 'string') {
@@ -361,11 +364,12 @@ async function summarize($: EngineInterface, agentId: string) {
   if (!run || run.summary !== 'pending') return
   const r = await $.model.complete({ model: 'haiku', system: SUMMARY_SYSTEM, prompt: summaryPrompt(run), maxTokens: 600, effort: 'low', timeoutMs: SUMMARY_TIMEOUT_MS }).catch(() => undefined)
   const bullets = r?.isAnswered ? summaryOf(r.text) : undefined
-  // Only on the round it read: more work and a quicker end meanwhile wait for their own.
+  // Only on the round it read: more work and a quicker end meanwhile wait for their own. An answer
+  // that comes after a reload has no module left to write to; the new one asks again.
   await update($, agents, l => {
     const now = l.find(a => a.agentId === agentId)
     return now?.summary === 'pending' && now.endedAt === run.endedAt ? summarized(l, agentId, bullets) : l
-  })
+  }).catch(() => undefined)
 }
 
 async function unstep($: EngineInterface, agentId: string | undefined) {
@@ -383,7 +387,7 @@ async function setSkin($: EngineInterface, name: string) {
 // the band leaves its skeleton for the note, and keeps a reading that outlived a reload.
 async function readUsage($: EngineInterface, stale = false) {
   const known = await $.session.usage().catch(() => undefined)
-  if (!known) return update($, usage, u => u ?? { rateLimits: [] })
+  if (!known) return update($, usage, u => (u && stale ? estimated(u, undefined) : (u ?? { rateLimits: [] })))
   if (!stale && known.context.percent !== undefined) return update($, usage, () => toUsage(known))
   const breakdown = (await $.session.usage({ breakdown: 'summary' }).catch(() => undefined))?.context.breakdown
   await update($, usage, () => estimated(toUsage(known), breakdown?.totalTokens))
@@ -427,6 +431,8 @@ async function setUp($: EngineInterface) {
   await tick($)
   // session.measure fires only on the next response, so a fresh load reads what is known now.
   await readUsage($)
+  // A summary the module was waiting for when it reloaded went with it: ask again.
+  for (const { agentId, summary } of await read($, agents)) if (agentId && summary === 'pending') $.clock.after(1, () => void summarize($, agentId))
   // Keeps the reset countdowns and the branch fresh between responses.
   $.clock.every(TICK_MS, () => void Promise.all([tick($), checkBranch($)]))
   // Running subagents' clocks count by the second; quiet when none runs.
@@ -437,12 +443,16 @@ async function setUp($: EngineInterface) {
       if (mainWorking || (await read($, agents)).some(a => a.status === 'running')) await tick($)
     })()
   })
-  // git and node last, and not waited on: a slow repository must not hold the session.
+  // git and node last, and not waited on: a slow repository must not hold the session. Each read
+  // lands on its own, so a slow one (a version manager's `node` shim) holds back only itself. One
+  // that ends after a reload has no module left to write to.
   void (async () => {
-    const [gitUser, node] = await Promise.all([line($, ['git', 'config', 'user.name']), line($, ['node', '--version'])])
-    await update($, env, () => ({ dir: cwd.split(/[\\/]/).filter(Boolean).pop(), gitUser, node, read: true }))
+    // A draw that set the mod up before session.start told the folder has no cwd yet: keep the folder.
+    if (cwd) await update($, env, e => ({ ...e, dir: cwd.split(/[\\/]/).filter(Boolean).pop() }))
+    void line($, ['git', 'config', 'user.name']).then(gitUser => update($, env, e => ({ ...e, gitUser }))).catch(() => undefined)
+    void line($, ['node', '--version']).then(node => update($, env, e => ({ ...e, node }))).catch(() => undefined)
     await readRepo($)
-  })()
+  })().catch(() => undefined)
 }
 
 export const register: Register = on => {
@@ -555,7 +565,7 @@ export const register: Register = on => {
       const endedAt = await $.clock.now()
       await update($, mains, l => finished(l, key, e.reason, endedAt, e.answer))
       // Not waited on: a large repository's status must not delay the turn's end.
-      void readRepo($)
+      void readRepo($).catch(() => undefined)
       if (notify && e.durationMs >= LONG_TURN_MS) void $.ui.notify(`Finished in ${clock(e.durationMs)}`, { title: 'Claude' }).catch(() => undefined)
       const ended = await $.clock.now()
       await update($, lastTurnAt, () => ended)
@@ -603,7 +613,16 @@ export const register: Register = on => {
     // A turn is a crew with its agents. Without any, only the latest is (Claude's alone), and not
     // once it ends calling nothing (a notification's, a quick reply): the work before stays on top.
     const allMains = await read($, mains)
-    const turns = allMains.filter(m => subagents.some(a => crewOf(a) === crewOf(m)) || (m === allMains.at(-1) && (m.status === 'running' || (m.callCount ?? 0) > 0)))
+    // A turn that ended while its crew's agents run waits on them, as the band's race says: a
+    // background agent's end wakes Main again. Drawn so, never stored.
+    const mainWorks = allMains.some(m => m.status === 'running')
+    const waitOn = (m: AgentRun): AgentRun => {
+      const n = mainWorks || m.status !== 'done' ? 0 : subagents.filter(a => crewOf(a) === crewOf(m) && a.status === 'running').length
+      if (!n) return m
+      const { endedAt: _e, ...rest } = m
+      return { ...rest, status: 'running', waitingOn: n }
+    }
+    const turns = allMains.filter(m => subagents.some(a => crewOf(a) === crewOf(m)) || (m === allMains.at(-1) && (m.status === 'running' || (m.callCount ?? 0) > 0))).map(waitOn)
     const mainTasks = await read($, tasks)
     const at = await read($, now)
     const skinName = await read($, skin)
@@ -707,7 +726,8 @@ export const register: Register = on => {
     }
 
     const overview = crewSvg(runs, inner, at, skinName, windowOf)
-    const top = fits(overview) ? image('crew', overview) : undefined
+    // Keyed by its crews: the desktop keeps a drawing's old image while its key stays the same.
+    const top = fits(overview) ? image(`crew-${current.map(c => c.id).join('+')}`, overview) : undefined
 
     // The detail: its head, then its parts, each a title with its count over its body: what it
     // was asked (a line, unfolded on More), Summary, Plan, Tools, Calls, Files, then its Report
@@ -789,12 +809,14 @@ export const register: Register = on => {
     const dayFor = (c: (typeof earlier)[number]) => dayOf(c.startedAt, at)
     const manyDays = new Set(rows.map(r => dayFor(r.crew))).size > 1
     const tally = [`✓ ${past.filter(a => a.status === 'done').length}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : ''].filter(Boolean).join(' · ')
-    // How the crew at work stands, for its box's title.
+    // How the crew at work's agents stand, for its box's title, as the race counts them; Main's
+    // lane tells its own.
+    const crewAgents = runs.filter(a => !isMain(a))
     const standing = [
-      ['running', runs.filter(a => a.status === 'running').length],
-      ['done', runs.filter(a => a.status === 'done').length],
-      ['failed', runs.filter(a => a.status === 'failed' && a.reason !== 'aborted').length],
-      ['stopped', runs.filter(a => a.reason === 'aborted').length],
+      ['running', crewAgents.filter(a => a.status === 'running').length],
+      ['done', crewAgents.filter(a => a.status === 'done').length],
+      ['failed', crewAgents.filter(a => a.status === 'failed' && a.reason !== 'aborted').length],
+      ['stopped', crewAgents.filter(a => a.reason === 'aborted').length],
     ] as const
 
     return (
