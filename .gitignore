@@ -1,2 +1,5 @@
 .claude-plugin/types/
 node_modules/
+.claude/settings.local.json
+.superpowers/
+.DS_Store
