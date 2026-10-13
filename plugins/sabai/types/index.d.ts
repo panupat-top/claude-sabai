@@ -31,7 +31,8 @@ export type AgentRun = {
   startedAt: number
   endedAt?: number
   contextTokens: number
-  steps: number
+  // Model requests it has made; a run kept from before 2.21.0 has none.
+  requests?: number
   effort?: string
   tasks?: Task[]
   result?: string

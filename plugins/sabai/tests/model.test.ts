@@ -181,7 +181,7 @@ test('paceOf moves a runner quickly at first, then slower, never under 10% or pa
 })
 
 test('raceOf lays out Main and up to three agents, each in its state, and stays away when idle', () => {
-  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1, ...over })
   const now = 100_000
   expect(raceOf(EMPTY_RACE, [], undefined, now, false, 0)).toBeUndefined()
   let log = raced(EMPTY_RACE, 'b', { kind: 'command', ok: false }, now - 1000)
@@ -196,7 +196,7 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   const r = raceOf({ ...log, doing: { main: ['read', 'edit'] } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
   expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['c', 'scored'], ['b', 'tripped'], ['a', 'running']])
   expect(r.more).toBe(2)
-  expect(r.lanes[0]).toMatchObject({ steps: { done: 2, total: 4 }, doing: 'edit', step: 'Editing svg.ts' })
+  expect(r.lanes[0]).toMatchObject({ steps: { done: 2, total: 4 }, doing: 'edit', line: 'Editing svg.ts' })
   expect(r.lanes[3]!.steps).toEqual({ done: 3, total: 5 })
   // No step reports and no task list: no plan to show.
   expect(r.lanes[2]!.steps).toBeUndefined()
@@ -212,26 +212,26 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   // A failed agent is not done, and a stopped one did not fail.
   expect([ends.agents, ends.done, ends.failed, ends.stopped]).toEqual([0, 1, 1, 0])
   const stop = raceOf(EMPTY_RACE, [run('s', { status: 'failed', reason: 'aborted', endedAt: now - 2000 })], undefined, now, true, now - 10)!
-  expect([stop.lanes[1]!.state, stop.lanes[1]!.step, stop.failed, stop.stopped]).toEqual(['stopped', 'Stopped', 0, 1])
+  expect([stop.lanes[1]!.state, stop.lanes[1]!.line, stop.failed, stop.stopped]).toEqual(['stopped', 'Stopped', 0, 1])
   // Main at work with no agents: no race, the live strip tells the turn.
   expect(raceOf(EMPTY_RACE, [], undefined, now, true, now - 10)).toBeUndefined()
 })
 
 test('a lane with no progress names its latest call, and tallies its failures, merged lanes summed', () => {
-  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1, ...over })
   const now = 100_000
   let log = raced(raced(EMPTY_RACE, 'a', { kind: 'read', ok: true }, 1), 'a', { kind: 'command', ok: false }, 1)
   log = { ...log, said: { main: 'Edited svg.ts', a: 'Run the tests', p: 'Read x.ts' } }
   const r = raceOf(log, [run('a'), run('p', { progress: { done: 1, total: 2, note: 'half' } })], undefined, now + 5000, true, now)!
-  expect(r.lanes.map(l => [l.who, l.step, l.count, l.fails])).toEqual([
+  expect(r.lanes.map(l => [l.who, l.line, l.count, l.fails])).toEqual([
     // Main between calls names its latest; a reported step still wins over the latest call.
     ['Main', 'Edited svg.ts', 0, 0],
     ['p', 'half', 0, 0],
     ['a', 'Run the tests', 2, 1],
   ])
   // A call in flight names itself; Main not working waits whatever it last did.
-  expect(raceOf(log, [run('a')], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.step).toBe('Editing a.ts')
-  expect(raceOf(log, [run('a'), run('b')], undefined, now, false, 0)!.lanes[0]!.step).toBe('Waiting on 2')
+  expect(raceOf(log, [run('a')], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.line).toBe('Editing a.ts')
+  expect(raceOf(log, [run('a'), run('b')], undefined, now, false, 0)!.lanes[0]!.line).toBe('Waiting on 2')
   // Four of one type share a lane: their failures add up.
   const many = ['a', 'b', 'c', 'd'].map(id => run(id))
   const four = raced(raced(log, 'b', { kind: 'edit', ok: false }, 1), 'c', { kind: 'edit', ok: false }, 1)
@@ -240,7 +240,7 @@ test('a lane with no progress names its latest call, and tallies its failures, m
 
 test('a turn whose start was not seen (the mod loaded mid-turn) shows no time, never one counted from 1970', () => {
   const now = 1_700_000_000_000
-  const agent: AgentRun = { id: 'a', agentId: 'a', type: 'Explore', description: 'a', model: 'm', status: 'running', startedAt: now, contextTokens: 0, steps: 1 }
+  const agent: AgentRun = { id: 'a', agentId: 'a', type: 'Explore', description: 'a', model: 'm', status: 'running', startedAt: now, contextTokens: 0, requests: 1 }
   const r = raceOf(EMPTY_RACE, [agent], undefined, now, true, 0)!
   expect(r.lanes[0]!.timeMs).toBeUndefined()
   expect(r.elapsedMs).toBeUndefined()
@@ -248,7 +248,7 @@ test('a turn whose start was not seen (the mod loaded mid-turn) shows no time, n
 
 test('a finished agent stays in the race for the crew’s linger minute, then leaves it', () => {
   const now = 1_000_000
-  const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
+  const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, requests: 1 })
   expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'd'])
   // With no agent left to show, the race goes.
   expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)).toBeUndefined()
@@ -259,7 +259,7 @@ test('a finished agent stays in the race for the crew’s linger minute, then le
 
 test('a running agent heard from long ago is quiet, with how long; one at a call is not', () => {
   const now = 1_000_000
-  const run = (over: Partial<AgentRun>): AgentRun => ({ id: 'q', agentId: 'q', type: 'Plan', description: 'q', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  const run = (over: Partial<AgentRun>): AgentRun => ({ id: 'q', agentId: 'q', type: 'Plan', description: 'q', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1, ...over })
   expect(raceOf(EMPTY_RACE, [run({ lastActiveAt: now - 47_000 })], undefined, now, true, 0)!.lanes[1]).toMatchObject({ mood: 'quiet', quietMs: 47_000 })
   const busy = raceOf(EMPTY_RACE, [run({ lastActiveAt: now - 47_000, doing: [{ kind: 'command', title: 'Bash', target: '' }] })], undefined, now, true, 0)!.lanes[1]!
   expect([busy.mood, busy.quietMs]).toEqual(['working', undefined])
@@ -268,7 +268,7 @@ test('a running agent heard from long ago is quiet, with how long; one at a call
 test('raceOf runs the newest running agents first, the oldest over the cap', () => {
   // Four types, so nothing merges and the order shows.
   const types = ['Plan', 'Explore', 'general-purpose', 'x:y']
-  const run = (id: string, i: number): AgentRun => ({ id, agentId: id, type: types[i]!, description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const run = (id: string, i: number): AgentRun => ({ id, agentId: id, type: types[i]!, description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1 })
   const r = raceOf(EMPTY_RACE, ['a1', 'a2', 'a3', 'a4'].map(run), undefined, 1000, true, 0)!
   expect(r.lanes.map(l => l.id)).toEqual(['main', 'a4', 'a3', 'a2'])
   expect(r.more).toBe(1)
@@ -303,7 +303,7 @@ test('trickOf: a wave after a turn, a look at the race or a high limit, a yawn w
 })
 
 test('raceOf merges agents of one type when more run than lanes hold, and names lanes by their task', () => {
-  const run = (id: string, type: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type, description: `task ${id}`, model: 'm', status: 'running', startedAt: 1000, contextTokens: 0, steps: 1, ...over })
+  const run = (id: string, type: string, over: Partial<AgentRun> = {}): AgentRun => ({ id, agentId: id, type, description: `task ${id}`, model: 'm', status: 'running', startedAt: 1000, contextTokens: 0, requests: 1, ...over })
   const now = 61_000
   let log = raced(EMPTY_RACE, 'e2', { kind: 'command', ok: false }, now - 1000)
   log = raced(log, 'e3', { kind: 'read', ok: true }, now - 2000)
@@ -312,7 +312,7 @@ test('raceOf merges agents of one type when more run than lanes hold, and names 
   expect(r.lanes.map(l => [l.who, l.many ?? 1])).toEqual([['Main', 1], ['Explore', 3], ['task g1', 1], ['task p1', 1]])
   const merged = r.lanes[1]!
   // Every merged agent's tiles show, not only the first one's.
-  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', count: 2, fails: 1 })
+  expect(merged).toMatchObject({ line: '3 running', state: 'tripped', count: 2, fails: 1 })
   expect(merged.steps).toBeUndefined()
   expect(merged.timeMs).toBe(now - 500)
   expect(r.more).toBe(0)
@@ -348,7 +348,7 @@ test('tokens rounds up to the next unit rather than say 1000k', () => {
 })
 
 test('a lane holds the latest of its calls in flight, and a merged lane any member’s', () => {
-  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1 })
   const agents = ['a', 'b', 'c', 'd'].map(run)
   const r = raceOf({ ...EMPTY_RACE, doing: { main: ['read', 'command'], c: ['edit'] } }, agents, undefined, 1000, true, 1)!
   expect([r.lanes[0]!.doing, r.lanes[0]!.state]).toEqual(['command', 'running'])
@@ -359,7 +359,7 @@ test('a lane holds the latest of its calls in flight, and a merged lane any memb
 })
 
 test('a lane counts its calls, a merged lane its members’; Main thinks between calls and waits when idle', () => {
-  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 })
+  const run = (id: string): AgentRun => ({ id, agentId: id, type: 'Explore', description: id, model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1 })
   const c = { kind: 'read', ok: true } as const
   let log = EMPTY_RACE
   for (const id of ['main', 'main', 'a', 'b', 'b', 'c', 'd', 'd', 'd']) log = raced(log, id, c, 1)

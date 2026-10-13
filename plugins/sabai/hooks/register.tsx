@@ -70,7 +70,7 @@ const receiptKey = (answer: string) => `${seedOf(answer)}:${answer.length}`
 const RECEIPTS_KEPT = 40
 // The main turn as it runs, for the live strip: when it began, and the step in flight.
 const turnStartedAt = atom({ plugin: 'sabai', key: 'turnStartedAt' } as const, 0)
-const liveStep = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string; at?: number } | null)
+const liveCall = atom({ plugin: 'sabai', key: 'liveStep' } as const, null as { icon: StepIcon; title: string; at?: number } | null)
 // Each member's calls for the race: its tiles, its call in flight, its last fall and score.
 const race = atom({ plugin: 'sabai', key: 'race' } as const, EMPTY_RACE)
 // The tools a row draws as a one-line step.
@@ -276,7 +276,7 @@ async function stepping($: EngineInterface, agentId: string | undefined, tool: s
   if (agentId !== undefined) return
   const s = stepOf({ tool, input, isRunning: true, isErrored: false, isInterrupted: false })
   const at = await $.clock.now()
-  await update($, liveStep, () => (s ? { icon: s.icon, title: s.title, at } : null))
+  await update($, liveCall, () => (s ? { icon: s.icon, title: s.title, at } : null))
 }
 
 // A call that never came back (it threw): only its in-flight mark is cleared.
@@ -373,7 +373,7 @@ async function summarize($: EngineInterface, agentId: string) {
 }
 
 async function unstep($: EngineInterface, agentId: string | undefined) {
-  if (agentId === undefined) await update($, liveStep, () => null)
+  if (agentId === undefined) await update($, liveCall, () => null)
 }
 
 async function setSkin($: EngineInterface, name: string) {
@@ -493,7 +493,7 @@ export const register: Register = on => {
     await update($, race, () => EMPTY_RACE)
     await update($, guardCaught, () => 0)
     await update($, receipts, () => ({}))
-    await update($, liveStep, () => null)
+    await update($, liveCall, () => null)
     const ended = await next(e)
     // The new conversation is read once this one has gone.
     $.clock.after(0, () => void readUsage($, true))
@@ -518,7 +518,7 @@ export const register: Register = on => {
       status: 'running',
       startedAt: at,
       contextTokens: 0,
-      steps: 0,
+      requests: 0,
       tasks: [],
       ...(e.workflow ? { workflow: true } : {}),
       crew,
@@ -572,7 +572,7 @@ export const register: Register = on => {
       await update($, lastTurnAt, () => ended)
       // Clawd waves for WAVE_MS; redraw when the wave ends.
       $.clock.after(WAVE_MS + 100, () => void tick($))
-      await update($, liveStep, () => null)
+      await update($, liveCall, () => null)
       // The receipt: a card under the reply that holds the answer; a turn with no words of its own
       // gets it as the notice under it instead.
       const log = await read($, turnLog)
@@ -1415,7 +1415,7 @@ export const register: Register = on => {
     await update($, turnStartedAt, () => began)
     // The turn's own run for the pane; earlier turns stay only where their crew had agents.
     const withAgents = new Set((await read($, agents)).map(crewOf))
-    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, steps: 0, crew: `turn:${began}`, lastActiveAt: began }
+    const main: AgentRun = { id: mainKey(began), type: MAIN_TYPE, description: 'Main', model: await read($, mainModel), status: 'running', startedAt: began, contextTokens: 0, requests: 0, crew: `turn:${began}`, lastActiveAt: began }
     // A turn starting means the one before has ended, whether or not its end was seen.
     const ended = (m: AgentRun): AgentRun => (m.status === 'running' ? { ...m, status: 'done', reason: 'answer', endedAt: began } : m)
     await update($, mains, l => [...l.filter(m => withAgents.has(crewOf(m))).slice(1 - CREWS_KEPT).map(ended), main])
@@ -1465,7 +1465,7 @@ export const register: Register = on => {
     // the lines its edits changed and its tests, while it works.
     const turn = await read($, turnLog)
     // The contract types the icon as a string; the hooks only ever write a StepIcon.
-    const stepped = (await read($, liveStep)) as { icon: StepIcon; title: string; at?: number } | null
+    const stepped = (await read($, liveCall)) as { icon: StepIcon; title: string; at?: number } | null
     const step = stepped ? { icon: stepped.icon, title: stepped.title } : null
     const began = await read($, turnStartedAt)
     const raceLog = await read($, race)

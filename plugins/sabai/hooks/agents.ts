@@ -53,7 +53,7 @@ export function stepped(list: AgentRun[], agentId: string, model: string, u: Usa
   const next: AgentRun = {
     ...run,
     model: model || run.model,
-    steps: run.steps + 1,
+    requests: (run.requests ?? 0) + 1,
     contextTokens: total,
     spent: (run.spent ?? 0) + total - u.cache_read_input_tokens,
     effort: effort === undefined ? run.effort : String(effort),
@@ -181,14 +181,14 @@ export function clock(ms: number): string {
 export type LaneState = 'failed' | 'stopped' | 'done' | 'tripped' | 'scored' | 'running' | 'thinking' | 'waiting'
 // `steps` is a plan's done and total; `quietMs` how long a quiet agent has said nothing; `fresh` an
 // agent in the seconds after it finished or failed.
-export type Lane = { id: string; who: string; type?: string; many?: number; step: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
+export type Lane = { id: string; who: string; type?: string; many?: number; line: string; timeMs?: number; steps?: { done: number; total: number }; count: number; fails: number; doing?: CallKind; mood?: AgentMood; quietMs?: number; fresh?: boolean; state: LaneState }
 export type Race = { agents: number; done: number; failed: number; stopped: number; fails: number; elapsedMs?: number; more: number; lanes: Lane[] }
 
 const laneName = (type: string) => (type.includes(':') ? type.split(':').pop()! : type)
 
 // The race as drawn: Main and the newest agents, each in its state, with the header's counts;
 // nothing without agents (the live strip tells the main turn alone) or while nothing works.
-export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainStep?: string): Race | undefined {
+export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undefined, now: number, mainWorking: boolean, turnStartedAt: number, mainCall?: string): Race | undefined {
   // Agents are kept oldest first; the race runs the newest.
   const running = agents.filter(a => a.status === 'running').reverse()
   const ended = agents.filter(a => a.status !== 'running' && now - (a.endedAt ?? 0) < RACE_LINGER_MS).sort((a, b) => (b.endedAt ?? 0) - (a.endedAt ?? 0))
@@ -204,7 +204,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
     id: 'main',
     who: 'Main',
     // Between calls, the latest one; a log kept from before calls were named has none.
-    step: mainStep ?? (mainWorking ? (log.said?.main ?? 'Working') : `Waiting on ${running.length}`),
+    line: mainCall ?? (mainWorking ? (log.said?.main ?? 'Working') : `Waiting on ${running.length}`),
     // A start of 0 is a turn that began before the mod loaded: its time is unknown, so none is shown.
     ...(mainWorking && turnStartedAt !== 0 ? { timeMs: Math.max(0, now - turnStartedAt) } : {}),
     ...(tasks ? { steps: { done: tasks.done, total: tasks.total } } : {}),
@@ -239,7 +239,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
         who: laneName(a.type),
         type: a.type,
         many: u.length,
-        step: `${u.length} running`,
+        line: `${u.length} running`,
         timeMs: Math.max(...u.map(time)),
         count: ids.reduce((n, i) => n + countOf(log, i), 0),
         fails: ids.reduce((n, i) => n + failsOf(log, i), 0),
@@ -256,7 +256,7 @@ export function raceOf(log: RaceLog, agents: AgentRun[], tasks: Progress | undef
       who: a.description || laneName(a.type),
       type: a.type,
       // A plan's step by its title: the lane draws its done and total.
-      step: state === 'failed' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'done' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
+      line: state === 'failed' ? 'Failed' : state === 'stopped' ? 'Stopped' : state === 'done' ? 'Done' : p ? p.title : (log.said?.[id] ?? 'Working'),
       timeMs: time(a),
       ...(p && state !== 'done' ? { steps: { done: p.done, total: p.total } } : {}),
       count: countOf(log, id),

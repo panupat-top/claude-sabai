@@ -61,7 +61,7 @@ band เหนือช่องพิมพ์ สไตล์ pixel แบบ 
 | 1 | Glossary | ✅ ตารางใน CLAUDE.md |
 | 2 | ข้อความ UI ✅ | subagent แทน agent ในประโยค/ตัวนับ · ชื่อ pane Subagents · pane ไม่ใช้ panel · general-purpose · งานของ subagent = description/prompt ไม่ใช่ task · request แทน step ของ model · ส่วน Plan ใน Viewing เป็น Progress · ใต้ Clawd `N background` (คำว่า "in background" ไม่พอดีกับช่อง 108 px) · แถว crew ของ band เป็นแถว Subagents (Settings, README, plugin.json) · ไทยใช้ "รายงาน" · แก้ test |
 | 3 | Logic ✅ | L1 alt ของ race อ่าน state ดิบ (out/tripped/finished) · L2 race อยู่ใต้ toggle Activity แต่ subagent อยู่ใต้ Agents ให้รวมไว้กลุ่ม Subagents · L3 กลุ่มของ workflow ไม่มีป้าย · L4 teammate (agent teams) ไม่ใช่ subagent ตาม docs: engine ส่ง `agent.spawn` มาพร้อม `isTeammate` จึงติดป้าย teammate ใน head (ยังนับรวมกับ subagent ในตัวนับ และยังไม่ได้ทดสอบกับ agent team จริง) · L5 `now` ในโค้ด pane ชนกับ atom นาฬิกา · L6 `LaneState` out/finished ให้ตรงกับ Failed/Done |
-| 4 | ชื่อในโค้ด | `AgentRun.steps` → requests ฯลฯ ไม่แตะ key ของ atom (state ไม่หายตอน reload) |
+| 4 | ชื่อในโค้ด ✅ | `AgentRun.steps` → `requests`, `Lane.step` → `line`, `liveStep`/`mainStep` → `liveCall`/`mainCall` · ไม่แตะ key ของ atom และ prefs (state ไม่หายตอน reload) · คง `Step`/`StepIcon` ของแถวในแชตและ `crew` ไว้ (เปลี่ยนแล้วกระทบกว้างโดยไม่ได้อะไร) |
 | 5 | Design | preview: หัวกล่อง This turn / Earlier turns / Workflow run, tooltip ของ Main, แถว Subagents ใน band → เลือก → ทำ → ตรวจบน desktop |
 
 ### P1 — แก้ bug (2.20.x)

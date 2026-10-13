@@ -461,7 +461,7 @@ function crewPart(look: Look, runs: readonly AgentRun[], now: number, W: number,
   const lead = running[0]
   const line = lead && progressOf(lead)
   const title = lead ? lead.description || lead.type : failed || stopped ? [`${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ') : `All ${ended.length} done`
-  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : plural(lead.steps, 'request')) : ''
+  const detail = lead ? (line ? `${line.done}/${line.total} · ${line.title}` : plural(lead.requests ?? 0, 'request')) : ''
   // The right side, laid out from the edge: time, then failed, done and running counts.
   const s = summary([...runs], now)
   const time = clock(s.ms)
@@ -528,9 +528,9 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
   // What each row says after its name, in its ink.
   const said = (l: Lane): [string, string] =>
     l.quietMs !== undefined ? ['c-warn', `Quiet ${Math.floor(l.quietMs / 1000)}s`] :
-    l.state === 'failed' || l.state === 'tripped' ? ['c-alert', l.step] :
-    l.state === 'stopped' ? ['m', l.step] :
-    l.state === 'done' ? ['c-ok', l.fresh ? 'Done 🎉' : 'Done'] : ['m', l.step]
+    l.state === 'failed' || l.state === 'tripped' ? ['c-alert', l.line] :
+    l.state === 'stopped' ? ['m', l.line] :
+    l.state === 'done' ? ['c-ok', l.fresh ? 'Done 🎉' : 'Done'] : ['m', l.line]
   const rows = race.lanes.map((l, i) => {
     const y = top + RACE_HEAD + i * RACE_ROW
     const mid = y + RACE_ROW / 2

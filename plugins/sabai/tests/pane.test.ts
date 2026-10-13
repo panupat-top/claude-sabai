@@ -9,7 +9,7 @@ import { actOf } from '../hooks/chat'
 import { activitySvg, agentHeadSvg, crewSvg, earlierSvg, filesSvg, laneSvg, lookOf, stepsSvg, toolsSvg } from '../hooks/svg'
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
-  id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, steps: 0, lastActiveAt: 1000, ...extra,
+  id, agentId: id, type: 'Explore', description: `task ${id}`, model: 'claude-haiku-4-5', status: 'running', startedAt: 1000, contextTokens: 0, requests: 0, lastActiveAt: 1000, ...extra,
 })
 const USAGE = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 900 }
 const READ = actOf('Read', { file_path: '/p/hooks/svg.ts' })

@@ -3,7 +3,7 @@
 [Claude Code](https://claude.com/claude-code) mods. The one mod, **sabai**, shows at a glance what Claude is doing:
 - a pixel-art status band above the prompt;
 - a pane for subagents;
-- tool calls in the chat as easy-to-read steps.
+- tool calls in the chat as easy-to-read one-line rows.
 
 It works in the desktop app's Code tab only. In a terminal session it stays out of the way entirely (no band, no chat changes, no extra tool or prompt text, no guard), so the terminal runs as light as Claude Code itself.
 

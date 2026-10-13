@@ -140,7 +140,7 @@ test('bars draw as dither, pixel blocks or a solid fill', () => {
 })
 
 const crewRun = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
-  id, agentId: id, type: 'Explore', description: `job ${id}`, model: 'claude-opus-5-5', status: 'running', startedAt: 0, contextTokens: 0, steps: 4, ...extra,
+  id, agentId: id, type: 'Explore', description: `job ${id}`, model: 'claude-opus-5-5', status: 'running', startedAt: 0, contextTokens: 0, requests: 4, ...extra,
 })
 
 test('the crew row walks one Clawd per running agent, names the latest, and counts the rest', () => {
@@ -375,16 +375,16 @@ test('the comfortable band puts Clawd large in his own panel, with his mood and 
 })
 
 // A race lane as raceOf makes it, with what a test leaves out filled in.
-const lane = (over: object) => ({ id: 'main', who: 'Main', step: 'n', count: 0, fails: 0, state: 'running', ...over })
+const lane = (over: object) => ({ id: 'main', who: 'Main', line: 'n', count: 0, fails: 0, state: 'running', ...over })
 const race = (lanes: object[], over: object = {}) => ({ agents: lanes.length - 1, done: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: lanes.map(lane), ...over }) as never
 
 test('the race box draws a row per member: its stripe, Clawd, name, step, failed calls, plan and time', () => {
   const look = lookOf('auto')
   const part = racePart(look, race([
-    { step: 'Editing svg.ts', timeMs: 102_000, steps: { done: 2, total: 4 }, doing: 'edit' },
-    { id: 'e', who: 'Explore', type: 'Explore', many: 3, step: '3 running', timeMs: 12_000, count: 1, state: 'scored' },
-    { id: 'b', who: 'Write race tests', type: 'general-purpose', step: 'bun test failed', timeMs: 31_000, count: 1, fails: 1, mood: 'working', state: 'tripped' },
-    { id: 'q', who: 'Plan the race', type: 'Plan', step: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
+    { line: 'Editing svg.ts', timeMs: 102_000, steps: { done: 2, total: 4 }, doing: 'edit' },
+    { id: 'e', who: 'Explore', type: 'Explore', many: 3, line: '3 running', timeMs: 12_000, count: 1, state: 'scored' },
+    { id: 'b', who: 'Write race tests', type: 'general-purpose', line: 'bun test failed', timeMs: 31_000, count: 1, fails: 1, mood: 'working', state: 'tripped' },
+    { id: 'q', who: 'Plan the race', type: 'Plan', line: 'Read PLAN.md', timeMs: 125_000, mood: 'quiet', quietMs: 47_000, state: 'running' },
   ], { done: 1, fails: 1, elapsedMs: 102_000, more: 1 }), 300, 0)
   expect(part.height).toBe(24 + 4 * 22 + 16 + 6)
   for (const s of ['>3 running<', '>· 1 done<', '>✗ 1<', '>1m 42s<', '>×3<', '>Write race tests<', '>· bun test failed<', '>✗1<', '>31s<', '>2/4<', '>· Quiet 47s<', '>+1 more · open Subagents for all<', 'class="dizzy', 'class="hop', 'class="sleep'])
@@ -399,9 +399,9 @@ test('the race box draws a row per member: its stripe, Clawd, name, step, failed
 })
 
 test('a just-finished agent hops among confetti on a flashing row, then folds to a check', () => {
-  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'done' }]), 300, 0).body
+  const fresh = racePart(lookOf('auto'), race([{ state: 'waiting', line: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', line: 'Done', timeMs: 5000, fresh: true, mood: 'done', state: 'done' }]), 300, 0).body
   for (const s of ['class="flash"', 'class="cf"', 'class="hop', '>· Done 🎉<']) expect([s, fresh.includes(s)]).toEqual([s, true])
-  const later = racePart(lookOf('auto'), race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', step: 'Done', timeMs: 5000, mood: 'done', state: 'done' }]), 300, 0).body
+  const later = racePart(lookOf('auto'), race([{ state: 'waiting', line: 'Waiting on 0' }, { id: 'p', who: 'Plan', type: 'Plan', line: 'Done', timeMs: 5000, mood: 'done', state: 'done' }]), 300, 0).body
   for (const s of ['class="flash"', 'class="cf"', 'class="hop', '🎉']) expect([s, later.includes(s)]).toEqual([s, false])
   expect(later).toMatch(/class="c-ok"[^>]*>· Done</)
   // Main waiting fades its stripe; it wears the captain's cap.
@@ -410,7 +410,7 @@ test('a just-finished agent hops among confetti on a flashing row, then folds to
 
 test('a just-failed agent falls on a red-flashing row with no confetti, then folds to a cross', () => {
   const look = lookOf('auto')
-  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', step: 'Waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed', ...(fresh ? { fresh } : {}) }]), 300, 0).body
+  const row = (fresh: boolean) => racePart(look, race([{ state: 'waiting', line: 'Waiting on 0' }, { id: 'f', who: 'Broke', type: 'Explore', line: 'Failed', mood: 'failed', state: 'failed', ...(fresh ? { fresh } : {}) }]), 300, 0).body
   const now = row(true)
   expect(now).toContain('class="flash" x="2" y="47" width="296" height="20" rx="6" fill="var(--kl-fail)"')
   for (const s of ['class="out', '>· Failed<']) expect([s, now.includes(s)]).toEqual([s, true])
@@ -427,9 +427,9 @@ test('a just-failed agent falls on a red-flashing row with no confetti, then fol
 test('the header tells done, failed and stopped agents apart; a stopped row is muted, not failed', () => {
   const part = racePart(lookOf('auto'), race([
     {},
-    { id: 'o', who: 'Broke', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed' },
-    { id: 's', who: 'Halted', type: 'Plan', step: 'Stopped', mood: 'stopped', state: 'stopped' },
-    { id: 'd', who: 'Finished', type: 'Plan', step: 'Done', mood: 'done', state: 'done' },
+    { id: 'o', who: 'Broke', type: 'Explore', line: 'Failed', mood: 'failed', state: 'failed' },
+    { id: 's', who: 'Halted', type: 'Plan', line: 'Stopped', mood: 'stopped', state: 'stopped' },
+    { id: 'd', who: 'Finished', type: 'Plan', line: 'Done', mood: 'done', state: 'done' },
   ], { agents: 0, done: 1, failed: 1, stopped: 1 }), 300, 0)
   expect(part.body).toContain('>1 done · 1 failed · 1 stopped<')
   expect(part.body).toMatch(/class="c-alert"[^>]*>· Failed</)
@@ -445,8 +445,8 @@ test('the header tells done, failed and stopped agents apart; a stopped row is m
 
 test('a row’s words stay inside the box, a long step cut for its failures, plan and time', () => {
   const body = racePart(lookOf('auto'), race([
-    { step: 'Edited a file with a rather long name indeed.ts', timeMs: 3_599_000, count: 150, fails: 30, steps: { done: 12, total: 20 }, state: 'thinking' },
-    { id: 'l', who: 'A very long agent description that goes on well past what a lane can hold', type: 'Explore', step: 'a very long step that will not fit either', timeMs: 3_600_000, fails: 9, state: 'running' },
+    { line: 'Edited a file with a rather long name indeed.ts', timeMs: 3_599_000, count: 150, fails: 30, steps: { done: 12, total: 20 }, state: 'thinking' },
+    { id: 'l', who: 'A very long agent description that goes on well past what a lane can hold', type: 'Explore', line: 'a very long step that will not fit either', timeMs: 3_600_000, fails: 9, state: 'running' },
   ], { fails: 39, elapsedMs: 6_000_000 }), 300, 0).body
   expect(body).toMatch(/>· Edited[^<]*…</)
   // Every word stays inside the 300 px box (mono widths: an upper bound for the sans words).
@@ -463,7 +463,7 @@ test('a row’s words stay inside the box, a long step cut for its failures, pla
 
 test('a turn with no known start draws no time: Clawd says his line, the strip and the race skip the clock', () => {
   const live = { step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 0, commands: 0 }
-  const raced = { agents: 1, done: 0, fails: 0, more: 0, lanes: [lane({ step: 'Editing svg.ts' }), lane({ id: 'a', who: 'A', type: 'Explore' })] }
+  const raced = { agents: 1, done: 0, fails: 0, more: 0, lanes: [lane({ line: 'Editing svg.ts' }), lane({ id: 'a', who: 'A', type: 'Explore' })] }
   const hero = bandSvg(undefined, LIST, 900, { hero: true, mood: 'working', live, race: raced as never, clawdLine: 'on it' })!
   expect(hero.source).toContain('>on it<')
   expect(hero.source).not.toMatch(/undefined|NaN|\d+:\d\d</)
@@ -475,8 +475,8 @@ test('a turn with no known start draws no time: Clawd says his line, the strip a
 
 test('the comfortable band’s tiers: three panels from 760 px, two below, stacked under 480', () => {
   const live = { elapsedMs: 102_000, step: { icon: 'pen' as const, title: 'Editing svg.ts' }, files: 1, commands: 2 }
-  const raced = race([{ step: 'Editing svg.ts', doing: 'edit' }, { id: 'a', who: 'Survey', type: 'Explore' }], { elapsedMs: 102_000 })
-  const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1 }], now: 1000 } as never
+  const raced = race([{ line: 'Editing svg.ts', doing: 'edit' }, { id: 'a', who: 'Survey', type: 'Explore' }], { elapsedMs: 102_000 })
+  const crew = { runs: [{ id: 'a', agentId: 'a', type: 'Explore', description: 'Survey', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, requests: 1 }], now: 1000 } as never
   const opts = { hero: true, mood: 'working' as const, live, race: raced, crew }
   const wide = bandSvg(undefined, LIST, 900, opts)!
   expect(wide.alt).toContain('Race: 1 running')
@@ -498,8 +498,8 @@ test('no race element carries two class attributes, whatever its Clawd is doing'
     const body = racePart(lookOf('auto'), race([
       { doing, fails: 1 },
       { id: 'w', who: 'W', type: 'Plan', mood: 'quiet', quietMs: 31_000 },
-      { id: 'f', who: 'F', type: 'Explore', step: 'Done', fresh: true, mood: 'done', state: 'done' },
-      { id: 'o', who: 'O', type: 'Explore', step: 'Failed', mood: 'failed', state: 'failed' },
+      { id: 'f', who: 'F', type: 'Explore', line: 'Done', fresh: true, mood: 'done', state: 'done' },
+      { id: 'o', who: 'O', type: 'Explore', line: 'Failed', mood: 'failed', state: 'failed' },
     ]), 300, 0).body
     const twice = body.match(/<[a-z]+\b[^>]*\bclass="[^"]*"[^>]*\bclass="[^>]*>/g)
     expect([doing, twice]).toEqual([doing, null])
@@ -507,7 +507,7 @@ test('no race element carries two class attributes, whatever its Clawd is doing'
 })
 
 test('in the comfortable band the race box’s words take the card’s ink', () => {
-  const raced = race([{ doing: 'test' }, { id: 'c', who: 'Plan', type: 'Plan', step: 'Done', state: 'done' }], { done: 1, more: 1 })
+  const raced = race([{ doing: 'test' }, { id: 'c', who: 'Plan', type: 'Plan', line: 'Done', state: 'done' }], { done: 1, more: 1 })
   const source = bandSvg(undefined, LIST, 900, { hero: true, skin: 'raised', race: raced })!.source
   const [middle, box] = source.split('translate(600,0)')
   expect(box!.match(/class="(st|sm|f-ok)[" ]/g)).toBeNull()
@@ -564,7 +564,7 @@ const USAGE_LIST = [
   { kind: 'session', label: '5H Limit', percent: 27, resetsInMs: 1_140_000 },
   { kind: 'week', label: '7D All', percent: 18, resetsInMs: 3.85e8 },
 ] as const
-const RACE4 = { agents: 3, done: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, step: 's', count: 0, state: 'running' })) }
+const RACE4 = { agents: 3, done: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: ['main', 'a', 'b', 'c'].map(id => ({ id, who: id, line: 's', count: 0, state: 'running' })) }
 // Every <text> inside the usage group, with its start and end by the mono estimate, in band x.
 function usageTexts(source: string, x0: number) {
   const g = source.slice(source.indexOf('<g class="usage"'), source.indexOf('</g><!--usage-->'))
@@ -617,7 +617,7 @@ function usageBoxes(source: string) {
 for (const style of Object.keys(USAGE_STYLES) as (keyof typeof USAGE_STYLES)[]) {
   test(`usage style ${style} lays out in the short heights a working band gives it, words inside and apart`, () => {
     const now = new Date('2026-10-11T13:00:00').getTime()
-    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', step: 's', count: 0, calls: [], state: 'running' }] }
+    const race1 = { running: 1, done: 0, ok: 0, fails: 0, elapsedMs: 1000, more: 0, lanes: [{ id: 'main', who: 'Main', line: 's', count: 0, calls: [], state: 'running' }] }
     const tasks = { title: 'Ship it', done: 1, total: 3 }
     // The usage takes what the tasks row leaves, in 107 px cells beside the race.
     for (const clawd of [true, false]) {
