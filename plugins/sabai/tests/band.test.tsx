@@ -1351,8 +1351,8 @@ test('a turn that outlived a reload still counts by the second: its state, not t
   })
   await start($)
   await clock.advance(3000)
-  // The race's header carries the turn's time while it shows.
-  expect((await shown($, 'desktop', true)).words).toContain('0:03')
+  // With no agents the live strip carries the turn's time.
+  expect((await shown($, 'desktop', true)).words).toContain('Working 3s')
 })
 
 test('the band’s Clawd wears the hour’s accessory', async ($, on) => {
@@ -1375,9 +1375,9 @@ test('every row on, nine agents, the race with 60 calls and a hat stay under the
   await $.turn.start({ turnId: 'big' } as never)
   for (let i = 0; i < 60; i++) await bash($, `npm run step-${i}`)
   const ui = await mountBand($, 'desktop', true)
-  // The race is in it, and Main's lane keeps only its last 16 tiles.
+  // The race is in it.
   const svg = String((await bandOf(ui))?.props.source)
-  expect(svg).toMatch(/>\d+ running/)
+  expect(svg).toMatch(/>\d+ agents</)
   expect(JSON.stringify(await ui.drawn()).length).toBeLessThan(100_000)
   expect(String((await bandOf(ui))?.props.source).length).toBeLessThanOrEqual(131_072)
   await ui.unmount()
@@ -1421,7 +1421,7 @@ test('the comfortable band draws the Clawd panel; compact keeps the stacked band
   expect(await source()).not.toMatch(/scale\(3\)/)
 })
 
-test('each member’s calls land in its own lane; the header counts the turn’s calls and failures', async ($, on) => {
+test('each member’s calls land in its own lane; the header counts the turn’s failures', async ($, on) => {
   on('tool.call', { tool: 'Bash' }, (_, e) =>
     (e as { command: string }).command === 'bun test'
       ? { result: { stdout: 'bun test v1\n\n 9 pass\n 0 fail\nRan 9 tests across 1 file. [1s]', stderr: '', interrupted: false } }
@@ -1439,18 +1439,23 @@ test('each member’s calls land in its own lane; the header counts the turn’s
   await bash($, 'bun test')
   await bash($, 'false')
   const words = (await shown($, 'desktop', true)).words
-  expect(words).toMatch(/Race: 2 running, 2 ok, 1 failed/)
+  expect(words).toMatch(/Race: 1 agent, 1 failed call/)
   expect(words).toMatch(/Main (tripped|running|thinking)/)
-  // The agent's lane names its latest call and tallies it; Main's tallies its pass and its failure.
-  expect(words).toContain('x running: Read a.ts (1 ok)')
-  expect(words).toMatch(/Main \w+: [^;]*\(1 ok, 1 failed\)/)
+  // The agent's lane names its latest call; Main's counts its failure.
+  expect(words).toContain('x running: Read a.ts |')
+  expect(words).toMatch(/Main \w+: [^;]*, 1 failed/)
 })
 
-test('the race leaves when the turn ends and no agent runs', async ($, on) => {
+test('the race shows only with agents, and leaves when the turn ends and no agent runs', async ($, on) => {
   engine(on)
+  panes(on)
   turnStarts(on)
   await start($)
   await $.turn.start({ turnId: 'x' } as never)
+  // Main alone: the live strip tells the turn.
+  expect((await shown($, 'desktop', true)).words).not.toContain('Race:')
+  await spawn($, 'x')
+  await finish($, 'x')
   expect((await shown($, 'desktop', true)).words).toContain('Race:')
   await $.turn.complete({ turnId: 'x', answer: 'ok', durationMs: 1000, isAborted: false, reason: 'answer' })
   expect((await shown($, 'desktop', false)).words).not.toContain('Race:')
@@ -1872,6 +1877,7 @@ test('an Edit that throws leaves Main’s lane holding nothing', async ($, on) =
   turnStarts(on)
   await start($)
   await $.turn.start({ turnId: 'cut' } as never)
+  await spawn($, 'x')
   await $.tool.call({ tool: 'Edit', file_path: '/w/a.ts', old_string: 'a', new_string: 'b', replace_all: false } as Parameters<typeof $.tool.call>[0]).catch(() => undefined)
   const words = (await shown($, 'desktop', true)).words
   expect(words).toContain('Main thinking')
@@ -2019,9 +2025,11 @@ test('parallel calls of one member each hold their place in the race until they 
     return { result: {} }
   })
   engine(on)
+  panes(on)
   turnStarts(on)
   await start($)
   await $.turn.start({ turnId: 'p' } as never)
+  await spawn($, 'x')
   const slow = $.tool.call({ tool: 'Read', file_path: '/w/slow.ts' } as Parameters<typeof $.tool.call>[0])
   await settle()
   await $.tool.call({ tool: 'Read', file_path: '/w/fast.ts' } as Parameters<typeof $.tool.call>[0])
@@ -2076,9 +2084,11 @@ test('a limit notification fires at the red mark the person set', async ($, on) 
 
 test('beside the race, Clawd says his mood rather than the turn time the race already shows', async ($, on) => {
   engine(on)
+  panes(on)
   turnStarts(on)
   await start($)
   await $.turn.start({ turnId: 'w' } as never)
+  await spawn($, 'x')
   const words = (await shown($, 'desktop', true)).words
   expect(words).toContain('Race:')
   expect(words).not.toMatch(/Clawd: [^;]*\d+s/)

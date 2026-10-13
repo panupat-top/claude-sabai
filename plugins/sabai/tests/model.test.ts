@@ -196,10 +196,10 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   const r = raceOf({ ...log, doing: { main: ['read', 'edit'] } }, agents, { done: 2, total: 4, title: 't' }, now, true, now - 102_000, 'Editing svg.ts')!
   expect(r.lanes.map(l => [l.who, l.state])).toEqual([['Main', 'running'], ['c', 'scored'], ['b', 'tripped'], ['a', 'running']])
   expect(r.more).toBe(2)
-  expect(r.lanes[0]).toMatchObject({ progress: 0.5, doing: 'edit', step: 'Editing svg.ts' })
-  expect(r.lanes[3]!.progress).toBe(0.6)
-  // No step reports and no task list: no progress, so the drawing paces the runner by its calls.
-  expect(r.lanes[2]!.progress).toBeUndefined()
+  expect(r.lanes[0]).toMatchObject({ steps: { done: 2, total: 4 }, doing: 'edit', step: 'Editing svg.ts' })
+  expect(r.lanes[3]!.steps).toEqual({ done: 3, total: 5 })
+  // No step reports and no task list: no plan to show.
+  expect(r.lanes[2]!.steps).toBeUndefined()
   expect(r.elapsedMs).toBe(102_000)
   // A trip ends after 4 s.
   expect(raceOf(log, [run('b', { type: 'general-purpose' })], undefined, now + 4000, true, now - 1)!.lanes[1]!.state).toBe('running')
@@ -209,7 +209,9 @@ test('raceOf lays out Main and up to three agents, each in its state, and stays 
   // Finished and out agents show their states while the race runs.
   const ends = raceOf(EMPTY_RACE, [run('d', { status: 'done', endedAt: now - 2000 }), run('e', { status: 'failed', endedAt: now - 2000 })], undefined, now, true, now - 10)!
   expect(ends.lanes.slice(1).map(l => l.state)).toEqual(['finished', 'out'])
-  expect([ends.running, ends.done]).toEqual([1, 2])
+  expect([ends.agents, ends.done]).toEqual([0, 2])
+  // Main at work with no agents: no race, the live strip tells the turn.
+  expect(raceOf(EMPTY_RACE, [], undefined, now, true, now - 10)).toBeUndefined()
 })
 
 test('a lane with no progress names its latest call, and tallies its failures, merged lanes summed', () => {
@@ -221,12 +223,12 @@ test('a lane with no progress names its latest call, and tallies its failures, m
   expect(r.lanes.map(l => [l.who, l.step, l.count, l.fails])).toEqual([
     // Main between calls names its latest; a reported step still wins over the latest call.
     ['Main', 'Edited svg.ts', 0, 0],
-    ['p', '1/2 · half', 0, 0],
+    ['p', 'half', 0, 0],
     ['a', 'Run the tests', 2, 1],
   ])
   // A call in flight names itself; Main not working waits whatever it last did.
-  expect(raceOf(log, [], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.step).toBe('Editing a.ts')
-  expect(raceOf(log, [run('a')], undefined, now, false, 0)!.lanes[0]!.step).toBe('Waiting')
+  expect(raceOf(log, [run('a')], undefined, now, true, now, 'Editing a.ts')!.lanes[0]!.step).toBe('Editing a.ts')
+  expect(raceOf(log, [run('a'), run('b')], undefined, now, false, 0)!.lanes[0]!.step).toBe('waiting on 2')
   // Four of one type share a lane: their failures add up.
   const many = ['a', 'b', 'c', 'd'].map(id => run(id))
   const four = raced(raced(log, 'b', { kind: 'edit', ok: false }, 1), 'c', { kind: 'edit', ok: false }, 1)
@@ -235,7 +237,8 @@ test('a lane with no progress names its latest call, and tallies its failures, m
 
 test('a turn whose start was not seen (the mod loaded mid-turn) shows no time, never one counted from 1970', () => {
   const now = 1_700_000_000_000
-  const r = raceOf(EMPTY_RACE, [], undefined, now, true, 0)!
+  const agent: AgentRun = { id: 'a', agentId: 'a', type: 'Explore', description: 'a', model: 'm', status: 'running', startedAt: now, contextTokens: 0, steps: 1 }
+  const r = raceOf(EMPTY_RACE, [agent], undefined, now, true, 0)!
   expect(r.lanes[0]!.timeMs).toBeUndefined()
   expect(r.elapsedMs).toBeUndefined()
 })
@@ -244,7 +247,19 @@ test('a finished agent stays in the race for the crew’s linger minute, then le
   const now = 1_000_000
   const done = (endedAt: number): AgentRun => ({ id: 'd', agentId: 'd', type: 'Plan', description: 'd', model: 'm', status: 'done', startedAt: 0, endedAt, contextTokens: 0, steps: 1 })
   expect(raceOf(EMPTY_RACE, [done(now - 30_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main', 'd'])
-  expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)!.lanes.map(l => l.who)).toEqual(['Main'])
+  // With no agent left to show, the race goes.
+  expect(raceOf(EMPTY_RACE, [done(now - 61_000)], undefined, now, true, now - 1)).toBeUndefined()
+  // For its first seconds a finished agent is fresh: its row celebrates.
+  expect(raceOf(EMPTY_RACE, [done(now - 2000)], undefined, now, true, now - 1)!.lanes[1]!.fresh).toBe(true)
+  expect(raceOf(EMPTY_RACE, [done(now - 6000)], undefined, now, true, now - 1)!.lanes[1]!.fresh).toBeUndefined()
+})
+
+test('a running agent heard from long ago is quiet, with how long; one at a call is not', () => {
+  const now = 1_000_000
+  const run = (over: Partial<AgentRun>): AgentRun => ({ id: 'q', agentId: 'q', type: 'Plan', description: 'q', model: 'm', status: 'running', startedAt: 0, contextTokens: 0, steps: 1, ...over })
+  expect(raceOf(EMPTY_RACE, [run({ lastActiveAt: now - 47_000 })], undefined, now, true, 0)!.lanes[1]).toMatchObject({ mood: 'quiet', quietMs: 47_000 })
+  const busy = raceOf(EMPTY_RACE, [run({ lastActiveAt: now - 47_000, doing: [{ kind: 'command', title: 'Bash', target: '' }] })], undefined, now, true, 0)!.lanes[1]!
+  expect([busy.mood, busy.quietMs]).toEqual(['working', undefined])
 })
 
 test('raceOf runs the newest running agents first, the oldest over the cap', () => {
@@ -294,12 +309,15 @@ test('raceOf merges agents of one type when more run than lanes hold, and names 
   expect(r.lanes.map(l => [l.who, l.many ?? 1])).toEqual([['Main', 1], ['Explore', 3], ['task g1', 1], ['task p1', 1]])
   const merged = r.lanes[1]!
   // Every merged agent's tiles show, not only the first one's.
-  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', calls: [{ kind: 'read', ok: true }, { kind: 'command', ok: false }] })
-  expect(merged.progress).toBeUndefined()
+  expect(merged).toMatchObject({ step: '3 running', state: 'tripped', count: 2, fails: 1 })
+  expect(merged.steps).toBeUndefined()
   expect(merged.timeMs).toBe(now - 500)
   expect(r.more).toBe(0)
   expect(r.lanes[0]!.timeMs).toBe(10_000)
-  expect([r.running, r.ok, r.fails]).toEqual([6, 1, 1])
+  expect([r.agents, r.fails]).toEqual([5, 1])
+  // Merged and still more than the lanes hold: the shared lane shows, a lone agent goes to +1.
+  const six = raceOf(EMPTY_RACE, [run('h', 'Explore'), run('i', 'Explore'), run('j', 'Explore'), run('k', 'general-purpose'), run('l', 'Plan'), run('m', 'x:y')], undefined, now, true, now)!
+  expect([six.lanes.map(l => [l.who, l.many ?? 1]), six.more]).toEqual([[['Main', 1], ['Explore', 3], ['task m', 1], ['task l', 1]], 1])
   // Review Focus 4: four different types do not merge; the oldest goes to +1, ended lanes after.
   const four = raceOf(EMPTY_RACE, [run('a', 'Plan'), run('b', 'Explore'), run('c', 'general-purpose'), run('d', 'x:y')], undefined, now, true, now)!
   expect([four.lanes.length, four.more, four.lanes.some(l => l.many)]).toEqual([4, 1, false])
@@ -333,7 +351,7 @@ test('a lane holds the latest of its calls in flight, and a merged lane any memb
   expect([r.lanes[0]!.doing, r.lanes[0]!.state]).toEqual(['command', 'running'])
   expect(r.lanes[1]).toMatchObject({ many: 4, doing: 'edit' })
   // A log from before calls in flight were lists holds none.
-  const old = raceOf({ ...EMPTY_RACE, doing: { main: 'read' as never } }, [], undefined, 1000, true, 1)!
+  const old = raceOf({ ...EMPTY_RACE, doing: { main: 'read' as never } }, [run('a')], undefined, 1000, true, 1)!
   expect([old.lanes[0]!.doing, old.lanes[0]!.state]).toEqual([undefined, 'thinking'])
 })
 
@@ -347,6 +365,6 @@ test('a lane counts its calls, a merged lane its members’; Main thinks between
   // Four Explore agents share one lane: its count is theirs together.
   expect(raceOf(log, ['a', 'b', 'c', 'd'].map(run), undefined, 1000, true, 1)!.lanes[1]).toMatchObject({ many: 4, count: 7 })
   // A call in flight runs; not working at all waits.
-  expect(raceOf({ ...log, doing: { main: ['edit'] } }, [], undefined, 1000, true, 1)!.lanes[0]!.state).toBe('running')
+  expect(raceOf({ ...log, doing: { main: ['edit'] } }, [run('a')], undefined, 1000, true, 1)!.lanes[0]!.state).toBe('running')
   expect(raceOf(log, [run('a')], undefined, 1000, false, 0)!.lanes[0]!.state).toBe('waiting')
 })

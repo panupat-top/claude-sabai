@@ -54,25 +54,12 @@ A top row sits above the band: the info row on a card, and the guard and toolbar
     - **Rings**;
     - **Columns**: a pixel column filling from the bottom;
     - **Rows**: one card with a row each.
-- **The race**, while Claude or a subagent works:
-  - the header counts who is running and done, the turn's calls that worked (`✓`) and failed (`✗`), and the time;
-  - each lane is `Main` or a subagent, named by its task, with its step (its reported progress, or else its latest call) and, before its own time, its calls that worked (`✓`) and failed (`✗`), on a line above its ground;
-  - more agents of one type than the lanes hold share a lane (`Explore ×3`); `+N` counts any left over;
-  - a runner's place is its progress, from Claude's task list or the agent's step reports, or else how far its calls have carried it (quick at first, never to the flag before it is done);
-  - behind the runner, a pixel icon per call, the newest closest, in the colour of its kind:
-
-    | Icon | Call | Colour |
-    |---|---|---|
-    | magnifier | a read (and, for a subagent, a search or a web fetch) | the Context meter's teal |
-    | pencil | an edit or a write | the 5H meter's indigo |
-    | `>_` | a command (and, for a subagent, a skill, an MCP tool or any other tool) | grey |
-    | flask | a test run that passed | green |
-    | cross | any call that failed | red |
-
-  - a running lane's ground scrolls in dashes of Clawd's colour;
-  - a runner holds the tool of its call in flight (pencil, book, terminal, flask) over a glow in its colour;
-  - a failed call trips it (`OUCH`), a passing test throws a coin;
-  - Main waiting on its agents, and a finished agent, fold to one line (a finished one with a green check); a failed one stays full and is `OUT`.
+- **The race**, while subagents work (Claude working alone keeps the line of what he is doing now):
+  - the header counts the agents running and done, the turn's failed calls (`✗`) and the time;
+  - a row for `Main` (in his captain's cap; `waiting on 3` while his agents work), then one per subagent, named by its task: a stripe in its mood's colour (amber when quiet, red when it failed, green when done), its Clawd in its type's hat holding the tool of its call in flight, its step (its reported progress, or else its latest call), its failed calls (`✗`), its plan's done and total with a small bar when it keeps one, and its time;
+  - an agent that has said nothing for 30 s dozes and reads `quiet 47s`; a failed call trips it for a moment;
+  - an agent that just finished hops among confetti on a flashing row (`Done! 🎉`), then folds to a green check;
+  - more agents of one type than the rows hold share a row (`Explore ×3`); `+N more · open Agents for all` counts any left over. The details live in the agents panel.
 
   Turning **Activity** off in Settings hides the race.
 

@@ -237,6 +237,8 @@ export const RACE_TILES = 16
 export const RACE_LANES = 3
 // How long a finished agent keeps its lane, as the crew row keeps it.
 export const RACE_LINGER_MS = 60_000
+// How long a finished agent celebrates in its lane before it folds to a check.
+export const FINISH_MS = 5000
 // Where a runner with no known progress stands: quick at first, slower as calls add up, never at the flag.
 export const paceOf = (count: number): number => Math.max(0.1, Math.min(0.85, 1 - 0.5 ** (count / 8)))
 
