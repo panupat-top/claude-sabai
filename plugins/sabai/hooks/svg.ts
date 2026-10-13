@@ -484,7 +484,8 @@ const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms 
 // row per member, Main first: a stripe in its mood's colour, its Clawd in its type's hat (Main in
 // the captain's cap) holding its call, its name and step, then its failed calls, a plan's
 // done/total and bar, and its time. A quiet agent dozes; one just finished hops among confetti on
-// a flashing row, then folds to a check. Past the rows, how many more the Agents pane holds.
+// a flashing row, then folds to a check; one just failed falls on a red-flashing row, then folds to
+// a cross. Past the rows, how many more the Agents pane holds.
 export function racePart(look: Look, race: Race, W: number, top: number): Part {
   const time = race.elapsedMs === undefined ? '' : mmss(race.elapsedMs)
   const lead = race.agents ? `${race.agents} ${race.agents === 1 ? 'agent' : 'agents'}` : ''
@@ -536,7 +537,7 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
         `<text class="m" x="${+(bx - 4).toFixed(1)}" y="${ty}" text-anchor="end" font-family="${MONO}" font-size="9">${frac}</text>`
       edge = bx - 4 - monoWidth(frac, 9) - 6
     }
-    const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || l.fresh ? 'hop' : l.state === 'out' ? 'out' : 'idle'
+    const mode = l.quietMs !== undefined ? 'sleep' : l.state === 'running' ? 'run' : l.state === 'tripped' ? 'dizzy' : l.state === 'scored' || (l.fresh && l.state === 'finished') ? 'hop' : l.state === 'out' ? 'out' : 'idle'
     const style = l.type ? hatOf(look, l.type) : undefined
     // Main wears the captain's cap; a finished agent holds its report.
     const hat = main ? { kind: 'captain' as const, prop: true } : style ? { kind: style.hat, color: style.hatColor, prop: l.state === 'finished' ? ('scroll' as const) : true } : undefined
@@ -544,18 +545,20 @@ export function racePart(look: Look, race: Race, W: number, top: number): Part {
     const figure =
       l.state === 'stopped'
         ? `<g opacity=".55" transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, 'idle', look.clawd, hat && { ...hat, prop: false }))}</g>`
-        : l.state === 'finished' && !l.fresh
-        ? statusMark(look, 'done', x + 8, mid, look.clawd, false)
+        : (l.state === 'finished' || l.state === 'out') && !l.fresh
+        ? statusMark(look, l.state === 'out' ? 'failed' : 'done', x + 8, mid, look.clawd, false)
         : `<g transform="translate(${x},${y + 2}) scale(${RACE_SCALE})">${asPaths(sprite('tasks', 0, HAT_H, mode, l.state === 'out' ? RACE_BODY : look.clawd, hat, undefined, tool))}</g>`
+    const failed = l.state === 'out'
     const party = l.fresh
-      ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${look.bar('context')}" opacity=".14"/>`
+      ? `<rect class="flash" x="2" y="${y + 1}" width="${W - 4}" height="${RACE_ROW - 2}" rx="6" fill="${failed ? look.bar('tasks', 'alert') : look.bar('context')}" opacity="${failed ? '.12' : '.14'}"/>`
       : ''
-    const confetti = l.fresh
+    const confetti = l.fresh && !failed
       ? RACE_CONFETTI.map(([dx, dy, k], j) => `<rect class="cf" style="animation-delay:-${j * 0.2}s" x="${x + 8 + dx}" y="${y + 10 + dy}" width="2" height="2" fill="${look.bar(k)}"/>`).join('')
       : ''
     const name = fit(l.who, 10.5, 130)
     const nameW = textWidth(name, 10.5)
-    const nameClass = l.state === 'tripped' || l.state === 'out' ? 'c-alert' : 't'
+    // A failed agent's name keeps its ink, as a done one's does; its step says it failed.
+    const nameClass = l.state === 'tripped' ? 'c-alert' : 't'
     const badge = l.many
       ? `<rect class="k" x="${+(nameX + nameW + 4).toFixed(1)}" y="${mid - 5.5}" width="20" height="11" rx="5.5"/><text class="t" x="${+(nameX + nameW + 14).toFixed(1)}" y="${mid + 3}" text-anchor="middle" font-family="${MONO}" font-size="8.5" font-weight="700">×${l.many}</text>`
       : ''
@@ -1208,7 +1211,7 @@ export function asPaths(sprite: string): string {
 function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: number, y: number, scale: number, trick = ''): string {
   const { hat, hatColor } = hatOf(look, a.type)
   const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
-  const mode = (mood === 'done' && fresh ? 'hop' : MOOD_SPRITE[mood]) + (trick ? ` ${trick}` : '')
+  const mode = (fresh && mood === 'done' ? 'hop' : fresh && mood === 'failed' ? 'out' : MOOD_SPRITE[mood]) + (trick ? ` ${trick}` : '')
   const prop = a.status === 'running' ? true : a.status === 'done' ? ('scroll' as const) : false
   // Claude himself wears the captain's cap, not a type's hat.
   const worn = isMain(a) ? { kind: 'captain' as const, prop } : { kind: hat, color: hatColor, prop }
@@ -1322,6 +1325,23 @@ export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin:
 // its badge), his Thai line (in his mood's ink when something needs a look), his share done and
 // his time. The one viewed is ringed and tinted in Clawd's colour, and its Clawd waves in a soft light.
 export const AGENT_LANE_H = 42
+// An ended lane's badge on its Clawd: a green check, a red cross or a hand for a stop, as the
+// timeline marks them, ringed in the card's colour. In the seconds after a run ends its lane is tinted green or red.
+function endBadge(look: Look, a: AgentRun, mood: AgentMood, now: number, W: number, H: number): { tint: string; badge: string } {
+  if (a.status === 'running') return { tint: '', badge: '' }
+  const stopped = mood === 'stopped'
+  const color = mood === 'done' ? look.bar('context') : stopped ? RACE_BODY : look.bar('tasks', 'alert')
+  const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
+  const tint = fresh && !stopped ? `<rect x="5" y="2" width="${W - 7}" height="${H - 4}" rx="6" fill="${color}" opacity="${mood === 'done' ? '.14' : '.12'}"/>` : ''
+  const cx = 12 + CLAWD_W - 4
+  const cy = (H + CLAWD_H) / 2 - 2
+  const glyph =
+    mood === 'done' ? `<path d="M${cx - 2.5} ${cy}l1.7 1.7 3.2-3.6" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>` :
+    stopped ? `<text x="${cx}" y="${cy + 2.8}" text-anchor="middle" font-size="7.5">✋</text>` :
+    `<path d="M${cx - 2.1} ${cy - 2.1}l4.2 4.2M${cx + 2.1} ${cy - 2.1}l-4.2 4.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>`
+  return { tint, badge: `<circle class="p" cx="${cx}" cy="${cy}" r="7.7"/><circle cx="${cx}" cy="${cy}" r="6.5" fill="${color}"/>` + glyph }
+}
+
 export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
   const look = lookOf(skin)
   const mood = agentMood(a, now, window)
@@ -1339,6 +1359,7 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const name = fit(a.description || a.type, size, textRoom)
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
   const H = AGENT_LANE_H
+  const end = endBadge(look, a, mood, now, W, H)
   const body =
     `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
     (selected
@@ -1346,7 +1367,9 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
         spotlight(uid, look, 12 + CLAWD_W / 2, H / 2 + 2, 26, 20)
       : '') +
     `<rect y="6" width="4" height="${H - 12}" rx="2" fill="${moodColor(look, mood)}"/>` +
+    end.tint +
     agentClawd(look, a, mood, now, 12, (H - CLAWD_H) / 2, 1, selected ? 'wave' : '') +
+    end.badge +
     `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="${size}" font-weight="${selected ? 800 : 600}">${xml(name)}</text>` +
     (isMain(a) ? mainBadge(look, textX + textWidth(name, size) + 6, 17) : '') +
     `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
