@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/panupat-top/claude-sabai/security/advisories/new
+    about: Report it privately, not as an issue.
+  - name: Problem with Claude Code itself
+    url: https://github.com/anthropics/claude-code/issues
+    about: Bugs in Claude Code, not in sabai, go to Anthropic.

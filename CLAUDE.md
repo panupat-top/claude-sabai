@@ -97,9 +97,9 @@ Code identifiers keep their names (`crew`, `AgentRun`, `mains`, the chat rows' `
 
 ## Conventions
 
-- `README.md` is for people installing and using the mods (what it is, install, commands, privacy, troubleshooting). Development notes belong here; the roadmap and decisions in `docs/PLAN.md`.
+- `README.md` is for people installing and using the mods, kept short (what it is with screenshots, install, commands, privacy, the common troubles); `docs/guide.md` holds every part and setting in detail, and the README links to it. The screenshots in `docs/images/` come in a light and a dark file each (`<picture>` picks one) and are drawn by the mod's own drawing code, so redraw them when a drawing changes. Development notes belong here; the roadmap and decisions in `docs/PLAN.md`.
 - Code, comments, commit messages and repo docs are in English; `docs/PLAN.md` is in Thai.
-- A release bumps the mod's `version` in both `plugins/<mod>/.claude-plugin/plugin.json` and its entry in `.claude-plugin/marketplace.json`, and updates the README if commands or behaviour changed. Once it is pushed to `main`, it gets an annotated tag `<mod>-vX.Y.Z` and a GitHub release (`gh release create`) with notes for users, so the Releases page stays current.
+- A release bumps the mod's `version` in both `plugins/<mod>/.claude-plugin/plugin.json` and its entry in `.claude-plugin/marketplace.json`, and updates the README and the guide if commands or behaviour changed. Once it is pushed to `main`, it gets an annotated tag `<mod>-vX.Y.Z` and a GitHub release (`gh release create`) with notes for users, so the Releases page stays current.
 - Before committing, run validate, test and `tsc` (the pre-commit hook does all three). Commit messages: an imperative subject line, then a short bullet list of what changed.
 - User-visible text is English, in the glossary's words, the same in the band and the pane, one wording per state and never picked at random. The one exception, by the owner's choice, is Haiku's Thai summary bullets (Settings › Subagents › Thai summary); the mod no longer replaces the desktop's spinner word. Keep every text colour at ≥ 4.5:1 on its card, in light and dark; the theme test enforces it for every theme.
 

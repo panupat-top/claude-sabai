@@ -1,0 +1,18 @@
+name: Feature request
+description: An idea for the band, the panes or the chat.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What would it help with
+      description: The situation where you miss it, and what you do today instead.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: How it could look or work. A sketch or a screenshot is welcome.
+    validations:
+      required: true

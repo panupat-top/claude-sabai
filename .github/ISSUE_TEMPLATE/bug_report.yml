@@ -1,0 +1,65 @@
+name: Bug report
+description: Something in sabai looks or works wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: For a security problem, please use [private vulnerability reporting](https://github.com/panupat-top/claude-sabai/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: The steps, prompt or tool calls that lead to it.
+      placeholder: |
+        1. Start a session in the Code tab
+        2. Ask Claude to run three subagents
+        3. Open the Subagents pane
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: A screenshot of the band, the pane or the chat row helps most.
+  - type: input
+    id: sabai
+    attributes:
+      label: sabai version
+      description: From `claude plugin list`.
+      placeholder: "2.23.0"
+    validations:
+      required: true
+  - type: input
+    id: claude-code
+    attributes:
+      label: Claude Code version
+      description: From `claude --version`.
+      placeholder: "2.1.296"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [macOS, Windows, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: appearance
+    attributes:
+      label: Appearance and theme
+      description: The system's light or dark mode, and the sabai theme in use.
+      options:
+        - Light · Mono
+        - Light · Pastel
+        - Light · Matcha
+        - Dark · Ink
+        - Dark · Forest
+        - Dark · Synthwave
