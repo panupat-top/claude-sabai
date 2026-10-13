@@ -1248,13 +1248,13 @@ export function asPaths(sprite: string): string {
     return out + (d ? `<path fill="${fill}" d="${d}"/>` : '')
   })
 }
-function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: number, y: number, scale: number): string {
+function agentClawd(look: Look, a: AgentRun, mood: AgentMood, now: number, x: number, y: number, scale: number, trick = ''): string {
   const { hat, hatColor } = hatOf(look, a.type)
   const fresh = a.endedAt !== undefined && now - a.endedAt < HOP_MS
-  const mode = mood === 'done' && fresh ? 'hop' : MOOD_SPRITE[mood]
+  const mode = (mood === 'done' && fresh ? 'hop' : MOOD_SPRITE[mood]) + (trick ? ` ${trick}` : '')
   const prop = a.status === 'running' ? true : a.status === 'done' ? ('scroll' as const) : false
-  // Claude himself wears no type's hat.
-  const worn = isMain(a) ? undefined : { kind: hat, color: hatColor, prop }
+  // Claude himself wears the captain's cap, not a type's hat.
+  const worn = isMain(a) ? { kind: 'captain' as const, prop } : { kind: hat, color: hatColor, prop }
   return `<g transform="translate(${x},${y}) scale(${scale})"${mood === 'stopped' ? ' opacity=".55"' : ''}>${asPaths(sprite('tasks', 0, HAT_H, mode, look.clawd, worn))}</g>`
 }
 // A run's share done: its steps, else its pace by calls while it runs, else whole.
@@ -1285,78 +1285,85 @@ const kindTile = (look: Look, kind: ActKind, ok: boolean, x: number, y: number, 
   return `<rect x="${x}" y="${y}" width="${size}" height="${size}" rx="3" ${paint}/><use href="#sabai-ic-${i}" transform="translate(${x + 2},${y + 2}) scale(${s.toFixed(2)})"/>`
 }
 
-// The overview of the crews at work: a headline, a Clawd per agent in his mood, a bar of each
-// one's share done, then four tiles (calls by kind, tokens per agent, time, files).
+// The viewed run's Clawd stands in a soft light of his colour.
+const spotlight = (id: string, look: Look, cx: number, cy: number, rx: number, ry: number) =>
+  `<defs><radialGradient id="sabai-spot-${id}"><stop offset="0" stop-color="${look.clawd}" stop-opacity=".32"/><stop offset="1" stop-color="${look.clawd}" stop-opacity="0"/></radialGradient></defs><ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#sabai-spot-${id})"/>`
+// Main's badge after its name, `y` its text's baseline.
+const MAIN_BADGE_W = 34
+const mainBadge = (look: Look, x: number, y: number) =>
+  `<rect x="${x.toFixed(1)}" y="${y - 11}" width="${MAIN_BADGE_W}" height="15" rx="7.5" fill="${look.clawd}" fill-opacity=".16"/><text class="c-tasks" x="${(x + MAIN_BADGE_W / 2).toFixed(1)}" y="${y}" text-anchor="middle" font-family="${SANS}" font-size="9.5" font-weight="700">main</text>`
+
+// The overview of the crews at work: each member a bar on one time axis, from its start to its
+// end in its mood's colour, a Clawd riding the end of each one still at work and a mark at the
+// end of each one done; then three tiles (calls, tokens, time). The box's title says how they stand.
+const TIMELINE_ROWS = 6
+const TIMELINE_ROW = 24
 export function crewSvg(runs: readonly AgentRun[], W: number, now: number, skin: string = 'auto', windowOf: (a: AgentRun) => number | undefined = () => undefined): Drawing {
   const look = lookOf(skin)
-  const moods = runs.map(a => agentMood(a, now, windowOf(a)))
-  const count = (m: AgentMood) => moods.filter(x => x === m).length
-  const running = runs.filter(a => a.status === 'running').length
+  const running = runs.some(a => a.status === 'running')
   const start = Math.min(...runs.map(a => a.startedAt))
   const end = running ? now : Math.max(...runs.map(a => a.endedAt ?? a.startedAt))
-  const failed = count('failed')
-  const stopped = count('stopped')
-  const done = count('done')
-  // Main is a member, not an agent: a turn with none is Claude's alone.
-  const helpers = runs.filter(a => !isMain(a)).length
-  const withMain = runs.length > helpers
-  const title = running
-    ? helpers ? `${withMain ? 'Main + ' : ''}${plural(helpers, 'agent')}` : 'Claude at work'
-    : `${helpers ? 'Crew' : 'Turn'} finished · ${clock(end - start)}`
-  const sub = [running && `${running} running`, done && `${done} done`, failed && `${failed} failed`, stopped && `${stopped} stopped`].filter(Boolean).join(' · ')
-  const subInk = !running && !failed ? 'c-ok' : 'm'
-  // The Clawds from the right, as many as leave the headline its room.
-  const slot = 42
-  const room = Math.max(1, Math.min(8, Math.floor((W - 180) / slot)))
-  const shown = runs.slice(-room)
-  const more = runs.length - shown.length
-  const room0 = W - shown.length * slot - 40 - (more > 0 ? monoWidth(`+${more}`, 11) + 8 : 0)
-  let b = `<text class="t" x="${PAD + 6}" y="28" font-family="${SANS}" font-size="${running ? 20 : 17}" font-weight="700">${xml(fit(title, running ? 20 : 17, room0))}</text>`
-  b += `<text class="${subInk}" x="${PAD + 6}" y="46" font-family="${SANS}" font-size="12">${xml(fit(sub, 12, room0))}</text>`
+  const span = Math.max(1000, end - start)
+  const shown = runs.slice(0, TIMELINE_ROWS)
+  const nameW = Math.min(118, Math.round(W * 0.3))
+  const x0 = PAD + 6 + nameW + 8
+  // Room after the axis for a riding Clawd or an end mark.
+  const x1 = W - PAD - 6 - 26
+  const xs = (t: number) => x0 + ((Math.min(t, end) - start) / span) * (x1 - x0)
+  const top = 12
+  let b = ''
+  // Faint guides at the quarters, so lengths compare at a glance.
+  for (let q = 0; q <= 4; q++) b += `<rect class="k" x="${(x0 + ((x1 - x0) * q) / 4).toFixed(1)}" y="${top - 2}" width="1" height="${shown.length * TIMELINE_ROW + 2}" opacity=".7"/>`
   shown.forEach((a, i) => {
-    const x = W - PAD - (shown.length - i) * slot
     const mood = agentMood(a, now, windowOf(a))
-    b += agentClawd(look, a, mood, now, x + 6, 8, 1)
-    b += `<text class="${MOOD_INK[mood]}" x="${x + 21}" y="${CLAWD_H + 22}" text-anchor="middle" font-family="${SANS}" font-size="8.5" font-weight="600">${xml(fit(moodLabel(a, now, windowOf(a)), 8.5, slot - 2))}</text>`
+    const y = top + i * TIMELINE_ROW
+    b += `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 't'}" x="${PAD + 6}" y="${y + 15}" font-family="${SANS}" font-size="11.5" font-weight="${a.status === 'running' ? 600 : 500}">${xml(fit(a.description || a.type, 11.5, nameW))}</text>`
+    const s = xs(a.startedAt)
+    const e = Math.max(s + 6, xs(a.status === 'running' ? now : (a.endedAt ?? now)))
+    b += `<rect x="${s.toFixed(1)}" y="${y + 7}" width="${(e - s).toFixed(1)}" height="10" rx="5" fill="${moodColor(look, mood)}"${a.status === 'running' ? '' : ' fill-opacity=".55"'}/>`
+    b +=
+      a.status === 'running'
+        ? agentClawd(look, a, mood, now, e - 6, y - 1, 0.8)
+        : `<text class="${MOOD_INK[mood]}" x="${(e + 5).toFixed(1)}" y="${y + 16}" font-family="${MONO}" font-size="10.5" font-weight="700">${mood === 'done' ? '✓' : mood === 'stopped' ? '✋' : '✗'}</text>`
   })
-  if (more > 0) b += `<text class="m" x="${W - PAD - shown.length * slot - 4}" y="24" text-anchor="end" font-family="${MONO}" font-size="11" font-weight="600">+${more}</text>`
-  // One segment per agent, its share done in its mood's colour.
-  const segs = runs.slice(-24)
-  const gap = 4
-  const sw = (W - PAD * 2 - 12 - gap * (segs.length - 1)) / segs.length
-  segs.forEach((a, i) => (b += trackBar(PAD + 6 + i * (sw + gap), 62, sw, 8, shareOf(a), moodColor(look, agentMood(a, now, windowOf(a))))))
-  // The tiles, three across, or one under another on a very narrow pane: a name, a figure, and
-  // beside it what the figure needs said (failures). The files are the detail's.
-  const tileCount = 3
-  const cols = W >= 300 ? tileCount : 1
+  let y = top + shown.length * TIMELINE_ROW + 2
+  if (runs.length > shown.length) {
+    b += `<text class="m" x="${PAD + 6}" y="${y + 10}" font-family="${SANS}" font-size="10.5">+ ${runs.length - shown.length} more</text>`
+    y += 14
+  }
+  // The axis: the crew's start, its middle, and now (or its end).
+  b += `<text class="m" x="${x0}" y="${y + 10}" font-family="${MONO}" font-size="9">0:00</text>`
+  b += `<text class="m" x="${((x0 + x1) / 2).toFixed(1)}" y="${y + 10}" text-anchor="middle" font-family="${MONO}" font-size="9">${clock(span / 2)}</text>`
+  b += `<text class="m" x="${x1}" y="${y + 10}" text-anchor="end" font-family="${MONO}" font-size="9">${running ? 'now' : clock(span)}</text>`
+  y += 20
+  // The tiles, three across, or one under another on a very narrow pane.
+  const cols = W >= 300 ? 3 : 1
   const tw = (W - PAD * 2 - 12 - 8 * (cols - 1)) / cols
-  const th = 54
-  const y0 = 84
+  const th = 50
   const calls = runs.reduce((n, a) => n + (a.callCount ?? 0), 0)
   const fails = runs.reduce((n, a) => n + (a.callFails ?? 0), 0)
   const spent = runs.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
-  const tile = (i: number, name: string, big: string, note = '', noteW = 0) => {
+  const tile = (i: number, name: string, big: string, note = '') => {
     const x = PAD + 6 + (i % cols) * (tw + 8)
-    const y = y0 + Math.floor(i / cols) * (th + 8)
+    const ty = y + Math.floor(i / cols) * (th + 8)
     return (
-      `<rect class="k" fill-opacity=".45" x="${x.toFixed(1)}" y="${y}" width="${tw.toFixed(1)}" height="${th}" rx="9"/>` +
-      label(x + 10, y + 16, name) +
-      `<text class="t" x="${x + 10}" y="${y + 41}" font-family="${SANS}" font-size="19" font-weight="700">${xml(fit(big, 19, tw - 20))}</text>` +
-      // Beside the figure while both fit, else up on the name's line.
-      (note ? `<text x="${(x + tw - 10).toFixed(1)}" y="${textWidth(big, 19) + noteW + 26 <= tw ? y + 40 : y + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5">${note}</text>` : '')
+      `<rect class="k" fill-opacity=".45" x="${x.toFixed(1)}" y="${ty}" width="${tw.toFixed(1)}" height="${th}" rx="9"/>` +
+      label(x + 10, ty + 16, name) +
+      `<text class="t" x="${x + 10}" y="${ty + 39}" font-family="${SANS}" font-size="18" font-weight="700">${xml(fit(big, 18, tw - 20))}</text>` +
+      (note ? `<text x="${(x + tw - 10).toFixed(1)}" y="${ty + 16}" text-anchor="end" font-family="${MONO}" font-size="10.5">${note}</text>` : '')
     )
   }
-  b += tile(0, 'CALLS', String(calls), fails ? `<tspan class="c-alert">✗ ${fails}</tspan>` : '', fails ? monoWidth(`✗ ${fails}`, 10.5) : 0)
+  b += tile(0, 'CALLS', String(calls), fails ? `<tspan class="c-alert">✗ ${fails}</tspan>` : '')
   b += tile(1, 'TOKENS', tokens(spent))
   b += tile(2, 'TIME', clock(end - start))
-  const H = y0 + Math.ceil(tileCount / cols) * (th + 8) + 4
-  const body = `<rect class="p" width="${W}" height="${H}" rx="12"/>` + b
-  const alt = `${title}: ${sub}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
-  return paneDrawing(look, W, H, body, alt, runs.some(a => moving(a, now)))
+  const H = y + Math.ceil(3 / cols) * (th + 8) + 4
+  const alt = `${plural(runs.length, 'member')}: ${shown.map(a => `${a.description || a.type} ${agentMood(a, now, windowOf(a))}`).join(', ')}; ${calls} calls${fails ? `, ${fails} failed` : ''}; ${tokens(spent)} tokens; ${clock(end - start)}`
+  return paneDrawing(look, W, H, `<rect class="p" width="${W}" height="${H}" rx="12"/>` + b, alt, running)
 }
 
-// One agent as a lane: Clawd in his mood, the task, his Thai line (in his mood's ink when
-// something needs a look), his share done and his time; ringed in Clawd's colour when selected.
+// One agent as a lane: a stripe in its mood's colour, Clawd in his mood, the task (Main's with
+// its badge), his Thai line (in his mood's ink when something needs a look), his share done and
+// his time. The one viewed is ringed and tinted in Clawd's colour, and its Clawd waves in a soft light.
 export const AGENT_LANE_H = 42
 export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number, selected = false, style: BarStyle = 'dither'): Drawing {
   const look = lookOf(skin)
@@ -1369,71 +1376,87 @@ export function laneSvg(a: AgentRun, W: number, now: number, skin: string = 'aut
   const timeW = monoWidth(time, 11.5)
   const barW = 64
   const barX = right - timeW - 12 - (p ? monoWidth(`${p.done}/${p.total}`, 10) + 6 : 0) - barW
-  const textX = 8 + CLAWD_W + 8
-  const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX
+  const textX = 12 + CLAWD_W + 8
+  const size = selected ? 13.2 : 12.5
+  const textRoom = (wide ? barX - 10 : right - timeW - 14) - textX - (isMain(a) ? MAIN_BADGE_W + 6 : 0)
+  const name = fit(a.description || a.type, size, textRoom)
   const uid = `lane-${a.id.replace(/\W/g, '_')}`
+  const H = AGENT_LANE_H
   const body =
-    `<rect class="p" width="${W}" height="${AGENT_LANE_H}" rx="8"/>` +
-    (selected ? `<rect width="4" height="${AGENT_LANE_H}" rx="2" fill="${look.clawd}"/>` : '') +
-    agentClawd(look, a, mood, now, 8, (AGENT_LANE_H - CLAWD_H) / 2, 1) +
-    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="12.5" font-weight="${selected ? 800 : 600}">${xml(fit(a.description || a.type, selected ? 13.2 : 12.5, textRoom))}</text>` +
+    `<rect class="p" width="${W}" height="${H}" rx="8"/>` +
+    (selected
+      ? `<rect x=".75" y=".75" width="${W - 1.5}" height="${H - 1.5}" rx="7.5" fill="${look.clawd}" fill-opacity=".08" stroke="${look.clawd}" stroke-width="1.5"/>` +
+        spotlight(uid, look, 12 + CLAWD_W / 2, H / 2 + 2, 26, 20)
+      : '') +
+    `<rect y="6" width="4" height="${H - 12}" rx="2" fill="${moodColor(look, mood)}"/>` +
+    agentClawd(look, a, mood, now, 12, (H - CLAWD_H) / 2, 1, selected ? 'wave' : '') +
+    `<text class="t" x="${textX}" y="17" font-family="${SANS}" font-size="${size}" font-weight="${selected ? 800 : 600}">${xml(name)}</text>` +
+    (isMain(a) ? mainBadge(look, textX + textWidth(name, size) + 6, 17) : '') +
     `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${textX}" y="33" font-family="${SANS}" font-size="11.5">${xml(fit(line, 11.5, W - textX - PAD))}</text>` +
     (wide ? cardBar(look, uid, barX, 9, barW, shareOf(a), moodColor(look, mood), style) : '') +
     (wide && p ? `<text class="m" x="${barX + barW + 6}" y="17" font-family="${MONO}" font-size="10">${p.done}/${p.total}</text>` : '') +
     `<text class="t" x="${right}" y="17" text-anchor="end" font-family="${MONO}" font-size="11.5" font-weight="500">${time}</text>`
-  return paneDrawing(look, W, AGENT_LANE_H, body, `${a.description || a.type}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
+  return paneDrawing(look, W, H, body, `${a.description || a.type}${isMain(a) ? ' (main)' : ''}: ${moodLabel(a, now, window)}, ${time}. ${line}`, moving(a, now))
 }
 
-// The detail's head: Clawd large in his mood, the task with its type's mark, his mood as a tag
-// with effort, type, model and how he runs, his time and when he was last heard from, his
-// latest call, then three meters (steps, context, calls).
+// The detail's head, a line for each thing: Clawd large in his mood, waving in a soft light,
+// beside the task (Main's with its badge) and its time; his mood as a tag and his call in flight
+// or latest; three meters (steps, context, tokens); and what runs it (type, model, effort) as a
+// footnote, with when he was last heard from while that says something his tag does not.
 export function agentHeadSvg(a: AgentRun, W: number, now: number, skin: string = 'auto', window?: number): Drawing {
   const look = lookOf(skin)
   const mood = agentMood(a, now, window)
-  const H = 112
-  const scale = 2
-  const tx = 14 + CLAWD_W * scale + 10
-  const right = W - 12
+  const tag = moodLabel(a, now, window)
   const time = clock(elapsed(a, now))
   const since = Math.max(0, now - (a.lastActiveAt ?? a.startedAt))
-  const when = a.status === 'running' ? `active ${clock(since)} ago` : mood === 'stopped' ? 'stopped' : mood === 'failed' ? 'failed' : 'finished'
-  const tag = moodLabel(a, now, window)
-  const tagW = textWidth(tag, 10) + 16
   const effort = effortLabel(a.effort)
-  const meta = [effort, isMain(a) ? '' : a.type, modelName(a.model), a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
-  const last = a.doing?.at(-1)
-  const lastCall = a.calls?.at(-1)
-  const latest = last ? `▶ ${last.title}` : lastCall ? `${lastCall.ok ? '✓' : '✗'} ${lastCall.title}` : ''
-  const timeRoom = Math.max(monoWidth(time, 13), textWidth(when, 10.5)) + 10
+  const meta = [isMain(a) ? '' : a.type.replace(/-purpose$/, ''), modelName(a.model).replace(/^./, c => c.toUpperCase()), effort ? (effort.startsWith('budget') ? effort : `${effort} effort`) : '', a.background ? 'background' : '', a.workflow ? 'workflow' : ''].filter(Boolean).join(' · ')
+  const doing = a.doing?.at(-1)
+  const last = a.calls?.at(-1)
+  const latest = doing ? { mark: '▶', ink: 'm', title: doing.title } : last ? { mark: last.ok ? '✓' : '✗', ink: last.ok ? 'c-ok' : 'c-alert', title: last.title } : undefined
+  // A quiet agent's tag already counts its silence.
+  const heard = a.status === 'running' && mood !== 'quiet' ? `active ${clock(since)} ago` : ''
+  const H = 128
+  const scale = 2
+  const tx = 14 + CLAWD_W * scale + 14
+  const right = W - 14
+  const timeW = monoWidth(time, 13) + 12
+  const name = fit(`${typeEmoji(a.type)} ${a.description || a.type}`, 15, right - tx - timeW - (isMain(a) ? MAIN_BADGE_W + 8 : 0))
+  const tagW = textWidth(tag, 10.5) + 18
   const p = progressOf(a)
-  const ok = (a.callCount ?? 0) - (a.callFails ?? 0)
   const pct = contextPercent(a, window)
-  const meters: [string, string, number, string][] = [
+  const meters: [string, string, number | undefined, string][] = [
     ['STEPS', p ? `${p.done}/${p.total}` : a.status === 'done' ? 'done' : '—', p ? p.done / p.total : a.status === 'done' ? 1 : 0, moodColor(look, mood)],
-    ['CONTEXT', window ? `${tokens(a.contextTokens)} / ${tokens(window)}` : tokens(a.contextTokens), pct === undefined ? 0 : pct / 100, (pct ?? 0) >= FULL_AT ? look.bar('tasks', 'warn') : look.bar('context')],
-    ['CALLS', `✓${ok} ✗${a.callFails ?? 0}`, a.callCount ? ok / a.callCount : 0, look.bar('context')],
+    ['CONTEXT', pct === undefined ? tokens(a.contextTokens) : `${tokens(a.contextTokens)} · ${pct}%`, pct === undefined ? 0 : pct / 100, (pct ?? 0) >= FULL_AT ? look.bar('tasks', 'warn') : look.bar('context')],
+    ['TOKENS', tokens(a.spent ?? a.contextTokens), undefined, ''],
   ]
-  // The meters span the card under Clawd, so a narrow pane still has room for their values.
-  const mx = 14
-  const mw = (right - mx - 12 * 2) / 3
+  const mw = (right - 14 - 16 * 2) / 3
   const body =
     `<rect class="p" width="${W}" height="${H}" rx="10"/>` +
-    agentClawd(look, a, mood, now, 14, 18, scale) +
-    `<text class="t" x="${tx}" y="26" font-family="${SANS}" font-size="15" font-weight="700">${xml(fit(`${typeEmoji(a.type)} ${a.description || a.type}`, 15, right - tx - timeRoom))}</text>` +
-    `<text class="t" x="${right}" y="26" text-anchor="end" font-family="${MONO}" font-size="13" font-weight="600">${time}</text>` +
-    `<text class="${TROUBLE.includes(mood) ? MOOD_INK[mood] : 'm'}" x="${right}" y="44" text-anchor="end" font-family="${SANS}" font-size="10.5">${xml(when)}</text>` +
-    `<rect x="${tx}" y="34" width="${tagW.toFixed(1)}" height="16" rx="8" fill="${moodColor(look, mood)}" fill-opacity=".16"/>` +
-    `<text class="${MOOD_INK[mood]}" x="${tx + 8}" y="46" font-family="${SANS}" font-size="10" font-weight="700">${xml(tag)}</text>` +
-    `<text class="m" x="${tx + tagW + 8}" y="46" font-family="${MONO}" font-size="10.5">${xml(fitMono(meta, 10.5, Math.max(10, right - timeRoom - tx - tagW - 8)))}</text>` +
-    (latest ? `<text class="m" x="${tx}" y="68" font-family="${MONO}" font-size="11">${xml(fitMono(latest, 11, right - tx))}</text>` : '') +
+    spotlight(`head-${a.id.replace(/\W/g, '_')}`, look, 14 + CLAWD_W, 20 + CLAWD_H, CLAWD_W * 1.25, CLAWD_H * 1.15) +
+    agentClawd(look, a, mood, now, 14, 20, scale, 'wave') +
+    `<text class="t" x="${tx}" y="30" font-family="${SANS}" font-size="15" font-weight="700">${xml(name)}</text>` +
+    (isMain(a) ? mainBadge(look, tx + textWidth(name, 15) + 8, 29) : '') +
+    `<text class="t" x="${right}" y="30" text-anchor="end" font-family="${MONO}" font-size="13" font-weight="600">${time}</text>` +
+    `<rect x="${tx}" y="42" width="${tagW.toFixed(1)}" height="18" rx="9" fill="${moodColor(look, mood)}" fill-opacity=".16"/>` +
+    `<text class="${MOOD_INK[mood]}" x="${tx + 9}" y="55" font-family="${SANS}" font-size="10.5" font-weight="700">${xml(tag)}</text>` +
+    (latest
+      ? `<text class="${latest.ink}" x="${tx + tagW + 10}" y="55" font-family="${SANS}" font-size="11.5">${latest.mark}</text>` +
+        `<text class="m" x="${tx + tagW + 24}" y="55" font-family="${SANS}" font-size="11.5">${xml(fit(latest.title, 11.5, right - tx - tagW - 24))}</text>`
+      : '') +
     meters
-      .map(([name, value, ratio, color], i) => {
-        const x = mx + i * (mw + 12)
-        const room = mw - monoWidth(name, 9) - name.length * 0.72 - 6
-        return label(x, 88, name) + `<text class="t" x="${(x + mw).toFixed(1)}" y="88" text-anchor="end" font-family="${MONO}" font-size="10">${xml(fitMono(value, 10, room))}</text>` + trackBar(x, 94, mw, 5, ratio, color)
+      .map(([n, value, ratio, color], i) => {
+        const x = 14 + i * (mw + 16)
+        return (
+          label(x, 88, n) +
+          `<text class="t" x="${(x + mw).toFixed(1)}" y="88" text-anchor="end" font-family="${MONO}" font-size="10.5">${xml(fitMono(value, 10.5, mw - monoWidth(n, 9) - 12))}</text>` +
+          (ratio === undefined ? `<rect class="k" x="${x}" y="94" width="${mw.toFixed(1)}" height="1"/>` : trackBar(x, 94, mw, 5, ratio, color))
+        )
       })
-      .join('')
-  const alt = `${a.description || a.type}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest}` : ''}`
+      .join('') +
+    `<text class="m" x="14" y="${H - 12}" font-family="${SANS}" font-size="10.5">${xml(fit(meta, 10.5, right - 14 - (heard ? textWidth(heard, 10.5) + 12 : 0)))}</text>` +
+    (heard ? `<text class="m" x="${right}" y="${H - 12}" text-anchor="end" font-family="${SANS}" font-size="10.5">${heard}</text>` : '')
+  const alt = `${a.description || a.type}${isMain(a) ? ' (main)' : ''}: ${tag}, ${meta}, ${time}${latest ? `; latest ${latest.title}` : ''}`
   return paneDrawing(look, W, H, body, alt, moving(a, now))
 }
 
@@ -1501,9 +1524,9 @@ export function activitySvg(a: AgentRun, W: number, skin: string = 'auto', max =
   const calls = (a.calls ?? []).slice(-max)
   const doing = a.doing ?? []
   if (!calls.length && !doing.length) return undefined
-  const earlier = (a.callCount ?? calls.length) - calls.length
-  let y = earlier ? 22 : 6
-  let b = earlier ? `<text class="m" x="10" y="16" font-family="${SANS}" font-size="11">${plural(earlier, 'earlier call')}</text>` : ''
+  // How many are left out is the box's to say, in its title.
+  let y = 6
+  let b = ''
   const row = (kind: ActKind, title: string, end: string, ok: boolean) => {
     b +=
       kindTile(look, kind, ok, 10, y + 4) +
@@ -1588,13 +1611,13 @@ export function emptyDetailSvg(W: number, skin: string = 'auto'): Drawing {
   const body =
     `<rect class="p" width="${W}" height="64" rx="10"/>` +
     `<g transform="translate(16,14) scale(1.6)">${asPaths(sprite('tasks', 0, HAT_H, 'sleep', look.clawd))}</g>` +
-    `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">No agent viewed</text>` +
-    `<text class="m" x="${x}" y="46" font-family="${SANS}" font-size="11.5">${xml(fit('Press View on a lane to see what it did.', 11.5, W - x - 12))}</text>`
-  return paneDrawing(look, W, 64, body, 'No agent viewed. Press View on a lane to see what it did.')
+    `<text class="t" x="${x}" y="28" font-family="${SANS}" font-size="13" font-weight="600">Pick an agent</text>` +
+    `<text class="m" x="${x}" y="46" font-family="${SANS}" font-size="11.5">${xml(fit('Press View on a lane to see its work.', 11.5, W - x - 12))}</text>`
+  return paneDrawing(look, W, 64, body, 'Pick an agent. Press View on a lane to see its work.')
 }
 
-// An earlier crew in one line: when it started and how many it had, what they were about, and
-// how it went (done, failed, stopped), its time and tokens.
+// An earlier crew in one line: when it started and how many it had, what they were about (its
+// MVP crowned), and how it went (done, failed, stopped), its time and tokens.
 export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 'auto'): Drawing {
   const look = lookOf(skin)
   // The crew's agents: its main turn is counted in its time and tokens, not among them.
@@ -1607,9 +1630,12 @@ export function earlierSvg(crew: readonly AgentRun[], W: number, skin: string = 
   const stopped = runs.filter(a => a.reason === 'aborted').length
   const done = runs.filter(a => a.status === 'done').length
   const spent = crew.reduce((n, a) => n + (a.spent ?? a.contextTokens), 0)
+  // The MVP, of two or more: done without a failed call, the most files changed, then the quickest.
+  const changed = (a: AgentRun) => Object.values(a.files ?? {}).filter(f => f.edits > 0).length
+  const mvp = runs.length > 1 ? runs.filter(a => a.status === 'done' && !a.callFails).sort((x, y) => changed(y) - changed(x) || elapsed(x, end) - elapsed(y, end))[0] : undefined
   const tally = [`✓ ${done}`, failed ? `✗ ${failed}` : '', stopped ? `✋ ${stopped}` : '', clock(end - start), tokens(spent)].filter(Boolean).join(' · ')
   const title = `${hhmm} · ${plural(runs.length, 'agent')}`
-  const what = runs.map(a => a.description || a.type).join(' · ')
+  const what = runs.map(a => `${a === mvp ? '👑 ' : ''}${a.description || a.type}`).join(' · ')
   const tallyW = monoWidth(tally, 10.5)
   const body =
     `<rect class="p" width="${W}" height="40" rx="8"/>` +

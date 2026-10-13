@@ -586,12 +586,14 @@ const step = async ($: Engine, agentId: string, effort?: 'low' | 'high' | 'xhigh
 }
 
 // The agents pane as drawn: each drawing's alt and source, and its Texts and Markdowns.
-type PaneUi = Awaited<ReturnType<typeof mountPane>>
+type PaneUi = Awaited<ReturnType<typeof mountPane>> | Awaited<ReturnType<typeof widePane>>
 const svgsOf = async (ui: PaneUi) => (await ui.findAll({ type: 'Svg' })) as unknown as { props: { source: string; alt: string } }[]
 const altsOf = async (ui: PaneUi) => (await svgsOf(ui)).map(s => s.props.alt)
 const laneOf = async (ui: PaneUi, name: string) => (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith(`${name}:`))
-// The detail's head: the drawing 112 px tall.
-const headOf = async (ui: PaneUi) => (await svgsOf(ui)).find(s => s.props.source.includes('height="112"'))
+// The detail's head: the drawing 128 px tall.
+const headOf = async (ui: PaneUi) => (await svgsOf(ui)).find(s => s.props.source.includes('height="128"'))
+// The pane's Markdowns.
+const markdownsOf = (ui: PaneUi) => ui.findAll({ type: 'Markdown' })
 // Opens an agent's detail with its lane's View, unless it is open already.
 const viewed = async (ui: PaneUi, name: string) => {
   if ((await ui.find({ key: `view-agent-${name}` }))?.props.label === 'View') await ui.press({ key: `view-agent-${name}` })
@@ -614,7 +616,7 @@ test('a subagent runs in its lane with its clock and Thai line, then is done whe
   await clock.advance(64_000)
   let ui = await mountPane($, 'desktop')
   expect((await laneOf(ui, 'api routes'))?.props.alt).toMatch(/^api routes: quiet 64s, 1m 4s\. .*64 วิ/)
-  expect((await headOf(await viewed(ui, 'api routes')))?.props.alt).toContain('Explore · sonnet 5.5')
+  expect((await headOf(await viewed(ui, 'api routes')))?.props.alt).toContain('Explore · Sonnet 5.5')
   await ui.unmount()
   await finish($, 'api routes')
   ui = await mountPane($, 'desktop')
@@ -657,8 +659,8 @@ test('every call of a subagent lands in its detail: tools by group, the activity
   // Paths under the project are shown from its root; an edit counts its lines.
   // Paths outside it keep their last two folders.
   expect(alts.find(a => a.startsWith('Files:'))).toBe('Files: hooks/agents.ts +2 −0; read hooks/svg.ts, …/scratch/sim/math.ts')
-  // The lane counts the calls the race's own hooks leave out too.
-  expect((await headOf(ui))?.props.source).toContain('✓6 ✗0')
+  // The detail counts the calls the race's own hooks leave out too.
+  expect(await ui.find({ type: 'Text', text: ' · 6' })).toBeDefined()
   // A call of the main loop is not an agent's.
   await ui.unmount()
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
@@ -685,7 +687,7 @@ test('a summary lands on the round it read, though more work ended a round befor
   answers[1]!('- รอบสอง')
   await settle()
   const ui = await viewed(await mountPane($, 'desktop'), 'twice')
-  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('- รอบสอง')
+  expect((await markdownsOf(ui))[0]?.props.text).toBe('- รอบสอง')
 })
 
 test('a finished agent’s report is summed up in Thai by Haiku; with the toggle off, or no answer, there is none', async ($, on) => {
@@ -707,7 +709,7 @@ test('a finished agent’s report is summed up in Thai by Haiku; with the toggle
   ui = await mountPane($, 'desktop')
   expect(asked[0]?.model).toBe('haiku')
   expect(asked[0]?.prompt).toContain('Found 30 hooks.')
-  expect((await ui.find({ type: 'Markdown' }))?.props.text).toBe('- นับ hook ได้ 30 จุด\n- ไม่ได้แก้ไฟล์')
+  expect((await markdownsOf(ui))[0]?.props.text).toBe('- นับ hook ได้ 30 จุด\n- ไม่ได้แก้ไฟล์')
   expect(await ui.find({ type: 'Text', text: /^อ่าน 0 ไฟล์ · แก้ 0 ไฟล์ · 0 calls · / })).toBeDefined()
   await ui.unmount()
   await spawn($, 'quiet')
@@ -715,9 +717,9 @@ test('a finished agent’s report is summed up in Thai by Haiku; with the toggle
   await clock.advance(5)
   await settle()
   ui = await mountPane($, 'desktop')
-  await ui.press({ key: 'view-agent-quiet' })
+  await viewed(ui, 'quiet')
   expect(await ui.find({ type: 'Text', text: 'Haiku กำลังสรุป…' })).toBeUndefined()
-  expect(await ui.find({ type: 'Markdown' })).toBeUndefined()
+  expect(await markdownsOf(ui)).toEqual([])
   await ui.unmount()
   // The toggle off: no call at all.
   await settingsCommand($)
@@ -747,7 +749,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await laneOf(ui, 'live')).toBeDefined()
   expect(await laneOf(ui, 'old')).toBeUndefined()
   // While a crew works the earlier ones fold to one line in their own box; Show opens it.
-  expect(await ui.find({ type: 'Text', text: ' · 1 crew · 1 agent · ✓1' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 crew · ✓1' })).toBeDefined()
   expect(await ui.find({ key: 'clear-earlier' })).toBeUndefined()
   await ui.press({ key: 'fold-earlier' })
   expect((await ui.find({ key: 'fold-earlier' }))?.props.label).toBe('▾ Hide')
@@ -765,7 +767,7 @@ test('crews: a new turn’s agents are a new crew; the earlier one folds to a li
   expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
 })
 
-test('View opens an agent’s detail and a second press or Close shuts it; with none viewed the detail invites one and names an agent that needs a look', async ($, on) => {
+test('View opens an agent in Viewing and a second press or Close shuts it; with none viewed it invites one and names an agent that needs a look', async ($, on) => {
   const { clock } = engine(on)
   panes(on)
   await start($)
@@ -774,11 +776,12 @@ test('View opens an agent’s detail and a second press or Close shuts it; with 
   await finish($, 'b')
   const ui = await mountPane($, 'desktop')
   // Nothing viewed: the invitation, and nobody needs a look yet.
-  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('No agent viewed'))).toBe(true)
+  expect((await svgsOf(ui)).some(s => s.props.alt.startsWith('Pick an agent'))).toBe(true)
   expect(await headOf(ui)).toBeUndefined()
   await ui.press({ key: 'view-agent-b' })
   expect((await headOf(ui))?.props.alt).toMatch(/^b:/)
   expect((await ui.find({ key: 'view-agent-b' }))?.props.label).toBe('Viewing')
+  expect((await ui.find({ key: 'view-agent-a' }))?.props.label).toBe('View')
   // Pressed again, the view closes.
   await ui.press({ key: 'view-agent-b' })
   expect(await headOf(ui)).toBeUndefined()
@@ -800,8 +803,8 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'solo' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'x' } as unknown as Parameters<typeof $.tool.call>[0])
   let ui = await mountPane($, 'desktop')
-  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('Claude at work'))).toBeDefined()
-  expect(await laneOf(ui, 'Claude')).toBeDefined()
+  expect((await svgsOf(ui)).find(s => s.props.alt.startsWith('1 member: Claude thinking'))).toBeDefined()
+  expect(await laneOf(ui, 'Claude (main)')).toBeDefined()
   await ui.unmount()
   await $.turn.complete({ turnId: 'solo', answer: 'All done.', durationMs: 10, isAborted: false, reason: 'answer' })
   await clock.advance(60_000)
@@ -810,9 +813,11 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await spawn($, 'helper')
   ui = await mountPane($, 'desktop')
   expect(await ui.find({ type: 'Text', text: /^Earlier/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: ' · Main + 1 agent' })).toBeDefined()
-  const mainLane = (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude:'))
-  expect(mainLane).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
+  // Main's lane carries its badge and its captain's cap.
+  const mainLane = (await svgsOf(ui)).find(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude (main):'))
+  expect(mainLane?.props.source).toContain('>main</text>')
+  expect(mainLane?.props.source).toContain('#3a5899')
   await $.tool.call({ tool: 'Grep', pattern: 'y' } as unknown as Parameters<typeof $.tool.call>[0])
   const key = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key)).find(k => k.startsWith('view-main:'))!
   await ui.press({ key })
@@ -824,7 +829,7 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'ping' } as never)
   await $.turn.complete({ turnId: 'ping', answer: 'noted', durationMs: 10, isAborted: false, reason: 'answer' })
   ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: ' · Main + 1 agent' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 running · 1 done' })).toBeDefined()
   expect(await laneOf(ui, 'helper')).toBeDefined()
   await ui.unmount()
   // A turn of Main's alone puts the crew in Earlier, and Clear drops it.
@@ -832,12 +837,12 @@ test('Main has a lane of its own in the crew at work, with its calls in its deta
   await $.turn.start({ turnId: 'solo again' } as never)
   await $.tool.call({ tool: 'Grep', pattern: 'z' } as unknown as Parameters<typeof $.tool.call>[0])
   ui = await mountPane($, 'desktop')
-  expect(await ui.find({ type: 'Text', text: ' · Claude' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' · 1 running' })).toBeDefined()
   await ui.press({ key: 'fold-earlier' })
   await ui.press({ key: 'clear-earlier' })
   await clock.advance(1)
   expect(await ui.find({ key: 'fold-earlier' })).toBeUndefined()
-  expect(await laneOf(ui, 'Claude')).toBeDefined()
+  expect(await laneOf(ui, 'Claude (main)')).toBeDefined()
 })
 test('the report folds open as Markdown once an agent ends, a stop says so, and no colour is forced on native text', async ($, on) => {
   engine(on, { store: { skin: 'raised' } })
@@ -849,12 +854,12 @@ test('the report folds open as Markdown once an agent ends, a stop says so, and 
   await finish($, 'ok', '## Found\n- three launches')
   await spawn($, 'bad')
   await finish($, 'bad', '', 'aborted')
-  await ui.press({ key: 'view-agent-ok' })
+  await viewed(ui, 'ok')
   expect((await ui.find({ key: 'fold-report' }))?.props.label).toBe('▸ Show')
   await ui.press({ key: 'fold-report' })
-  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toContain('## Found\n- three launches')
+  expect((await markdownsOf(ui)).map(m => m.props.text)).toContain('## Found\n- three launches')
   expect(JSON.stringify(await ui.drawn())).not.toContain('"backgroundColor"')
-  await ui.press({ key: 'view-agent-bad' })
+  await viewed(ui, 'bad')
   expect((await headOf(ui))?.props.alt).toMatch(/^bad: stopped/)
   expect(await ui.find({ type: 'Text', text: 'Stopped before it finished.' })).toBeDefined()
 })
@@ -874,11 +879,11 @@ test('an agent’s whole life through the hooks: spawn, steps with effort, own t
   await step($, 'agent-survey', 'xhigh')
   await step($, 'agent-survey', 'xhigh')
   let h = await head()
-  expect(h.alt).toContain('xhigh · Explore · haiku 5.5')
+  expect(h.alt).toContain('Explore · Haiku 5.5 · xhigh effort')
   // The latest context, and every request's tokens summed.
   expect(h.source).toContain('>32k<')
   await step($, 'agent-survey', 32_000)
-  expect((await head()).alt).toContain('budget 32k · Explore')
+  expect((await head()).alt).toContain('Explore · Haiku 5.5 · budget 32k')
   await subCall($, 'agent-survey', { tool: 'TaskCreate', subject: 'Read', description: '' })
   await subCall($, 'agent-survey', { tool: 'TaskCreate', subject: 'Write up', description: '' })
   await subCall($, 'agent-survey', { tool: 'TaskUpdate', taskId: String('Read'.length), status: 'completed' })
@@ -892,21 +897,23 @@ test('an agent’s whole life through the hooks: spawn, steps with effort, own t
   await finish($, 'survey', '## Found\n- 154 lines')
   const ui = await viewed(await mountPane($, 'desktop'), 'survey')
   await ui.press({ key: 'fold-report' })
-  expect((await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)).toContain('## Found\n- 154 lines')
+  expect((await markdownsOf(ui)).map(m => m.props.text)).toContain('## Found\n- 154 lines')
 })
 
-test('a workflow agent says so in its detail, and its brief folds open', async ($, on) => {
+test('a workflow agent says so in its detail, and its brief shows a line that More folds open', async ($, on) => {
   engine(on)
   panes(on)
   await start($)
   await $.agent.spawn({
-    tool_use_id: 'tu-wf', prompt: 'Count the hooks and report.', description: 'fan out', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' },
+    tool_use_id: 'tu-wf', prompt: 'Count the hooks.\nThen report.', description: 'fan out', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' },
     parentModel: 'claude-opus-5-5', background: true, fork: false, workflow: { runId: 'wf_1', agentIndex: 1 },
   })
   const ui = await viewed(await mountPane($, 'desktop'), 'fan out')
-  expect((await headOf(ui))?.props.alt).toContain('general-purpose · sonnet 5.5 · background · workflow')
+  expect((await headOf(ui))?.props.alt).toContain('general · Sonnet 5.5 · background · workflow')
+  expect(await ui.find({ type: 'Text', text: 'Count the hooks.…' })).toBeDefined()
+  expect((await ui.find({ key: 'fold-brief' }))?.props.label).toBe('▸ More')
   await ui.press({ key: 'fold-brief' })
-  expect(await ui.find({ type: 'Text', text: 'Count the hooks and report.' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Count the hooks.\nThen report.' })).toBeDefined()
 })
 
 test('a finished agent sent more work joins the crew at work as its next round, its report kept', async ($, on) => {
@@ -925,13 +932,13 @@ test('a finished agent sent more work joins the crew at work as its next round, 
   const ui = await mountPane($, 'desktop')
   expect((await laneOf(ui, 'scout'))?.props.alt).toContain('รอบ 2 · ')
   // The first turn's Main, its agent gone to the turn at work, is no crew of its own.
-  expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude:')).length).toBe(1)
-  expect(await ui.find({ type: 'Text', text: ' · Main + 1 agent' })).toBeDefined()
+  expect((await svgsOf(ui)).filter(s => s.props.source.includes('height="42"') && s.props.alt.startsWith('Claude (main):')).length).toBe(1)
+  expect(await ui.find({ type: 'Text', text: ' · 2 running' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^EARLIER/ })).toBeUndefined()
   await finish($, 'scout', 'second report')
   await viewed(ui, 'scout')
   await ui.press({ key: 'fold-report' })
-  const md = (await ui.findAll({ type: 'Markdown' })).map(m => m.props.text)
+  const md = (await markdownsOf(ui)).map(m => m.props.text)
   expect(md).toContain('second report')
   expect(md).toContain('**Round 1**\n\nfirst report')
 })
@@ -978,7 +985,7 @@ test('the pane stays under the tree limit: forty agents, a wide fan-out, a wide 
   for (const bodyColumns of [40, 160, 496]) {
     const ui = await widePane($, bodyColumns)
     // The view stays across mounts: pressed only while closed.
-    if ((await ui.find({ key: 'view-agent-job 5-6' }))?.props.label === 'View') await ui.press({ key: 'view-agent-job 5-6' })
+    await viewed(ui, 'job 5-6')
     expect(await ui.find({ key: 'close-detail' })).toBeDefined()
     for (const key of ['fold-report', 'fold-brief', 'fold-calls']) if (/^▸|^All calls$/.test(String((await ui.find({ key }))?.props.label ?? ''))) await ui.press({ key })
     if ((await ui.find({ key: 'fold-earlier' }))?.props.label === '▸ Show') await ui.press({ key: 'fold-earlier' })

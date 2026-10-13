@@ -58,11 +58,13 @@ export const spriteSize = (kind: SpriteKind) => {
   return { width: (rows[0]?.length ?? 0) * px, height: rows.length * px }
 }
 
-export type HatKind = 'explorer' | 'hardhat' | 'cap' | 'grad' | 'beret' | 'bandana' | 'headset' | 'tophat' | 'beanie'
+export type HatKind = 'captain' | 'explorer' | 'hardhat' | 'cap' | 'grad' | 'beret' | 'bandana' | 'headset' | 'tophat' | 'beanie'
 export const HAT_H = 4
 
 // Hats for the agents pane, 24 wide like Clawd and HAT_H rows tall, drawn just above him.
 const HATS: Record<HatKind, string[]> = {
+  // Main's: a navy cap with a gold band and badge, in fixed colours ('b', 'y') rather than a type's.
+  captain: ['.......bbbbbbbbbb.......', '......bbbbbyybbbbb......', '......yyyyyyyyyyyy......', '.....bbbbbbbbbbbbbbb....'],
   explorer: ['........................', '......hhhhhhhhhhhh......', '......hhhhhhhhhhhh......', '..hhhhhhhhhhhhhhhhhhhh..'],
   hardhat: ['........................', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......', '....hhhhhhhhhhhhhhhh....'],
   cap: ['........................', '......hhhhhhhhhh........', '......hhhhhhhhhh........', '......hhhhhhhhhhhhhhhh..'],
@@ -74,10 +76,17 @@ const HATS: Record<HatKind, string[]> = {
   beanie: ['...........hh...........', '.........hhhhhh.........', '.......hhhhhhhhhh.......', '......hhhhhhhhhhhh......'],
 }
 
+const CAPTAIN: Record<string, string> = { b: '#3a5899', y: '#e8b13a' }
+
 // What each type holds to Clawd's right, PROP_W wide, from his arm row down: a magnifier, a
 // pencil, a wrench, a book, a steaming cup. A key's class is the motion `.run` gives it.
 export const PROP_W = 7
 const PROPS: Record<HatKind, { rows: string[]; colors: Record<string, string>; classes: Record<string, string> }> = {
+  captain: {
+    rows: ['......y', '.....yy', '....bb.', '...bb..', '..bb...', '.bb....'],
+    colors: { y: '#e8b13a', b: '#7a4a26' },
+    classes: { y: 'pr-scan', b: 'pr-scan' },
+  },
   explorer: {
     rows: ['.ggg...', 'g...g..', 'g...g..', 'g...g..', '.ggg...', '....h..', '.....h.', '......h'],
     colors: { g: '#8e929a', h: '#a0703f' },
@@ -197,7 +206,7 @@ export function sprite(kind: SpriteKind, x: number, y: number, mode = '', tint?:
   const held = tool ? TOOLS[tool] : hat?.prop === 'scroll' ? SCROLL : hat?.prop ? PROPS[hat.kind] : worn ? ACCESSORY_PROPS[worn] : undefined
   const cap = worn ? ACCESSORY_HATS[worn] : undefined
   const art =
-    (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : undefined)) : '') +
+    (hat ? draw(HATS[hat.kind], px, -HAT_H, ch => (ch === 'h' ? { fill: hat.color, cls: 'm', group: 'bd' } : CAPTAIN[ch] ? { fill: CAPTAIN[ch], group: 'bd' } : undefined)) : '') +
     (cap ? draw(cap.rows, px, -HAT_H, ch => (cap.colors[ch] ? { fill: cap.colors[ch], group: 'bd' } : undefined)) : '') +
     (has('wave') && kind === 'tasks'
       ? `<style>${WAVE_CSS}</style><g class="wv-up">${draw(raised(body), px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))}</g><g class="wv-down">${draw(body, px, 0, ch => (colors[ch] ? { fill: colors[ch], group: classes[ch] } : undefined))}</g>`
